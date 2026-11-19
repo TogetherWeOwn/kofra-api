@@ -11,6 +11,9 @@
 #                   or null with a reason when the operation is kept out of MCP.
 #   mcp.secret      console_only on every tool whose operation answers a secret: the
 #                   tool result never holds it; a console page shows it once.
+#   destructive     true on every operation that deletes or revokes (each DELETE and
+#                   each dry-run operation): the CLI requires --yes for it. The SDK
+#                   generator fails when such an operation lacks it.
 #   console         the label of the console action.
 
 operations:
@@ -23,6 +26,7 @@ operations:
   - operation_id: account.delete
     sdk: { typescript: client.account.delete(), python: client.account.delete(), go: 'client.Account.Delete(ctx)' }
     cli: kofra account delete
+    destructive: true
     mcp: { tool: null, reason: Workspace deletion is never offered to AI agents; it stays in the API and the console. }
     console: Delete workspace
 
@@ -53,6 +57,7 @@ operations:
   - operation_id: buckets.delete
     sdk: { typescript: client.buckets.delete(), python: client.buckets.delete(), go: 'client.Buckets.Delete(ctx)' }
     cli: kofra buckets delete
+    destructive: true
     mcp: { tool: buckets_delete }
     console: Delete bucket
 
@@ -77,6 +82,7 @@ operations:
   - operation_id: keys.revoke
     sdk: { typescript: client.keys.revoke(), python: client.keys.revoke(), go: 'client.Keys.Revoke(ctx)' }
     cli: kofra keys revoke
+    destructive: true
     mcp: { tool: keys_revoke }
     console: Revoke access key
 

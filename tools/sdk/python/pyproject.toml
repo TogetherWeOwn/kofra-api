@@ -1,0 +1,10 @@
+# The Python SDK generator, locked so every run (local and CI) uses the same
+# versions: tools/sdk/generate.mjs runs it with `uv run --locked`.
+[project]
+name = "kofra-sdk-generator"
+version = "0"
+requires-python = ">=3.12"
+dependencies = ["openapi-python-client==0.30.0"]
+
+[tool.uv]
+package = false

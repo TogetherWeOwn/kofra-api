@@ -1,0 +1,26 @@
+{
+	"name": "@kofra/sdk",
+	"version": "0.1.0-alpha.1",
+	"description": "Kofra API client for TypeScript and JavaScript.",
+	"license": "MIT",
+	"type": "module",
+	"private": true,
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"check": "tsc -p tsconfig.json --noEmit",
+		"test": "node --test \"test/*.test.ts\""
+	},
+	"devDependencies": {
+		"typescript": "^6.0.3",
+		"@types/node": "^24.0.0"
+	}
+}

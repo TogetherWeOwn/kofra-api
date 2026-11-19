@@ -1,0 +1,23 @@
+[project]
+name = "kofra"
+version = "0.1.0a1"
+description = "Kofra API client for Python."
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx2>=2.16,<3",
+    "attrs>=23.1",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kofra"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

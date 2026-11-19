@@ -1,0 +1,181 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any, TypeVar, BinaryIO, TextIO, TYPE_CHECKING, Generator
+
+from attrs import define as _attrs_define
+from attrs import field as _attrs_field
+
+from ..types import UNSET, Unset
+
+from typing import cast
+import datetime
+
+if TYPE_CHECKING:
+  from ..models.grant import Grant
+
+
+
+
+
+T = TypeVar("T", bound="AccessKeyCreated")
+
+
+
+@_attrs_define
+class AccessKeyCreated:
+    """ An access key with its secret. The secret appears in this response only.
+
+        Attributes:
+            id (str): The S3 access key ID.
+            name (None | str): A label for people; not used for access.
+            grants (list[Grant]):
+            created_at (datetime.datetime): RFC 3339 timestamp in UTC.
+            last_used_at (datetime.datetime | None):
+            secret_access_key (None | str): The S3 secret access key. `null` when this is a replay of an earlier request.
+            s3_endpoint (str):
+     """
+
+    id: str
+    name: None | str
+    grants: list[Grant]
+    created_at: datetime.datetime
+    last_used_at: datetime.datetime | None
+    secret_access_key: None | str
+    s3_endpoint: str
+    additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
+
+
+
+
+
+    def to_dict(self) -> dict[str, Any]:
+        from ..models.grant import Grant # noqa: PLC0415
+        id = self.id
+
+        name: None | str
+        name = self.name
+
+        grants = []
+        for grants_item_data in self.grants:
+            grants_item = grants_item_data.to_dict()
+            grants.append(grants_item)
+
+
+
+        created_at = self.created_at.isoformat()
+
+        last_used_at: None | str
+        if isinstance(self.last_used_at, datetime.datetime):
+            last_used_at = self.last_used_at.isoformat()
+        else:
+            last_used_at = self.last_used_at
+
+        secret_access_key: None | str
+        secret_access_key = self.secret_access_key
+
+        s3_endpoint = self.s3_endpoint
+
+
+        field_dict: dict[str, Any] = {}
+        field_dict.update(self.additional_properties)
+        field_dict.update({
+            "id": id,
+            "name": name,
+            "grants": grants,
+            "created_at": created_at,
+            "last_used_at": last_used_at,
+            "secret_access_key": secret_access_key,
+            "s3_endpoint": s3_endpoint,
+        })
+
+        return field_dict
+
+
+
+    @classmethod
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.grant import Grant # noqa: PLC0415
+        d = dict(src_dict)
+        id = d.pop("id")
+
+        def _parse_name(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        name = _parse_name(d.pop("name"))
+
+
+        grants = []
+        _grants = d.pop("grants")
+        for grants_item_data in (_grants):
+            grants_item = Grant.from_dict(grants_item_data)
+
+
+
+            grants.append(grants_item)
+
+
+        created_at = datetime.datetime.fromisoformat(d.pop("created_at"))
+
+
+
+
+        def _parse_last_used_at(data: object) -> datetime.datetime | None:
+            if data is None:
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                last_used_at_type_0 = datetime.datetime.fromisoformat(data)
+
+
+
+                return last_used_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None, data)
+
+        last_used_at = _parse_last_used_at(d.pop("last_used_at"))
+
+
+        def _parse_secret_access_key(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        secret_access_key = _parse_secret_access_key(d.pop("secret_access_key"))
+
+
+        s3_endpoint = d.pop("s3_endpoint")
+
+        access_key_created = cls(
+            id=id,
+            name=name,
+            grants=grants,
+            created_at=created_at,
+            last_used_at=last_used_at,
+            secret_access_key=secret_access_key,
+            s3_endpoint=s3_endpoint,
+        )
+
+
+        access_key_created.additional_properties = d
+        return access_key_created
+
+    @property
+    def additional_keys(self) -> list[str]:
+        return list(self.additional_properties.keys())
+
+    def __getitem__(self, key: str) -> Any:
+        return self.additional_properties[key]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self.additional_properties[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self.additional_properties[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.additional_properties

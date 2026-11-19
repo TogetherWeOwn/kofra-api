@@ -1,0 +1,7 @@
+# oapi-codegen settings for the Go SDK's generated layer: models and a raw
+# client in package api. The hand-written package kofra wraps it.
+package: api
+generate:
+  client: true
+  models: true
+output: kofra/api/gen.go

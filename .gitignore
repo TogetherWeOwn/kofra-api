@@ -5,3 +5,7 @@ build/
 .dev.vars
 .env
 *.log
+.venv/
+__pycache__/
+.pytest_cache/
+dist/
