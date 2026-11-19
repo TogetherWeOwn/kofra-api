@@ -4,11 +4,11 @@ Code: `unknown_field`
 HTTP status: 400
 Retryable: no, not without a change
 
-The request body has a field that the operation does not accept. Unknown fields are refused so that a misspelt field never silently does nothing.
+The request body has a field, or the query has a parameter, that the operation does not accept. Unknown fields and parameters are refused so that a misspelt one never silently does nothing.
 
 ## What to do
 
-Remove or correct the field named by `errors[].pointer`; the API reference lists the accepted fields.
+Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
 
 ## Example
 
@@ -25,7 +25,7 @@ Kofra-Request-Id: req_01jd3examplerequestid0000
   "status": 400,
   "code": "unknown_field",
   "detail": "The field \"/nmae\" is not accepted by this operation.",
-  "hint": "Remove or correct the field named by `errors[].pointer`; the API reference lists the accepted fields.",
+  "hint": "Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.",
   "docs_url": "https://kofra.app/docs/errors/unknown_field.md",
   "request_id": "req_01jd3examplerequestid0000",
   "retryable": false

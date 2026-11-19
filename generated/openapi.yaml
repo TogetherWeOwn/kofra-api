@@ -23,9 +23,11 @@ info:
       `cursor`; the body has `data` and `next_cursor` (`null` at the end), and
       a `Link: <...>; rel="next"` header repeats it.
     - Writes: `POST`, `PATCH` and `DELETE` accept `Idempotency-Key`, kept 24
-      hours. Destructive operations accept `dry_run=true`.
+      hours and bound to the method, path, query and body of its first
+      request. Destructive operations accept `dry_run=true`.
     - Every response carries `Kofra-Request-Id`, `RateLimit` and
-      `RateLimit-Policy`; `429` and `503` also carry `Retry-After`.
+      `RateLimit-Policy`; `429` and `503` also carry `Retry-After`, and `401`
+      carries `WWW-Authenticate`.
     - Unknown request fields and undeclared or repeated query parameters are
       refused (`unknown_field`, `validation_failed`). Clients must ignore
       unknown response fields, and treat an unknown enum value in a response
@@ -103,6 +105,48 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+        "400":
+          description: "`unknown_field`, `validation_failed`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                unknown_field:
+                  summary: Request has a field the API does not know
+                  value:
+                    type: https://kofra.app/docs/errors/unknown_field
+                    title: Request has a field the API does not know
+                    status: 400
+                    code: unknown_field
+                    detail: The query parameter "limt" is not accepted by this operation.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
+                    docs_url: https://kofra.app/docs/errors/unknown_field.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/limt"
+                        code: unknown_field
+                        detail: This parameter is not accepted.
+                validation_failed:
+                  summary: Request is not valid
+                  value:
+                    type: https://kofra.app/docs/errors/validation_failed
+                    title: Request is not valid
+                    status: 400
+                    code: validation_failed
+                    detail: The request has 1 invalid field.
+                    hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
+                    docs_url: https://kofra.app/docs/errors/validation_failed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
         "401":
           description: "`token_expired`, `unauthenticated`"
           headers:
@@ -112,6 +156,8 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
           content:
             application/problem+json:
               schema:
@@ -259,6 +305,8 @@ paths:
         - service_unavailable
         - token_expired
         - unauthenticated
+        - unknown_field
+        - validation_failed
     delete:
       operationId: account.delete
       tags:
@@ -288,6 +336,7 @@ paths:
         - service_unavailable
         - token_expired
         - unauthenticated
+        - unknown_field
         - validation_failed
       x-kofra-dry-run: true
       x-kofra-success: 202
@@ -346,7 +395,7 @@ paths:
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
         "400":
-          description: "`validation_failed`"
+          description: "`unknown_field`, `validation_failed`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -359,6 +408,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
               examples:
+                unknown_field:
+                  summary: Request has a field the API does not know
+                  value:
+                    type: https://kofra.app/docs/errors/unknown_field
+                    title: Request has a field the API does not know
+                    status: 400
+                    code: unknown_field
+                    detail: The query parameter "limt" is not accepted by this operation.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
+                    docs_url: https://kofra.app/docs/errors/unknown_field.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/limt"
+                        code: unknown_field
+                        detail: This parameter is not accepted.
                 validation_failed:
                   summary: Request is not valid
                   value:
@@ -366,15 +431,15 @@ paths:
                     title: Request is not valid
                     status: 400
                     code: validation_failed
-                    detail: The request has 1 invalid field.
+                    detail: The parameter "dry_run" is not valid.
                     hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
                     docs_url: https://kofra.app/docs/errors/validation_failed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                     errors:
-                      - pointer: /name
-                        code: invalid_bucket_name
-                        detail: Must be 3 to 63 lowercase letters, digits or hyphens.
+                      - pointer: "#query/dry_run"
+                        code: invalid_value
+                        detail: Not a valid value.
         "401":
           description: "`token_expired`, `unauthenticated`"
           headers:
@@ -384,6 +449,8 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
           content:
             application/problem+json:
               schema:
@@ -643,6 +710,7 @@ paths:
         - service_unavailable
         - token_expired
         - unauthenticated
+        - unknown_field
         - validation_failed
       x-kofra-success: 200
       responses:
@@ -676,7 +744,7 @@ paths:
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
         "400":
-          description: "`validation_failed`"
+          description: "`unknown_field`, `validation_failed`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -689,6 +757,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
               examples:
+                unknown_field:
+                  summary: Request has a field the API does not know
+                  value:
+                    type: https://kofra.app/docs/errors/unknown_field
+                    title: Request has a field the API does not know
+                    status: 400
+                    code: unknown_field
+                    detail: The query parameter "limt" is not accepted by this operation.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
+                    docs_url: https://kofra.app/docs/errors/unknown_field.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/limt"
+                        code: unknown_field
+                        detail: This parameter is not accepted.
                 validation_failed:
                   summary: Request is not valid
                   value:
@@ -701,10 +785,6 @@ paths:
                     docs_url: https://kofra.app/docs/errors/validation_failed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
-                    errors:
-                      - pointer: /name
-                        code: invalid_bucket_name
-                        detail: Must be 3 to 63 lowercase letters, digits or hyphens.
         "401":
           description: "`token_expired`, `unauthenticated`"
           headers:
@@ -714,6 +794,8 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
           content:
             application/problem+json:
               schema:
@@ -991,7 +1073,7 @@ paths:
             Link:
               $ref: "#/components/headers/Link"
         "400":
-          description: "`invalid_cursor`, `validation_failed`"
+          description: "`invalid_cursor`, `unknown_field`, `validation_failed`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -1016,6 +1098,22 @@ paths:
                     docs_url: https://kofra.app/docs/errors/invalid_cursor.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
+                unknown_field:
+                  summary: Request has a field the API does not know
+                  value:
+                    type: https://kofra.app/docs/errors/unknown_field
+                    title: Request has a field the API does not know
+                    status: 400
+                    code: unknown_field
+                    detail: The query parameter "limt" is not accepted by this operation.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
+                    docs_url: https://kofra.app/docs/errors/unknown_field.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/limt"
+                        code: unknown_field
+                        detail: This parameter is not accepted.
                 validation_failed:
                   summary: Request is not valid
                   value:
@@ -1023,15 +1121,15 @@ paths:
                     title: Request is not valid
                     status: 400
                     code: validation_failed
-                    detail: The request has 1 invalid field.
+                    detail: The parameter "limit" is not valid.
                     hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
                     docs_url: https://kofra.app/docs/errors/validation_failed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                     errors:
-                      - pointer: /name
-                        code: invalid_bucket_name
-                        detail: Must be 3 to 63 lowercase letters, digits or hyphens.
+                      - pointer: "#query/limit"
+                        code: invalid_value
+                        detail: Not a valid value.
         "401":
           description: "`token_expired`, `unauthenticated`"
           headers:
@@ -1041,6 +1139,8 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
           content:
             application/problem+json:
               schema:
@@ -1071,7 +1171,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`insufficient_scope`"
+          description: "`account_unavailable`, `insufficient_scope`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -1084,6 +1184,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
               examples:
+                account_unavailable:
+                  summary: Account is not available
+                  value:
+                    type: https://kofra.app/docs/errors/account_unavailable
+                    title: Account is not available
+                    status: 403
+                    code: account_unavailable
+                    detail: The account is being deleted.
+                    hint: Open Account in the console to see the reason; a deletion can be cancelled there or with POST /v1/account/deletion/cancel.
+                    docs_url: https://kofra.app/docs/errors/account_unavailable.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
                 insufficient_scope:
                   summary: Token lacks a required scope
                   value:
@@ -1185,6 +1297,7 @@ paths:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
       x-kofra-errors:
+        - account_unavailable
         - insufficient_scope
         - internal_error
         - invalid_cursor
@@ -1192,6 +1305,7 @@ paths:
         - service_unavailable
         - token_expired
         - unauthenticated
+        - unknown_field
         - validation_failed
     post:
       operationId: buckets.create
@@ -1290,7 +1404,7 @@ paths:
                     status: 400
                     code: unknown_field
                     detail: The field "/nmae" is not accepted by this operation.
-                    hint: Remove or correct the field named by `errors[].pointer`; the API reference lists the accepted fields.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
                     docs_url: https://kofra.app/docs/errors/unknown_field.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -1323,6 +1437,8 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
           content:
             application/problem+json:
               schema:
@@ -1634,6 +1750,7 @@ paths:
       x-kofra-scopes:
         - buckets:read
       x-kofra-errors:
+        - account_unavailable
         - bucket_not_found
         - insufficient_scope
         - internal_error
@@ -1641,6 +1758,7 @@ paths:
         - service_unavailable
         - token_expired
         - unauthenticated
+        - unknown_field
         - validation_failed
       x-kofra-success: 200
       responses:
@@ -1666,7 +1784,7 @@ paths:
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
         "400":
-          description: "`validation_failed`"
+          description: "`unknown_field`, `validation_failed`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -1679,6 +1797,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
               examples:
+                unknown_field:
+                  summary: Request has a field the API does not know
+                  value:
+                    type: https://kofra.app/docs/errors/unknown_field
+                    title: Request has a field the API does not know
+                    status: 400
+                    code: unknown_field
+                    detail: The query parameter "limt" is not accepted by this operation.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
+                    docs_url: https://kofra.app/docs/errors/unknown_field.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/limt"
+                        code: unknown_field
+                        detail: This parameter is not accepted.
                 validation_failed:
                   summary: Request is not valid
                   value:
@@ -1686,15 +1820,15 @@ paths:
                     title: Request is not valid
                     status: 400
                     code: validation_failed
-                    detail: The request has 1 invalid field.
+                    detail: The parameter "bucket" is not valid.
                     hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
                     docs_url: https://kofra.app/docs/errors/validation_failed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                     errors:
-                      - pointer: /name
-                        code: invalid_bucket_name
-                        detail: Must be 3 to 63 lowercase letters, digits or hyphens.
+                      - pointer: "#path/bucket"
+                        code: invalid_value
+                        detail: Not a valid value.
         "401":
           description: "`token_expired`, `unauthenticated`"
           headers:
@@ -1704,6 +1838,8 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
           content:
             application/problem+json:
               schema:
@@ -1734,7 +1870,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`insufficient_scope`"
+          description: "`account_unavailable`, `insufficient_scope`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -1747,6 +1883,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
               examples:
+                account_unavailable:
+                  summary: Account is not available
+                  value:
+                    type: https://kofra.app/docs/errors/account_unavailable
+                    title: Account is not available
+                    status: 403
+                    code: account_unavailable
+                    detail: The account is being deleted.
+                    hint: Open Account in the console to see the reason; a deletion can be cancelled there or with POST /v1/account/deletion/cancel.
+                    docs_url: https://kofra.app/docs/errors/account_unavailable.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
                 insufficient_scope:
                   summary: Token lacks a required scope
                   value:
@@ -1896,6 +2044,7 @@ paths:
         - service_unavailable
         - token_expired
         - unauthenticated
+        - unknown_field
         - validation_failed
       x-kofra-dry-run: true
       x-kofra-success: 204
@@ -1940,7 +2089,7 @@ paths:
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
         "400":
-          description: "`validation_failed`"
+          description: "`unknown_field`, `validation_failed`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -1953,6 +2102,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
               examples:
+                unknown_field:
+                  summary: Request has a field the API does not know
+                  value:
+                    type: https://kofra.app/docs/errors/unknown_field
+                    title: Request has a field the API does not know
+                    status: 400
+                    code: unknown_field
+                    detail: The query parameter "limt" is not accepted by this operation.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
+                    docs_url: https://kofra.app/docs/errors/unknown_field.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/limt"
+                        code: unknown_field
+                        detail: This parameter is not accepted.
                 validation_failed:
                   summary: Request is not valid
                   value:
@@ -1960,15 +2125,15 @@ paths:
                     title: Request is not valid
                     status: 400
                     code: validation_failed
-                    detail: The request has 1 invalid field.
+                    detail: The parameter "bucket" is not valid.
                     hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
                     docs_url: https://kofra.app/docs/errors/validation_failed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                     errors:
-                      - pointer: /name
-                        code: invalid_bucket_name
-                        detail: Must be 3 to 63 lowercase letters, digits or hyphens.
+                      - pointer: "#path/bucket"
+                        code: invalid_value
+                        detail: Not a valid value.
         "401":
           description: "`token_expired`, `unauthenticated`"
           headers:
@@ -1978,6 +2143,8 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
           content:
             application/problem+json:
               schema:
@@ -2281,7 +2448,7 @@ paths:
             Link:
               $ref: "#/components/headers/Link"
         "400":
-          description: "`invalid_cursor`, `validation_failed`"
+          description: "`invalid_cursor`, `unknown_field`, `validation_failed`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -2306,6 +2473,22 @@ paths:
                     docs_url: https://kofra.app/docs/errors/invalid_cursor.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
+                unknown_field:
+                  summary: Request has a field the API does not know
+                  value:
+                    type: https://kofra.app/docs/errors/unknown_field
+                    title: Request has a field the API does not know
+                    status: 400
+                    code: unknown_field
+                    detail: The query parameter "limt" is not accepted by this operation.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
+                    docs_url: https://kofra.app/docs/errors/unknown_field.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/limt"
+                        code: unknown_field
+                        detail: This parameter is not accepted.
                 validation_failed:
                   summary: Request is not valid
                   value:
@@ -2313,15 +2496,15 @@ paths:
                     title: Request is not valid
                     status: 400
                     code: validation_failed
-                    detail: The request has 1 invalid field.
+                    detail: The parameter "limit" is not valid.
                     hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
                     docs_url: https://kofra.app/docs/errors/validation_failed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                     errors:
-                      - pointer: /name
-                        code: invalid_bucket_name
-                        detail: Must be 3 to 63 lowercase letters, digits or hyphens.
+                      - pointer: "#query/limit"
+                        code: invalid_value
+                        detail: Not a valid value.
         "401":
           description: "`token_expired`, `unauthenticated`"
           headers:
@@ -2331,6 +2514,8 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
           content:
             application/problem+json:
               schema:
@@ -2361,7 +2546,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`insufficient_scope`"
+          description: "`account_unavailable`, `insufficient_scope`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -2374,6 +2559,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
               examples:
+                account_unavailable:
+                  summary: Account is not available
+                  value:
+                    type: https://kofra.app/docs/errors/account_unavailable
+                    title: Account is not available
+                    status: 403
+                    code: account_unavailable
+                    detail: The account is being deleted.
+                    hint: Open Account in the console to see the reason; a deletion can be cancelled there or with POST /v1/account/deletion/cancel.
+                    docs_url: https://kofra.app/docs/errors/account_unavailable.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
                 insufficient_scope:
                   summary: Token lacks a required scope
                   value:
@@ -2475,6 +2672,7 @@ paths:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
       x-kofra-errors:
+        - account_unavailable
         - insufficient_scope
         - internal_error
         - invalid_cursor
@@ -2482,6 +2680,7 @@ paths:
         - service_unavailable
         - token_expired
         - unauthenticated
+        - unknown_field
         - validation_failed
     post:
       operationId: keys.create
@@ -2496,7 +2695,12 @@ paths:
         secret was lost.
 
         Whoever holds a key with access to a bucket can read its objects, so
-        `keys:write` is treated as data access.
+        `keys:write` is treated as data access. The grants cannot exceed the
+        caller's own access: a grant on a bucket, or an access level, that the
+        caller's role does not allow is refused with `role_forbidden`.
+
+        Through the MCP tool `keys_create`, the secret is not in the tool
+        result: the result links to a console page that shows it once.
 
         Scopes: `keys:write`.
       x-kofra-scopes:
@@ -2583,7 +2787,7 @@ paths:
                     status: 400
                     code: unknown_field
                     detail: The field "/nmae" is not accepted by this operation.
-                    hint: Remove or correct the field named by `errors[].pointer`; the API reference lists the accepted fields.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
                     docs_url: https://kofra.app/docs/errors/unknown_field.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -2616,6 +2820,8 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
           content:
             application/problem+json:
               schema:
@@ -3037,7 +3243,7 @@ paths:
                     status: 400
                     code: unknown_field
                     detail: The field "/nmae" is not accepted by this operation.
-                    hint: Remove or correct the field named by `errors[].pointer`; the API reference lists the accepted fields.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
                     docs_url: https://kofra.app/docs/errors/unknown_field.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -3070,6 +3276,8 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
           content:
             application/problem+json:
               schema:
@@ -3430,6 +3638,7 @@ paths:
       x-kofra-scopes:
         - keys:write
       x-kofra-errors:
+        - account_unavailable
         - idempotency_key_in_use
         - idempotency_key_reused
         - insufficient_scope
@@ -3440,6 +3649,7 @@ paths:
         - service_unavailable
         - token_expired
         - unauthenticated
+        - unknown_field
         - validation_failed
       x-kofra-dry-run: true
       x-kofra-success: 204
@@ -3484,7 +3694,7 @@ paths:
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
         "400":
-          description: "`validation_failed`"
+          description: "`unknown_field`, `validation_failed`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -3497,6 +3707,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
               examples:
+                unknown_field:
+                  summary: Request has a field the API does not know
+                  value:
+                    type: https://kofra.app/docs/errors/unknown_field
+                    title: Request has a field the API does not know
+                    status: 400
+                    code: unknown_field
+                    detail: The query parameter "limt" is not accepted by this operation.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
+                    docs_url: https://kofra.app/docs/errors/unknown_field.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/limt"
+                        code: unknown_field
+                        detail: This parameter is not accepted.
                 validation_failed:
                   summary: Request is not valid
                   value:
@@ -3504,15 +3730,15 @@ paths:
                     title: Request is not valid
                     status: 400
                     code: validation_failed
-                    detail: The request has 1 invalid field.
+                    detail: The parameter "key_id" is not valid.
                     hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
                     docs_url: https://kofra.app/docs/errors/validation_failed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                     errors:
-                      - pointer: /name
-                        code: invalid_bucket_name
-                        detail: Must be 3 to 63 lowercase letters, digits or hyphens.
+                      - pointer: "#path/key_id"
+                        code: invalid_value
+                        detail: Not a valid value.
         "401":
           description: "`token_expired`, `unauthenticated`"
           headers:
@@ -3522,6 +3748,8 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
           content:
             application/problem+json:
               schema:
@@ -3552,7 +3780,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`insufficient_scope`, `role_forbidden`"
+          description: "`account_unavailable`, `insufficient_scope`, `role_forbidden`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -3565,6 +3793,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
               examples:
+                account_unavailable:
+                  summary: Account is not available
+                  value:
+                    type: https://kofra.app/docs/errors/account_unavailable
+                    title: Account is not available
+                    status: 403
+                    code: account_unavailable
+                    detail: The account is being deleted.
+                    hint: Open Account in the console to see the reason; a deletion can be cancelled there or with POST /v1/account/deletion/cancel.
+                    docs_url: https://kofra.app/docs/errors/account_unavailable.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
                 insufficient_scope:
                   summary: Token lacks a required scope
                   value:
@@ -3806,6 +4046,48 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+        "400":
+          description: "`unknown_field`, `validation_failed`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                unknown_field:
+                  summary: Request has a field the API does not know
+                  value:
+                    type: https://kofra.app/docs/errors/unknown_field
+                    title: Request has a field the API does not know
+                    status: 400
+                    code: unknown_field
+                    detail: The query parameter "limt" is not accepted by this operation.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
+                    docs_url: https://kofra.app/docs/errors/unknown_field.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/limt"
+                        code: unknown_field
+                        detail: This parameter is not accepted.
+                validation_failed:
+                  summary: Request is not valid
+                  value:
+                    type: https://kofra.app/docs/errors/validation_failed
+                    title: Request is not valid
+                    status: 400
+                    code: validation_failed
+                    detail: The request has 1 invalid field.
+                    hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
+                    docs_url: https://kofra.app/docs/errors/validation_failed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
         "401":
           description: "`token_expired`, `unauthenticated`"
           headers:
@@ -3815,6 +4097,8 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
           content:
             application/problem+json:
               schema:
@@ -3845,7 +4129,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`insufficient_scope`"
+          description: "`account_unavailable`, `insufficient_scope`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -3858,6 +4142,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
               examples:
+                account_unavailable:
+                  summary: Account is not available
+                  value:
+                    type: https://kofra.app/docs/errors/account_unavailable
+                    title: Account is not available
+                    status: 403
+                    code: account_unavailable
+                    detail: The account is being deleted.
+                    hint: Open Account in the console to see the reason; a deletion can be cancelled there or with POST /v1/account/deletion/cancel.
+                    docs_url: https://kofra.app/docs/errors/account_unavailable.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
                 insufficient_scope:
                   summary: Token lacks a required scope
                   value:
@@ -3956,12 +4252,15 @@ paths:
         - bearerAuth:
             - usage:read
       x-kofra-errors:
+        - account_unavailable
         - insufficient_scope
         - internal_error
         - rate_limited
         - service_unavailable
         - token_expired
         - unauthenticated
+        - unknown_field
+        - validation_failed
   /v1/usage/days:
     get:
       operationId: usage.days
@@ -4023,7 +4322,7 @@ paths:
             Link:
               $ref: "#/components/headers/Link"
         "400":
-          description: "`invalid_cursor`, `validation_failed`"
+          description: "`invalid_cursor`, `unknown_field`, `validation_failed`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -4048,6 +4347,22 @@ paths:
                     docs_url: https://kofra.app/docs/errors/invalid_cursor.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
+                unknown_field:
+                  summary: Request has a field the API does not know
+                  value:
+                    type: https://kofra.app/docs/errors/unknown_field
+                    title: Request has a field the API does not know
+                    status: 400
+                    code: unknown_field
+                    detail: The query parameter "limt" is not accepted by this operation.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
+                    docs_url: https://kofra.app/docs/errors/unknown_field.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/limt"
+                        code: unknown_field
+                        detail: This parameter is not accepted.
                 validation_failed:
                   summary: Request is not valid
                   value:
@@ -4055,15 +4370,15 @@ paths:
                     title: Request is not valid
                     status: 400
                     code: validation_failed
-                    detail: The request has 1 invalid field.
+                    detail: The parameter "after" is not valid.
                     hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
                     docs_url: https://kofra.app/docs/errors/validation_failed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                     errors:
-                      - pointer: /name
-                        code: invalid_bucket_name
-                        detail: Must be 3 to 63 lowercase letters, digits or hyphens.
+                      - pointer: "#query/after"
+                        code: invalid_value
+                        detail: Not a valid value.
         "401":
           description: "`token_expired`, `unauthenticated`"
           headers:
@@ -4073,6 +4388,8 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
           content:
             application/problem+json:
               schema:
@@ -4103,7 +4420,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`insufficient_scope`"
+          description: "`account_unavailable`, `insufficient_scope`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -4116,6 +4433,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
               examples:
+                account_unavailable:
+                  summary: Account is not available
+                  value:
+                    type: https://kofra.app/docs/errors/account_unavailable
+                    title: Account is not available
+                    status: 403
+                    code: account_unavailable
+                    detail: The account is being deleted.
+                    hint: Open Account in the console to see the reason; a deletion can be cancelled there or with POST /v1/account/deletion/cancel.
+                    docs_url: https://kofra.app/docs/errors/account_unavailable.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
                 insufficient_scope:
                   summary: Token lacks a required scope
                   value:
@@ -4214,6 +4543,7 @@ paths:
         - bearerAuth:
             - usage:read
       x-kofra-errors:
+        - account_unavailable
         - insufficient_scope
         - internal_error
         - invalid_cursor
@@ -4221,6 +4551,7 @@ paths:
         - service_unavailable
         - token_expired
         - unauthenticated
+        - unknown_field
         - validation_failed
   /v1/usage/buckets:
     get:
@@ -4267,7 +4598,7 @@ paths:
             Link:
               $ref: "#/components/headers/Link"
         "400":
-          description: "`invalid_cursor`, `validation_failed`"
+          description: "`invalid_cursor`, `unknown_field`, `validation_failed`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -4292,6 +4623,22 @@ paths:
                     docs_url: https://kofra.app/docs/errors/invalid_cursor.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
+                unknown_field:
+                  summary: Request has a field the API does not know
+                  value:
+                    type: https://kofra.app/docs/errors/unknown_field
+                    title: Request has a field the API does not know
+                    status: 400
+                    code: unknown_field
+                    detail: The query parameter "limt" is not accepted by this operation.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
+                    docs_url: https://kofra.app/docs/errors/unknown_field.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/limt"
+                        code: unknown_field
+                        detail: This parameter is not accepted.
                 validation_failed:
                   summary: Request is not valid
                   value:
@@ -4299,15 +4646,15 @@ paths:
                     title: Request is not valid
                     status: 400
                     code: validation_failed
-                    detail: The request has 1 invalid field.
+                    detail: The parameter "limit" is not valid.
                     hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
                     docs_url: https://kofra.app/docs/errors/validation_failed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                     errors:
-                      - pointer: /name
-                        code: invalid_bucket_name
-                        detail: Must be 3 to 63 lowercase letters, digits or hyphens.
+                      - pointer: "#query/limit"
+                        code: invalid_value
+                        detail: Not a valid value.
         "401":
           description: "`token_expired`, `unauthenticated`"
           headers:
@@ -4317,6 +4664,8 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
           content:
             application/problem+json:
               schema:
@@ -4347,7 +4696,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`insufficient_scope`"
+          description: "`account_unavailable`, `insufficient_scope`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -4360,6 +4709,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
               examples:
+                account_unavailable:
+                  summary: Account is not available
+                  value:
+                    type: https://kofra.app/docs/errors/account_unavailable
+                    title: Account is not available
+                    status: 403
+                    code: account_unavailable
+                    detail: The account is being deleted.
+                    hint: Open Account in the console to see the reason; a deletion can be cancelled there or with POST /v1/account/deletion/cancel.
+                    docs_url: https://kofra.app/docs/errors/account_unavailable.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
                 insufficient_scope:
                   summary: Token lacks a required scope
                   value:
@@ -4461,6 +4822,7 @@ paths:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
       x-kofra-errors:
+        - account_unavailable
         - insufficient_scope
         - internal_error
         - invalid_cursor
@@ -4468,6 +4830,7 @@ paths:
         - service_unavailable
         - token_expired
         - unauthenticated
+        - unknown_field
         - validation_failed
   /v1/events:
     get:
@@ -4490,6 +4853,7 @@ paths:
         - events:read
       x-kofra-paginated: true
       x-kofra-errors:
+        - account_unavailable
         - feed_reset
         - insufficient_scope
         - internal_error
@@ -4498,6 +4862,7 @@ paths:
         - service_unavailable
         - token_expired
         - unauthenticated
+        - unknown_field
         - validation_failed
       x-kofra-success: 200
       responses:
@@ -4528,7 +4893,7 @@ paths:
             Link:
               $ref: "#/components/headers/Link"
         "400":
-          description: "`invalid_cursor`, `validation_failed`"
+          description: "`invalid_cursor`, `unknown_field`, `validation_failed`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -4553,6 +4918,22 @@ paths:
                     docs_url: https://kofra.app/docs/errors/invalid_cursor.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
+                unknown_field:
+                  summary: Request has a field the API does not know
+                  value:
+                    type: https://kofra.app/docs/errors/unknown_field
+                    title: Request has a field the API does not know
+                    status: 400
+                    code: unknown_field
+                    detail: The query parameter "limt" is not accepted by this operation.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
+                    docs_url: https://kofra.app/docs/errors/unknown_field.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/limt"
+                        code: unknown_field
+                        detail: This parameter is not accepted.
                 validation_failed:
                   summary: Request is not valid
                   value:
@@ -4560,15 +4941,15 @@ paths:
                     title: Request is not valid
                     status: 400
                     code: validation_failed
-                    detail: The request has 1 invalid field.
+                    detail: The parameter "limit" is not valid.
                     hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
                     docs_url: https://kofra.app/docs/errors/validation_failed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                     errors:
-                      - pointer: /name
-                        code: invalid_bucket_name
-                        detail: Must be 3 to 63 lowercase letters, digits or hyphens.
+                      - pointer: "#query/limit"
+                        code: invalid_value
+                        detail: Not a valid value.
         "401":
           description: "`token_expired`, `unauthenticated`"
           headers:
@@ -4578,6 +4959,8 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
           content:
             application/problem+json:
               schema:
@@ -4608,7 +4991,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`insufficient_scope`"
+          description: "`account_unavailable`, `insufficient_scope`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -4621,6 +5004,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
               examples:
+                account_unavailable:
+                  summary: Account is not available
+                  value:
+                    type: https://kofra.app/docs/errors/account_unavailable
+                    title: Account is not available
+                    status: 403
+                    code: account_unavailable
+                    detail: The account is being deleted.
+                    hint: Open Account in the console to see the reason; a deletion can be cancelled there or with POST /v1/account/deletion/cancel.
+                    docs_url: https://kofra.app/docs/errors/account_unavailable.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
                 insufficient_scope:
                   summary: Token lacks a required scope
                   value:
@@ -4835,7 +5230,7 @@ paths:
                     status: 400
                     code: unknown_field
                     detail: The field "/nmae" is not accepted by this operation.
-                    hint: Remove or correct the field named by `errors[].pointer`; the API reference lists the accepted fields.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
                     docs_url: https://kofra.app/docs/errors/unknown_field.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -4868,6 +5263,8 @@ paths:
               $ref: "#/components/headers/RateLimit"
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
           content:
             application/problem+json:
               schema:
@@ -5214,7 +5611,7 @@ components:
     IdempotencyKey:
       name: Idempotency-Key
       in: header
-      description: "Makes a retry safe: the same key and the same request within 24 hours return the first answer. 1 to 255 printable ASCII characters; a UUID is a good choice."
+      description: "Makes a retry safe: the same key and the same request within 24 hours return the first answer. The key is bound to the method, the path, the query and the body of its first request: `dry_run=true` and a request without it (or with `dry_run=false`, which is the same request) are different requests and need different keys. 1 to 255 printable ASCII characters; a UUID is a good choice."
       schema:
         type: string
         minLength: 1
@@ -5530,7 +5927,7 @@ components:
           description: "`read`: list and read objects. `read_write`: also write and delete objects."
     GrantInput:
       type: object
-      description: A grant in a request. Each bucket may appear once per request.
+      description: A grant in a request. Each bucket at most once per request; a bucket listed twice is refused with `validation_failed`.
       additionalProperties: false
       required:
         - bucket
@@ -5602,6 +5999,7 @@ components:
           type: array
           minItems: 1
           maxItems: 32
+          description: The buckets the key can reach. Each bucket at most once.
           items:
             $ref: "#/components/schemas/GrantInput"
     AccessKeyUpdate:
@@ -5617,7 +6015,7 @@ components:
           type: array
           minItems: 1
           maxItems: 32
-          description: Grants to add or widen. Grants not listed are kept. A key holds at most 32 grants.
+          description: Grants to add or widen. Grants not listed are kept. Each bucket at most once. A key holds at most 32 grants.
           items:
             $ref: "#/components/schemas/GrantInput"
     AccessKeyList:
@@ -5893,10 +6291,14 @@ components:
             - GET
           description: Only downloads are offered for now.
         expires_in_seconds:
-          type: integer
-          minimum: 1
-          maximum: 900
+          $ref: "#/components/schemas/PresignLifetime"
           default: 900
+    PresignLifetime:
+      type: integer
+      minimum: 1
+      maximum: 900
+      default: 900
+      description: How long the URL stays valid, in seconds, 1 to 900 (15 minutes). Default 900.
     PresignedUrl:
       type: object
       required:
@@ -5997,6 +6399,11 @@ components:
         type: integer
         minimum: 0
       example: 2
+    WWWAuthenticate:
+      description: 'The authentication challenge (RFC 6750): `Bearer realm="kofra"`, with `error="invalid_token"` when a token was sent but is not usable.'
+      schema:
+        type: string
+      example: Bearer realm="kofra", error="invalid_token"
     Link:
       description: The next page, as `<url>; rel="next"`, while more follow.
       schema:

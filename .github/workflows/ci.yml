@@ -34,6 +34,19 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Change detection (org CI standard): which areas a pull request touches.
+  # A full-run path or an unclassified path forces a full run. `contract`
+  # runs on every change, because prettier and the F7 deny-list check every
+  # file, Markdown included. `rust` is skipped only on a docs-only pull
+  # request; it runs on every other event.
+  changes:
+    name: changes
+    uses: TogetherWeOwn/.github/.github/workflows/changes.yml@c05610872587137c3c492b7025f02585a1b8ba7d # v0.11.0
+    with:
+      areas-json: '{"docs":["**.md","docs/**"],"contract":["openapi/**","errors/**","registry/**","generated/**","tools/**","test/**","eslint.config.js","prettier.config.js","redocly.yaml",".prettierignore",".node-version"],"rust":["crates/**","xtask/**","generated/openapi.json"]}'
+      full-run-globs-json: '["package.json","**/package.json","pnpm-lock.yaml","**/pnpm-lock.yaml","pnpm-workspace.yaml","**/pnpm-workspace.yaml",".npmrc","**/.npmrc","Cargo.toml","**/Cargo.toml","Cargo.lock","**/Cargo.lock",".cargo/**","**/.cargo/**","rust-toolchain*","**/rust-toolchain*","osv-scanner.toml",".gitleaks.toml",".github/**"]'
+      docs-areas-json: '["docs"]'
+
   public-pr-security:
     if: github.event_name == 'pull_request' && github.event.repository.private == false
     # The nested OSV reusable requires this exact permission ceiling: actions
@@ -127,6 +140,8 @@ jobs:
 
   rust:
     name: rust (fmt, clippy, tests, wasm32, types match contract)
+    needs: [changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -140,26 +155,31 @@ jobs:
       # The Rust types are generated from generated/openapi.json; drift fails.
       - run: cargo run --locked -q -p xtask -- check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - run: cargo clippy --locked -p kofra-api-worker -p kofra-api-types --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo clippy --locked -p kofra-api-types --all-targets --target wasm32-unknown-unknown -- -D warnings
       - run: cargo test --locked --workspace
-      - run: cargo build --locked -p kofra-api-worker --target wasm32-unknown-unknown --release
+      # The contract-derived types must build for the Workers target.
+      - run: cargo build --locked -p kofra-api-types --target wasm32-unknown-unknown --release
 
   ci-ok:
     name: ci-ok
-    needs: [public-pr-security, workflow-lint, deps, contract, rust]
+    needs: [changes, public-pr-security, workflow-lint, deps, contract, rust]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - run: |
-          # Fail closed: every job must succeed, except the PR-only security
-          # caller, which must succeed on pull_request and be skipped on any
-          # other event.
+          # Fail closed. `changes` must succeed. The PR-only security caller
+          # must succeed on pull_request and be skipped on any other event.
+          # `rust` may be skipped only on a pull request that `changes` calls
+          # docs-only. Every other job must succeed.
           if ! jq -e --arg event "$CI_EVENT_NAME" '
             . as $n |
+            ($event == "pull_request" and $n.changes.outputs.docs_only == "true") as $docs_only |
             ($n | length) > 1 and
+            $n.changes.result == "success" and
             $n["public-pr-security"].result == (if $event == "pull_request" then "success" else "skipped" end) and
-            ($n | del(.["public-pr-security"]) | all(.[]; .result == "success"))
+            $n.rust.result == (if $docs_only then "skipped" else "success" end) and
+            ($n | del(.["public-pr-security"], .rust) | all(.[]; .result == "success"))
           ' <<< "$NEEDS_JSON" > /dev/null; then
             echo "ci-ok: a required job did not succeed"
             exit 1

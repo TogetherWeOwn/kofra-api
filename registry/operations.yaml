@@ -9,6 +9,8 @@
 #   mcp.tool        <resource>_<method> (the operationId with "." replaced by "_"),
 #                   or another tool of the design that covers this operation (with a note),
 #                   or null with a reason when the operation is kept out of MCP.
+#   mcp.secret      console_only on every tool whose operation answers a secret: the
+#                   tool result never holds it; a console page shows it once.
 #   console         the label of the console action.
 
 operations:
@@ -63,7 +65,7 @@ operations:
   - operation_id: keys.create
     sdk: { typescript: client.keys.create(), python: client.keys.create(), go: 'client.Keys.Create(ctx)' }
     cli: kofra keys create
-    mcp: { tool: keys_create }
+    mcp: { tool: keys_create, secret: console_only }
     console: Create access key
 
   - operation_id: keys.update

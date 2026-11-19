@@ -10,8 +10,8 @@
 //   ?dry_run=true           the 200 plan, on operations that offer dry runs
 //   Prefer: code=409        the first example with that status
 //   Prefer: example=<name>  the example with that name (an error code for errors)
-// Credentials: any `Authorization: Bearer kofra_tok_<...>` is accepted with all
-// scopes. A token ending in `_readonly` has only the `:read` scopes; the token
+// Credentials: any `Authorization: Bearer kofra_tok_<...>` (scheme name in any
+// case) is accepted with all scopes. A token ending in `_readonly` has only the `:read` scopes; the token
 // `kofra_tok_expired` answers token_expired.
 //
 // Usage: node tools/mock/server.mjs [--port 4010] [--host 127.0.0.1]
@@ -90,6 +90,12 @@ function compileRoutes(spec, ajv) {
 						$ref: `${SPEC_ID}#${paramPointer(spec, p, pointerOf(p))}/schema`
 					})
 				})),
+				page: op['x-kofra-paginated']
+					? validatorAt(
+							ajv,
+							`/paths/${esc(path)}/${m}/responses/200/content/application~1json/schema`
+						)
+					: null,
 				body: op.requestBody
 					? validatorAt(
 							ajv,
@@ -112,6 +118,13 @@ function paramPointer(spec, p, fallback) {
 
 const esc = (s) => s.replace(/~/g, '~0').replace(/\//g, '~1');
 
+// RFC 6750 3: the challenge on every 401; a token that was sent but is not
+// usable adds error="invalid_token".
+const challenge = (code) =>
+	code === 'unauthenticated'
+		? 'Bearer realm="kofra"'
+		: 'Bearer realm="kofra", error="invalid_token"';
+
 function coerce(value, schema) {
 	const t = Array.isArray(schema?.type) ? schema.type[0] : schema?.type;
 	if (t === 'integer' && /^-?\d+$/.test(value)) return Number(value);
@@ -125,9 +138,16 @@ function ajvToErrors(errors, prefix = '') {
 		.map((e) => {
 			if (e.keyword === 'additionalProperties') {
 				return {
-					pointer: `${prefix}${e.instancePath}/${e.params.additionalProperty}`,
+					pointer: `${prefix}${e.instancePath}/${esc(e.params.additionalProperty)}`,
 					code: 'unknown_field',
 					detail: 'This field is not accepted.'
+				};
+			}
+			if (e.keyword === 'required') {
+				return {
+					pointer: `${prefix}${e.instancePath}/${esc(e.params.missingProperty)}`,
+					code: 'missing',
+					detail: 'This field is required.'
 				};
 			}
 			return {
@@ -173,10 +193,11 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 		const url = new URL(req.url, 'http://mock');
 		const route = routes.find((r) => r.re.test(url.pathname));
 		const reply = (status, body, headers = {}) => ({ status, body, headers, requestId });
-		const fail = (code, extra) => {
+		const fail = (code, extra, headers = {}) => {
 			const p = problem(code, requestId, extra);
-			const headers = {};
 			if (p.body.retryable) headers['Retry-After'] = '1';
+			if (p.status === 401 && !headers['WWW-Authenticate'])
+				headers['WWW-Authenticate'] = challenge(code);
 			return reply(p.status, p.body, headers);
 		};
 		if (!route) return fail('not_found');
@@ -188,13 +209,16 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 			};
 		const { op } = entry;
 
-		// Authentication and scopes.
-		const auth = req.headers['authorization'] ?? '';
-		const m = /^Bearer (kofra_tok_[A-Za-z0-9_]+)$/.exec(auth);
-		if (!m) return fail('unauthenticated');
-		if (m[1] === 'kofra_tok_expired') return fail('token_expired');
+		// Authentication and scopes. The scheme name is case-insensitive (RFC 9110 11.1).
+		const auth = req.headers['authorization'];
+		if (auth === undefined) return fail('unauthenticated');
+		const m = /^([A-Za-z]+) +(\S+)$/.exec(auth);
+		const token = m && m[1].toLowerCase() === 'bearer' ? m[2] : null;
+		if (!token || !/^kofra_tok_[A-Za-z0-9_]+$/.test(token))
+			return fail('unauthenticated', {}, { 'WWW-Authenticate': challenge('token_expired') });
+		if (token === 'kofra_tok_expired') return fail('token_expired');
 		const scopes = op.security?.[0]?.bearerAuth ?? [];
-		if (m[1].endsWith('_readonly')) {
+		if (token.endsWith('_readonly')) {
 			const missing = scopes.find((s) => !s.endsWith(':read'));
 			if (missing)
 				return fail('insufficient_scope', {
@@ -304,6 +328,22 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 					errors: errs
 				});
 			}
+			// Each bucket may appear at most once in a grants list.
+			if (Array.isArray(body.grants)) {
+				const seen = new Set();
+				const dup = body.grants.findIndex((g) => seen.has(g.bucket) || !seen.add(g.bucket));
+				if (dup >= 0)
+					return fail('validation_failed', {
+						detail: `The bucket "${body.grants[dup].bucket}" is listed twice in grants.`,
+						errors: [
+							{
+								pointer: `/grants/${dup}`,
+								code: 'invalid_value',
+								detail: 'Each bucket may appear at most once.'
+							}
+						]
+					});
+			}
 		}
 
 		// Choose the answer.
@@ -336,6 +376,19 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 		const resp = op.responses[status];
 		const headers = {};
 		if (status === '204' || !resp.content) return reply(Number(status), null, headers);
+		// A later page of a list. The mock keeps no data, so every later page is
+		// empty: the end for a list (`next_cursor: null`), and for a feed whose
+		// `next_cursor` is never null, the poll position, which is the cursor sent.
+		if (
+			op['x-kofra-paginated'] &&
+			status === '200' &&
+			query.cursor !== undefined &&
+			preferCode === undefined &&
+			preferExample === undefined
+		) {
+			const end = { data: [], next_cursor: null };
+			return reply(200, entry.page(end) ? end : { data: [], next_cursor: query.cursor }, headers);
+		}
 		const { examples } = pickExample(resp.content);
 		const name =
 			preferExample !== undefined && Object.hasOwn(examples, preferExample)
@@ -346,6 +399,7 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 		if (isProblem) {
 			body.request_id = requestId;
 			if (body.retryable) headers['Retry-After'] = '1';
+			if (Number(status) === 401) headers['WWW-Authenticate'] = challenge(body.code);
 		}
 		if (op['x-kofra-paginated'] && body && body.next_cursor && status === '200') {
 			headers['Link'] =
@@ -354,19 +408,24 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 		return reply(Number(status), body, headers);
 	}
 
+	// Never rejects: a client that goes away mid-request ends the exchange
+	// without an answer, and any other failure answers 500.
 	return async function listener(req, res) {
-		const chunks = [];
-		let size = 0;
-		for await (const c of req) {
-			size += c.length;
-			if (size <= MAX_BODY + 1) chunks.push(c);
-		}
-		req.bodyBytes = Buffer.concat(chunks);
-		req.bodySize = size;
+		res.on('error', () => {});
 		let out;
 		try {
+			const chunks = [];
+			let size = 0;
+			for await (const c of req) {
+				size += c.length;
+				if (size <= MAX_BODY + 1) chunks.push(c);
+			}
+			if (!req.complete) return;
+			req.bodyBytes = Buffer.concat(chunks);
+			req.bodySize = size;
 			out = await handle(req);
 		} catch (err) {
+			if (!req.complete || res.destroyed) return;
 			console.error(err);
 			out = {
 				status: 500,
@@ -375,6 +434,16 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 				requestId: 'req_mock'
 			};
 		}
+		if (res.destroyed || res.writableEnded) return;
+		try {
+			send(res, out);
+		} catch (err) {
+			console.error(err);
+			res.destroy();
+		}
+	};
+
+	function send(res, out) {
 		const headers = {
 			'Kofra-Request-Id': out.requestId,
 			'RateLimit-Policy': '"default";q=50;w=1, "writes";q=2;w=1',
@@ -394,7 +463,7 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 			res.writeHead(out.status, headers);
 			res.end();
 		}
-	};
+	}
 }
 
 export function start({ port = 4010, host = '127.0.0.1' } = {}) {

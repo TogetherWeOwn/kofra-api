@@ -5,7 +5,9 @@
 #   x-kofra-scopes:    the bearer security requirement and a "Scopes" line;
 #   x-kofra-errors:    one problem+json response per status, with an example
 #                      per error code from errors/catalogue.yaml (the common
-#                      codes are added to every operation);
+#                      codes, `validation_failed`, `unknown_field` and, except
+#                      on account.get and account.cancel_deletion,
+#                      `account_unavailable` are added to every operation);
 #   x-kofra-paginated: the `limit` and `cursor` parameters and the `Link` header;
 #   x-kofra-dry-run:   the `dry_run` parameter and a 200 `Plan` response;
 #   x-kofra-success:   the status of a normal success (the mock answers it);
@@ -41,9 +43,11 @@ info:
       `cursor`; the body has `data` and `next_cursor` (`null` at the end), and
       a `Link: <...>; rel="next"` header repeats it.
     - Writes: `POST`, `PATCH` and `DELETE` accept `Idempotency-Key`, kept 24
-      hours. Destructive operations accept `dry_run=true`.
+      hours and bound to the method, path, query and body of its first
+      request. Destructive operations accept `dry_run=true`.
     - Every response carries `Kofra-Request-Id`, `RateLimit` and
-      `RateLimit-Policy`; `429` and `503` also carry `Retry-After`.
+      `RateLimit-Policy`; `429` and `503` also carry `Retry-After`, and `401`
+      carries `WWW-Authenticate`.
     - Unknown request fields and undeclared or repeated query parameters are
       refused (`unknown_field`, `validation_failed`). Clients must ignore
       unknown response fields, and treat an unknown enum value in a response
@@ -123,7 +127,7 @@ paths:
         and the data is cryptographically erased at `erase_at`. Until then the
         deletion can be cancelled with `POST /v1/account/deletion/cancel`.
       x-kofra-scopes: [account:delete]
-      x-kofra-errors: [deletion_already_requested, account_unavailable, role_forbidden]
+      x-kofra-errors: [deletion_already_requested, role_forbidden]
       x-kofra-dry-run: true
       x-kofra-success: 202
       responses:
@@ -233,7 +237,7 @@ paths:
       summary: Create a bucket
       description: Creates an empty bucket. Bucket names are unique within the workspace.
       x-kofra-scopes: [buckets:write]
-      x-kofra-errors: [invalid_bucket_name, bucket_already_exists, account_read_only, account_unavailable, role_forbidden]
+      x-kofra-errors: [invalid_bucket_name, bucket_already_exists, account_read_only, role_forbidden]
       x-kofra-success: 201
       requestBody:
         required: true
@@ -293,7 +297,7 @@ paths:
         still holds objects is refused with `bucket_not_empty`; delete the
         objects through the S3 endpoint first. Deletion is final.
       x-kofra-scopes: [buckets:delete]
-      x-kofra-errors: [bucket_not_found, bucket_not_empty, account_unavailable, role_forbidden]
+      x-kofra-errors: [bucket_not_found, bucket_not_empty, role_forbidden]
       x-kofra-dry-run: true
       x-kofra-success: 204
       responses:
@@ -359,9 +363,14 @@ paths:
         secret was lost.
 
         Whoever holds a key with access to a bucket can read its objects, so
-        `keys:write` is treated as data access.
+        `keys:write` is treated as data access. The grants cannot exceed the
+        caller's own access: a grant on a bucket, or an access level, that the
+        caller's role does not allow is refused with `role_forbidden`.
+
+        Through the MCP tool `keys_create`, the secret is not in the tool
+        result: the result links to a console page that shows it once.
       x-kofra-scopes: [keys:write]
-      x-kofra-errors: [bucket_not_found, key_limit_reached, account_read_only, account_unavailable, role_forbidden]
+      x-kofra-errors: [bucket_not_found, key_limit_reached, account_read_only, role_forbidden]
       x-kofra-success: 201
       requestBody:
         required: true
@@ -406,7 +415,7 @@ paths:
         (`read_write` to `read`) or removed: create a new key with the narrower
         access and revoke this one. Grants not listed are left as they are.
       x-kofra-scopes: [keys:write]
-      x-kofra-errors: [key_not_found, bucket_not_found, grant_narrowing_refused, grant_limit_reached, account_read_only, account_unavailable, role_forbidden]
+      x-kofra-errors: [key_not_found, bucket_not_found, grant_narrowing_refused, grant_limit_reached, account_read_only, role_forbidden]
       x-kofra-success: 200
       requestBody:
         required: true
@@ -621,7 +630,7 @@ paths:
         further credentials, valid for at most 15 minutes. Anyone who has the
         URL can use it until it expires.
       x-kofra-scopes: [objects:read]
-      x-kofra-errors: [bucket_not_found, account_unavailable, role_forbidden]
+      x-kofra-errors: [bucket_not_found, role_forbidden]
       x-kofra-success: 200
       requestBody:
         required: true
@@ -885,7 +894,7 @@ components:
 
     GrantInput:
       type: object
-      description: A grant in a request. Each bucket may appear once per request.
+      description: A grant in a request. Each bucket at most once per request; a bucket listed twice is refused with `validation_failed`.
       additionalProperties: false
       required: [bucket, access]
       properties:
@@ -940,6 +949,7 @@ components:
           type: array
           minItems: 1
           maxItems: 32
+          description: The buckets the key can reach. Each bucket at most once.
           items: { $ref: '#/components/schemas/GrantInput' }
 
     AccessKeyUpdate:
@@ -955,7 +965,7 @@ components:
           type: array
           minItems: 1
           maxItems: 32
-          description: Grants to add or widen. Grants not listed are kept. A key holds at most 32 grants.
+          description: Grants to add or widen. Grants not listed are kept. Each bucket at most once. A key holds at most 32 grants.
           items: { $ref: '#/components/schemas/GrantInput' }
 
     AccessKeyList:
@@ -1121,11 +1131,14 @@ components:
           type: string
           enum: [GET]
           description: Only downloads are offered for now.
-        expires_in_seconds:
-          type: integer
-          minimum: 1
-          maximum: 900
-          default: 900
+        expires_in_seconds: { $ref: '#/components/schemas/PresignLifetime', default: 900 }
+
+    PresignLifetime:
+      type: integer
+      minimum: 1
+      maximum: 900
+      default: 900
+      description: How long the URL stays valid, in seconds, 1 to 900 (15 minutes). Default 900.
 
     PresignedUrl:
       type: object

@@ -17,6 +17,7 @@ pub struct AccessKey {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct AccessKeyCreate {
+    ///The buckets the key can reach. Each bucket at most once.
     pub grants: ::std::vec::Vec<GrantInput>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub name: ::std::option::Option<AccessKeyCreateName>,
@@ -279,7 +280,7 @@ impl<'de> ::serde::Deserialize<'de> for AccessKeyName {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct AccessKeyUpdate {
-    ///Grants to add or widen. Grants not listed are kept. A key holds at most 32 grants.
+    ///Grants to add or widen. Grants not listed are kept. Each bucket at most once. A key holds at most 32 grants.
     #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
     pub grants: ::std::vec::Vec<GrantInput>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -1060,7 +1061,7 @@ impl ::std::convert::TryFrom<::std::string::String> for GrantAccess {
         value.parse()
     }
 }
-///A grant in a request. Each bucket may appear once per request.
+///A grant in a request. Each bucket at most once per request; a bucket listed twice is refused with `validation_failed`.
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct GrantInput {
@@ -1288,8 +1289,8 @@ pub struct PlanTotals {
 #[serde(deny_unknown_fields)]
 pub struct PresignRequest {
     pub bucket: BucketName,
-    #[serde(default = "defaults::default_nzu64::<::std::num::NonZeroU64, 900>")]
-    pub expires_in_seconds: ::std::num::NonZeroU64,
+    #[serde(default = "defaults::presign_request_expires_in_seconds")]
+    pub expires_in_seconds: crate::bounded::PresignLifetime,
     ///The object key.
     pub key: PresignRequestKey,
     ///Only downloads are offered for now.
@@ -1803,12 +1804,9 @@ impl ::std::convert::TryFrom<::std::string::String> for UsageDayStatus {
 }
 /// Generation of default values for serde.
 pub mod defaults {
-    pub(super) fn default_nzu64<T, const V: u64>() -> T
-    where
-        T: ::std::convert::TryFrom<::std::num::NonZeroU64>,
-        <T as ::std::convert::TryFrom<::std::num::NonZeroU64>>::Error: ::std::fmt::Debug,
-    {
-        T::try_from(::std::num::NonZeroU64::try_from(V).unwrap()).unwrap()
+    pub(super) fn presign_request_expires_in_seconds() -> crate::bounded::PresignLifetime {
+        ::serde_json::from_str::<crate::bounded::PresignLifetime>("900")
+            .expect("invalid default provided")
     }
 }
 /// Error types.

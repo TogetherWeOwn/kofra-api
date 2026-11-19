@@ -4,7 +4,7 @@ Code: `idempotency_key_reused`
 HTTP status: 422
 Retryable: no, not without a change
 
-An `Idempotency-Key` is bound to the first request sent with it for 24 hours. The same key with a different method, path or body is refused.
+An `Idempotency-Key` is bound to the first request sent with it for 24 hours, that is to its method, path, query and body. The same key with a different method, path, query or body is refused, so `dry_run=true` and the same request without it need different keys (`dry_run=false` and an omitted `dry_run` are the same request).
 
 ## What to do
 

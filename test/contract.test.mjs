@@ -157,3 +157,66 @@ test('unbuilt storage features stay out of the contract', () => {
 		assert.ok(!text.includes(word), `contract mentions ${word}`);
 	}
 });
+
+test('account_unavailable is declared on every operation except reading the account and cancelling its deletion', () => {
+	const exempt = [];
+	for (const { op } of operations()) {
+		if (op['x-kofra-errors'].includes('account_unavailable'))
+			assert.ok(
+				op.responses['403'].content['application/problem+json'].examples.account_unavailable,
+				op.operationId
+			);
+		else exempt.push(op.operationId);
+	}
+	assert.deepEqual(exempt.sort(), ['account.cancel_deletion', 'account.get']);
+});
+
+test('every operation documents 400 with validation_failed and unknown_field examples', () => {
+	for (const { op } of operations()) {
+		const examples = op.responses['400']?.content['application/problem+json'].examples ?? {};
+		for (const code of ['validation_failed', 'unknown_field'])
+			assert.equal(examples[code]?.value.code, code, `${op.operationId}: ${code}`);
+	}
+});
+
+test('every 401 answer declares WWW-Authenticate', () => {
+	assert.ok(spec.components.headers.WWWAuthenticate);
+	for (const { op } of operations()) {
+		assert.ok(op.responses['401'], op.operationId);
+		assert.deepEqual(
+			op.responses['401'].headers['WWW-Authenticate'],
+			{ $ref: '#/components/headers/WWWAuthenticate' },
+			op.operationId
+		);
+	}
+});
+
+test('an Idempotency-Key is bound to method, path, query and body', () => {
+	const param = spec.components.parameters.IdempotencyKey.description;
+	const meaning = errors.get('idempotency_key_reused').meaning;
+	for (const text of [param, meaning]) {
+		assert.match(text, /method, (the )?path, (the )?query and (the )?body/, text);
+		assert.match(text, /dry_run=true/, text);
+	}
+});
+
+test('keys.create says where the secret appears through MCP and how grants are bounded', () => {
+	const op = spec.paths['/v1/keys'].post;
+	assert.match(op.description, /MCP/);
+	assert.match(op.description, /console page/);
+	assert.match(op.description, /`role_forbidden`/);
+	assert.ok(op['x-kofra-errors'].includes('role_forbidden'));
+	for (const s of ['GrantInput'])
+		assert.match(spec.components.schemas[s].description, /at most once/);
+	for (const s of ['AccessKeyCreate', 'AccessKeyUpdate'])
+		assert.match(spec.components.schemas[s].properties.grants.description, /at most once/, s);
+});
+
+test('the presign lifetime is a named schema bounded 1 to 900', () => {
+	const s = spec.components.schemas.PresignLifetime;
+	assert.deepEqual([s.type, s.minimum, s.maximum, s.default], ['integer', 1, 900, 900]);
+	assert.deepEqual(spec.components.schemas.PresignRequest.properties.expires_in_seconds, {
+		$ref: '#/components/schemas/PresignLifetime',
+		default: 900
+	});
+});

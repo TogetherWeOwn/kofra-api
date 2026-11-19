@@ -178,3 +178,141 @@ test('a bad Idempotency-Key is refused', async () => {
 		201
 	);
 });
+
+test('a client that aborts mid-body does not break the server', async () => {
+	const { connect } = await import('node:net');
+	const rejections = [];
+	const onRejection = (err) => rejections.push(err);
+	process.on('unhandledRejection', onRejection);
+	try {
+		const { port } = server.address();
+		await new Promise((resolveAbort, rejectAbort) => {
+			const sock = connect(port, '127.0.0.1', () => {
+				sock.write(
+					'POST /v1/buckets HTTP/1.1\r\nHost: mock\r\nAuthorization: Bearer kofra_tok_t\r\n' +
+						'Content-Type: application/json\r\nContent-Length: 1000\r\n\r\n{"name":'
+				);
+				setTimeout(() => {
+					sock.destroy();
+					resolveAbort();
+				}, 50);
+			});
+			sock.on('error', rejectAbort);
+		});
+		await new Promise((r) => setTimeout(r, 100));
+		const r = await call('POST', '/v1/buckets', { body: { name: 'backups' } });
+		assert.equal(r.res.status, 201);
+		assert.deepEqual(rejections, []);
+	} finally {
+		process.off('unhandledRejection', onRejection);
+	}
+});
+
+test('the Bearer scheme name is case-insensitive', async () => {
+	for (const scheme of ['bearer', 'BEARER', 'Bearer'])
+		assert.equal(
+			(await call('GET', '/v1/buckets', { token: `${scheme} kofra_tok_test_123` })).res.status,
+			200,
+			scheme
+		);
+});
+
+test('401 answers carry WWW-Authenticate', async () => {
+	const none = await call('GET', '/v1/buckets', { token: null });
+	assert.equal(none.res.headers.get('www-authenticate'), 'Bearer realm="kofra"');
+	for (const token of ['Bearer nope', 'Bearer kofra_tok_expired']) {
+		const r = await call('GET', '/v1/buckets', { token });
+		assert.equal(r.res.status, 401, token);
+		assert.equal(
+			r.res.headers.get('www-authenticate'),
+			'Bearer realm="kofra", error="invalid_token"',
+			token
+		);
+	}
+	const chosen = await call('GET', '/v1/buckets', { headers: { prefer: 'code=401' } });
+	assertProblem(chosen, 401, 'token_expired');
+	assert.match(chosen.res.headers.get('www-authenticate'), /^Bearer realm="kofra"/);
+});
+
+test('field errors point at the field with RFC 6901 escaping, missing fields included', async () => {
+	const odd = await call('POST', '/v1/buckets', { body: { name: 'backups', 'a/b~c': 1 } });
+	assertProblem(odd, 400, 'unknown_field');
+	assert.equal(odd.json.errors[0].pointer, '/a~1b~0c');
+	const missing = await call('POST', '/v1/buckets', { body: {} });
+	assertProblem(missing, 400, 'validation_failed');
+	assert.deepEqual(
+		missing.json.errors.map((e) => e.pointer),
+		['/name']
+	);
+});
+
+test('a valid cursor answers an empty page: the poll position for events, the end for other lists', async () => {
+	const events = await call('GET', '/v1/events?cursor=ec_after1');
+	assert.equal(events.res.status, 200);
+	assert.deepEqual(events.json, { data: [], next_cursor: 'ec_after1' });
+	assert.equal(events.res.headers.get('link'), null);
+	for (const url of ['/v1/buckets', '/v1/keys', '/v1/usage/days', '/v1/usage/buckets']) {
+		const r = await call('GET', `${url}?cursor=c_page2`);
+		assert.equal(r.res.status, 200, url);
+		assert.deepEqual(r.json, { data: [], next_cursor: null }, url);
+		assert.equal(r.res.headers.get('link'), null, url);
+		const v = validatorAt(
+			ajv,
+			`/paths/${esc(url)}/get/responses/200/content/application~1json/schema`
+		);
+		assert.ok(v(r.json), url);
+	}
+	const v = validatorAt(
+		ajv,
+		`/paths/~1v1~1events/get/responses/200/content/application~1json/schema`
+	);
+	assert.ok(v(events.json));
+});
+
+test('a grants list naming one bucket twice is refused', async () => {
+	const grants = [
+		{ bucket: 'backups', access: 'read' },
+		{ bucket: 'photos', access: 'read' },
+		{ bucket: 'backups', access: 'read_write' }
+	];
+	for (const [method, url] of [
+		['POST', '/v1/keys'],
+		['PATCH', '/v1/keys/KF7Q2M8X4T7R5N0B']
+	]) {
+		const r = await call(method, url, { body: { grants } });
+		assertProblem(r, 400, 'validation_failed');
+		assert.deepEqual(
+			r.json.errors.map((e) => [e.pointer, e.code]),
+			[['/grants/2', 'invalid_value']],
+			url
+		);
+	}
+});
+
+test('undeclared, repeated or badly encoded parameters and bad Prefer values are refused', async () => {
+	const unknown = await call('GET', '/v1/buckets?limt=5');
+	assertProblem(unknown, 400, 'unknown_field');
+	assert.equal(unknown.json.errors[0].pointer, '#query/limt');
+	assertProblem(await call('GET', '/v1/account?x=1'), 400, 'unknown_field');
+	const repeated = await call('GET', '/v1/buckets?limit=5&limit=6');
+	assertProblem(repeated, 400, 'validation_failed');
+	assert.equal(repeated.json.errors[0].pointer, '#query/limit');
+	assertProblem(
+		await call('GET', '/v1/usage', { headers: { prefer: 'code=constructor' } }),
+		400,
+		'validation_failed'
+	);
+	assertProblem(
+		await call('GET', '/v1/usage', { headers: { prefer: 'example=no_such_example' } }),
+		400,
+		'validation_failed'
+	);
+	assertProblem(
+		await call('GET', '/v1/usage', { headers: { prefer: 'example=__proto__' } }),
+		400,
+		'validation_failed'
+	);
+	const enc = await call('GET', '/v1/buckets/%E0%A4%A');
+	assertProblem(enc, 400, 'validation_failed');
+	assert.equal(enc.json.errors[0].code, 'invalid_encoding');
+});

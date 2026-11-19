@@ -14,7 +14,8 @@
 //            customer-readable text: Markdown, and the description, summary,
 //            title, hint, detail, meaning, reason, note and label strings of
 //            JSON and YAML files. Exact tokens in tools/f7/allow.json are
-//            skipped there (for example the HTTP method name in capitals).
+//            skipped there (for example the HTTP method name in capitals, and its
+//            plural).
 //
 // Plus two plain-text rules: no e-mail address outside the example and
 // Kofra role domains, and no home-directory path.

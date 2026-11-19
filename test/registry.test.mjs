@@ -46,3 +46,43 @@ test('operations kept out of MCP by the design are absent from the tool column',
 	for (const id of ['account.delete', 'account.cancel_deletion', 'keys.update'])
 		assert.equal(tool[id], null, id);
 });
+
+// Property names a schema can answer, following $ref, allOf, oneOf and anyOf.
+function propertyNames(schema, seen = new Set()) {
+	if (!schema || typeof schema !== 'object') return [];
+	if (schema.$ref) {
+		if (seen.has(schema.$ref)) return [];
+		seen.add(schema.$ref);
+		return propertyNames(spec.components.schemas[schema.$ref.split('/').pop()], seen);
+	}
+	return [
+		...Object.keys(schema.properties ?? {}),
+		...Object.values(schema.properties ?? {}).flatMap((s) => propertyNames(s, seen)),
+		...['allOf', 'oneOf', 'anyOf'].flatMap((k) =>
+			(schema[k] ?? []).flatMap((s) => propertyNames(s, seen))
+		),
+		...propertyNames(schema.items, seen)
+	];
+}
+
+test('an MCP tool never returns a secret: operations that answer one are console_only', () => {
+	const ops = new Map(
+		Object.values(spec.paths).flatMap((item) =>
+			['get', 'put', 'post', 'delete', 'patch']
+				.filter((m) => item[m])
+				.map((m) => [item[m].operationId, item[m]])
+		)
+	);
+	let withSecret = 0;
+	for (const r of rows) {
+		const op = ops.get(r.operation_id);
+		const success = op.responses[String(op['x-kofra-success'])];
+		const schema = success.content?.['application/json']?.schema;
+		const answersSecret = propertyNames(schema).some((n) => /secret/.test(n));
+		if (answersSecret) withSecret++;
+		if (answersSecret && r.mcp.tool !== null)
+			assert.equal(r.mcp.secret, 'console_only', `${r.operation_id}: mcp.secret`);
+		if (!answersSecret) assert.equal(r.mcp.secret, undefined, `${r.operation_id}: no secret`);
+	}
+	assert.ok(withSecret > 0, 'the secret detection found nothing');
+});

@@ -23,8 +23,8 @@ errors:
     status: 400
     title: Request has a field the API does not know
     retryable: false
-    meaning: The request body has a field that the operation does not accept. Unknown fields are refused so that a misspelt field never silently does nothing.
-    hint: Remove or correct the field named by `errors[].pointer`; the API reference lists the accepted fields.
+    meaning: The request body has a field, or the query has a parameter, that the operation does not accept. Unknown fields and parameters are refused so that a misspelt one never silently does nothing.
+    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
     detail_example: 'The field "/nmae" is not accepted by this operation.'
   - code: invalid_bucket_name
     status: 400
@@ -210,7 +210,7 @@ errors:
     status: 422
     title: Idempotency key used with another request
     retryable: false
-    meaning: An `Idempotency-Key` is bound to the first request sent with it for 24 hours. The same key with a different method, path or body is refused.
+    meaning: An `Idempotency-Key` is bound to the first request sent with it for 24 hours, that is to its method, path, query and body. The same key with a different method, path, query or body is refused, so `dry_run=true` and the same request without it need different keys (`dry_run=false` and an omitted `dry_run` are the same request).
     hint: Use a new Idempotency-Key for a different request; reuse a key only to repeat the identical request.
     detail_example: 'This Idempotency-Key was first used with a different body.'
 

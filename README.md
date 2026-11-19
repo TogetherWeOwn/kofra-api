@@ -1,7 +1,7 @@
 # kofra-api
 
 The Kofra management API: its OpenAPI 3.1 contract, error catalogue, naming registry, mock server, and the
-Rust Worker that will implement it.
+Rust types that the API Worker will be built on.
 
 **Status: draft contract, nothing deployed.** The contract is published ahead of the service so that SDKs,
 the CLI, the MCP server and the console can be built against the mock.
@@ -17,7 +17,6 @@ the CLI, the MCP server and the console can be built against the mock.
 | `tools/mock/server.mjs`    | Mock server driven entirely by `generated/openapi.json`                                                                                                                                                              |
 | `tools/f7/`                | Deny-list check over source and generated artefacts                                                                                                                                                                  |
 | `crates/kofra-api-types`   | Rust types generated from the contract (`cargo run -p xtask -- gen`)                                                                                                                                                 |
-| `crates/kofra-api-worker`  | The API Worker (workers-rs); a skeleton for now                                                                                                                                                                      |
 | `xtask/`                   | The Rust type generator and its drift check                                                                                                                                                                          |
 
 ## What the contract covers

@@ -18,13 +18,14 @@ const COMMON_ERRORS = [
 	'internal_error',
 	'service_unavailable'
 ];
-const BODY_ERRORS = [
-	'validation_failed',
-	'unknown_field',
-	'unsupported_media_type',
-	'payload_too_large'
-];
-const PARAM_ERRORS = ['validation_failed'];
+// Every operation refuses undeclared or repeated query parameters, so every
+// operation can answer 400 with these two codes.
+const REQUEST_ERRORS = ['validation_failed', 'unknown_field'];
+const BODY_ERRORS = ['unsupported_media_type', 'payload_too_large'];
+// A blocked account, or one being deleted, can only read itself and cancel the
+// deletion; every other operation can answer account_unavailable.
+const ACCOUNT_UNAVAILABLE = 'account_unavailable';
+export const ACCOUNT_UNAVAILABLE_EXEMPT = ['account.get', 'account.cancel_deletion'];
 const IDEMPOTENT_ERRORS = ['idempotency_key_reused', 'idempotency_key_in_use'];
 const METHODS = ['get', 'put', 'post', 'delete', 'patch'];
 export const EXAMPLE_REQUEST_ID = 'req_01jd3examplerequestid0000';
@@ -83,6 +84,12 @@ const COMPONENT_HEADERS = {
 		schema: { type: 'integer', minimum: 0 },
 		example: 2
 	},
+	WWWAuthenticate: {
+		description:
+			'The authentication challenge (RFC 6750): `Bearer realm="kofra"`, with `error="invalid_token"` when a token was sent but is not usable.',
+		schema: { type: 'string' },
+		example: 'Bearer realm="kofra", error="invalid_token"'
+	},
 	Link: {
 		description: 'The next page, as `<url>; rel="next"`, while more follow.',
 		schema: { type: 'string' },
@@ -107,7 +114,7 @@ const COMPONENT_PARAMETERS = {
 		name: 'Idempotency-Key',
 		in: 'header',
 		description:
-			'Makes a retry safe: the same key and the same request within 24 hours return the first answer. 1 to 255 printable ASCII characters; a UUID is a good choice.',
+			'Makes a retry safe: the same key and the same request within 24 hours return the first answer. The key is bound to the method, the path, the query and the body of its first request: `dry_run=true` and a request without it (or with `dry_run=false`, which is the same request) are different requests and need different keys. 1 to 255 printable ASCII characters; a UUID is a good choice.',
 		schema: { type: 'string', minLength: 1, maxLength: 255, pattern: '^[\\x21-\\x7e]+$' },
 		example: '6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f'
 	},
@@ -129,6 +136,46 @@ function widenIntegers(node) {
 	if (types.includes('integer') && !node.format && !(node.maximum <= 2147483647))
 		node.format = 'int64';
 	Object.values(node).forEach(widenIntegers);
+}
+
+// The parameters of an operation, $refs resolved.
+function operationParams(op, item, doc) {
+	return [...(item.parameters ?? []), ...(op.parameters ?? [])].map((p) =>
+		p.$ref ? doc.components.parameters[p.$ref.split('/').pop()] : p
+	);
+}
+
+// The `detail` and `errors` of a 400 example, fitted to what the operation
+// accepts: body fields when it has a body, otherwise its parameters.
+function fieldErrorExample(code, op, item, doc) {
+	if (code === 'unknown_field') {
+		return op.requestBody
+			? {
+					detail: 'The field "/nmae" is not accepted by this operation.',
+					errors: [{ pointer: '/nmae', code, detail: 'This field is not accepted.' }]
+				}
+			: {
+					detail: 'The query parameter "limt" is not accepted by this operation.',
+					errors: [{ pointer: '#query/limt', code, detail: 'This parameter is not accepted.' }]
+				};
+	}
+	if (op.requestBody) {
+		return {
+			errors: [
+				{
+					pointer: '/name',
+					code: 'invalid_bucket_name',
+					detail: 'Must be 3 to 63 lowercase letters, digits or hyphens.'
+				}
+			]
+		};
+	}
+	const p = operationParams(op, item, doc).find((x) => x.in === 'query' || x.in === 'path');
+	if (!p) return {};
+	return {
+		detail: `The parameter "${p.name}" is not valid.`,
+		errors: [{ pointer: `#${p.in}/${p.name}`, code: 'invalid_value', detail: 'Not a valid value.' }]
+	};
 }
 
 export function buildContract() {
@@ -169,10 +216,11 @@ export function buildContract() {
 			}
 
 			// Error responses from the catalogue.
-			const codes = new Set([...(op['x-kofra-errors'] ?? []), ...COMMON_ERRORS]);
-			const hasParams = op.parameters?.length || item.parameters?.length;
+			if ((op['x-kofra-errors'] ?? []).includes(ACCOUNT_UNAVAILABLE))
+				throw new Error(`${id}: ${ACCOUNT_UNAVAILABLE} is added by the build; do not list it`);
+			const codes = new Set([...(op['x-kofra-errors'] ?? []), ...COMMON_ERRORS, ...REQUEST_ERRORS]);
+			if (!ACCOUNT_UNAVAILABLE_EXEMPT.includes(id)) codes.add(ACCOUNT_UNAVAILABLE);
 			if (op.requestBody) BODY_ERRORS.forEach((c) => codes.add(c));
-			if (hasParams) PARAM_ERRORS.forEach((c) => codes.add(c));
 			if (op['x-kofra-paginated']) codes.add('invalid_cursor');
 			if (['post', 'patch', 'delete'].includes(method))
 				IDEMPOTENT_ERRORS.forEach((c) => codes.add(c));
@@ -187,20 +235,12 @@ export function buildContract() {
 				const errs = byStatus.get(status).sort((a, b) => a.code.localeCompare(b.code));
 				const headers = { ...STD_HEADERS };
 				if (errs.some((e) => e.retryable)) headers['Retry-After'] = header('RetryAfter');
+				if (status === 401) headers['WWW-Authenticate'] = header('WWWAuthenticate');
 				const examples = {};
 				for (const e of errs) {
 					const value = problemExample(e);
-					if (e.code === 'validation_failed' || e.code === 'unknown_field') {
-						value.errors = [
-							e.code === 'unknown_field'
-								? { pointer: '/nmae', code: 'unknown_field', detail: 'This field is not accepted.' }
-								: {
-										pointer: '/name',
-										code: 'invalid_bucket_name',
-										detail: 'Must be 3 to 63 lowercase letters, digits or hyphens.'
-									}
-						];
-					}
+					if (e.code === 'validation_failed' || e.code === 'unknown_field')
+						Object.assign(value, fieldErrorExample(e.code, op, item, doc));
 					examples[e.code] = { summary: e.title, value };
 				}
 				op.responses[String(status)] = {
