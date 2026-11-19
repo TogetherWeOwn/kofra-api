@@ -1,0 +1,6 @@
+# oapi-codegen settings for the Go SDK's generated layer.
+package: kofra
+generate:
+  client: true
+  models: true
+output: kofra/gen.go

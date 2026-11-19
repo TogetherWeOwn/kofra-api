@@ -1,2 +1,4 @@
 # No dependency install scripts run (pnpm 10 blocks them unless listed here).
+packages:
+  - sdk/typescript
 onlyBuiltDependencies: []
