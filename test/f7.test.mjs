@@ -149,3 +149,11 @@ test('file paths are scanned, and unreadable or binary-looking files fail closed
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test('the root home matches only as a whole path segment', () => {
+	const r = '/ro' + 'ot';
+	for (const t of [`cd ${r}`, `ls ${r}/x`, `"${r}"`, `(${r})`])
+		assert.deepEqual(classes('a.sh', t), ['path'], t);
+	for (const t of [`${r}-ca.pem`, `${r}fs`, `${r}.txt`, `cp ${r}_old y`])
+		assert.deepEqual(classes('a.sh', t), [], t);
+});

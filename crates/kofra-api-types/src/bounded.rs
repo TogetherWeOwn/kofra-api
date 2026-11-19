@@ -168,14 +168,20 @@ impl<'de> Deserialize<'de> for Grants {
 /// The body of `keys.update` (contract schema `AccessKeyUpdate`): at least one
 /// of `name` and `grants`. An absent `grants` keeps the key's grants; an empty
 /// list is refused by [`Grants`]. `null` is refused for both fields.
+///
+/// The fields are private, so an update exists only through
+/// [`AccessKeyUpdate::new`] or deserialization, and an empty one cannot be
+/// built or serialized:
+///
+/// ```compile_fail
+/// let empty = kofra_api_types::AccessKeyUpdate { name: None, grants: None };
+/// ```
 #[derive(Debug, Clone, Serialize)]
 pub struct AccessKeyUpdate {
-    /// The new label, when given.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<crate::KeyName>,
-    /// Grants to add or widen, when given.
+    name: Option<crate::KeyName>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub grants: Option<Grants>,
+    grants: Option<Grants>,
 }
 
 /// Why an update body was refused.
@@ -201,24 +207,48 @@ impl AccessKeyUpdate {
         }
         Ok(Self { name, grants })
     }
-}
 
-/// A field that may be absent but, when present, is never `null`.
-fn present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<T>, D::Error> {
-    T::deserialize(d).map(Some)
+    /// The new label, when given.
+    pub fn name(&self) -> Option<&crate::KeyName> {
+        self.name.as_ref()
+    }
+
+    /// Grants to add or widen, when given.
+    pub fn grants(&self) -> Option<&Grants> {
+        self.grants.as_ref()
+    }
 }
 
 impl<'de> Deserialize<'de> for AccessKeyUpdate {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Raw {
-            #[serde(default, deserialize_with = "present")]
-            name: Option<crate::KeyName>,
-            #[serde(default, deserialize_with = "present")]
-            grants: Option<Grants>,
+        // Only a JSON object: a map visitor, so a sequence is refused (a
+        // derived struct would also accept `["name", [grants]]`).
+        struct Fields;
+
+        impl<'de> de::Visitor<'de> for Fields {
+            type Value = AccessKeyUpdate;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("an object with `name`, `grants` or both")
+            }
+
+            fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut name = None;
+                let mut grants = None;
+                while let Some(key) = map.next_key::<std::borrow::Cow<'de, str>>()? {
+                    match key.as_ref() {
+                        "name" if name.is_none() => name = Some(map.next_value()?),
+                        "grants" if grants.is_none() => grants = Some(map.next_value()?),
+                        "name" | "grants" => {
+                            return Err(de::Error::duplicate_field("name or grants"));
+                        }
+                        other => return Err(de::Error::unknown_field(other, &["name", "grants"])),
+                    }
+                }
+                AccessKeyUpdate::new(name, grants).map_err(de::Error::custom)
+            }
         }
-        let raw = Raw::deserialize(deserializer)?;
-        Self::new(raw.name, raw.grants).map_err(de::Error::custom)
+
+        deserializer.deserialize_map(Fields)
     }
 }

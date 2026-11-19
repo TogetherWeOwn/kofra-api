@@ -98,13 +98,41 @@ fn a_key_update_needs_a_field_and_tells_absent_grants_from_empty() {
         );
     }
     let rename: AccessKeyUpdate = serde_json::from_value(json!({ "name": "x" })).expect("rename");
-    assert!(rename.grants.is_none());
+    assert!(rename.grants().is_none());
     assert_eq!(
         serde_json::to_value(&rename).expect("ser"),
         json!({ "name": "x" })
     );
     let widen: AccessKeyUpdate =
         serde_json::from_value(json!({ "grants": grants(2) })).expect("widen");
-    assert!(widen.name.is_none());
-    assert_eq!(widen.grants.map(|g| g.into_vec().len()), Some(2));
+    assert!(widen.name().is_none());
+    assert_eq!(widen.grants().map(|g| g.as_slice().len()), Some(2));
+}
+
+#[test]
+fn a_key_update_is_only_an_object() {
+    for v in [
+        json!(["x"]),
+        json!(["x", null]),
+        json!([null, [{ "bucket": "backups", "access": "read" }]]),
+        json!("x"),
+        json!(null),
+    ] {
+        assert!(
+            serde_json::from_value::<AccessKeyUpdate>(v.clone()).is_err(),
+            "{v} was accepted"
+        );
+    }
+    let dup = r#"{"name":"a","name":"b"}"#;
+    assert!(serde_json::from_str::<AccessKeyUpdate>(dup).is_err());
+}
+
+#[test]
+fn a_key_update_is_built_only_through_its_checks() {
+    assert!(AccessKeyUpdate::new(None, None).is_err());
+    let name: kofra_api_types::KeyName = "x".parse().expect("name");
+    let u = AccessKeyUpdate::new(Some(name), None).expect("valid");
+    assert_eq!(u.name().map(|n| n.to_string()), Some("x".to_owned()));
+    let v = serde_json::to_value(&u).expect("ser");
+    assert_ne!(v, json!({}));
 }

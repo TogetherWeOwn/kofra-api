@@ -118,6 +118,41 @@ function paramPointer(spec, p, fallback) {
 
 const esc = (s) => s.replace(/~/g, '~0').replace(/\//g, '~1');
 
+/**
+ * Name/value items of a Prefer header, split on "," and ";" outside quoted
+ * strings; quoted values are unquoted. Null when a quoted string is not closed.
+ */
+export function splitPrefer(header) {
+	const items = [];
+	let cur = '';
+	let quoted = false;
+	const flush = () => {
+		const item = cur.trim();
+		cur = '';
+		if (!item) return;
+		const i = item.indexOf('=');
+		const key = (i < 0 ? item : item.slice(0, i)).trim().toLowerCase();
+		let value = i < 0 ? '' : item.slice(i + 1).trim();
+		if (value.startsWith('"')) value = value.slice(1, -1).replace(/\\(.)/g, '$1');
+		items.push({ key, value });
+	};
+	for (let i = 0; i < header.length; i++) {
+		const c = header[i];
+		if (quoted) {
+			cur += c;
+			if (c === '\\') cur += header[++i] ?? '';
+			else if (c === '"') quoted = false;
+		} else if (c === '"') {
+			quoted = true;
+			cur += c;
+		} else if (c === ',' || c === ';') flush();
+		else cur += c;
+	}
+	if (quoted) return null;
+	flush();
+	return items;
+}
+
 // RFC 6750 3: the challenge on every 401; a token that was sent but is not
 // usable adds error="invalid_token".
 const challenge = (code) =>
@@ -370,22 +405,21 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 		}
 
 		// Choose the answer.
-		// Prefer parameters split on the first "=" only. The mock's own
-		// preferences, code and example, take one plain token; anything else
-		// there is refused. Other preferences are ignored.
+		// Prefer (RFC 7240, RFC 9110 5.6): preferences and their parameters are
+		// separated by "," and ";" outside quoted strings, and a value splits from
+		// its name on the first "=". The mock's own preferences, code and example,
+		// take one plain token; anything else there, or a malformed header, is
+		// refused. Other preferences are ignored.
 		const badPrefer = (detail) =>
 			fail('validation_failed', {
 				detail,
 				errors: [{ pointer: '#header/prefer', code: 'invalid_value', detail }]
 			});
+		const items = splitPrefer(req.headers['prefer'] ?? '');
+		if (!items) return badPrefer('The Prefer header has an unterminated quoted string.');
 		const prefer = new Map();
-		for (const part of (req.headers['prefer'] ?? '').split(/[,;]/)) {
-			const item = part.trim();
-			if (!item) continue;
-			const i = item.indexOf('=');
-			const key = (i < 0 ? item : item.slice(0, i)).trim().toLowerCase();
+		for (const { key, value } of items) {
 			if (key !== 'code' && key !== 'example') continue;
-			const value = i < 0 ? '' : item.slice(i + 1).trim();
 			if (!/^[A-Za-z0-9_]+$/.test(value) || prefer.has(key))
 				return badPrefer(`The Prefer preference "${key}" is not understood.`);
 			prefer.set(key, value);

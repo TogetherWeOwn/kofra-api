@@ -174,11 +174,12 @@ test('account_unavailable is declared on every operation except reading the acco
 	assert.deepEqual(exempt.sort(), ['account.cancel_deletion', 'account.get']);
 });
 
-test('every operation documents 400 with validation_failed and unknown_field examples', () => {
+test('every operation documents 400 with an unknown_field example', () => {
 	for (const { op } of operations()) {
 		const examples = op.responses['400']?.content['application/problem+json'].examples ?? {};
-		for (const code of ['validation_failed', 'unknown_field'])
-			assert.equal(examples[code]?.value.code, code, `${op.operationId}: ${code}`);
+		assert.equal(examples.unknown_field?.value.code, 'unknown_field', op.operationId);
+		if (examples.validation_failed)
+			assert.equal(examples.validation_failed.value.code, 'validation_failed', op.operationId);
 	}
 });
 
@@ -292,4 +293,15 @@ test('every pointer in a 400 example names something the operation accepts', () 
 		}
 	}
 	assert.ok(checked >= 16, `only ${checked} pointers checked`);
+});
+
+test('validation_failed is documented exactly where the mock can answer it', () => {
+	for (const { item, op } of operations()) {
+		const params = [...(item.parameters ?? []), ...(op.parameters ?? [])];
+		const canFail = params.length > 0 || Boolean(op.requestBody);
+		const examples = op.responses['400'].content['application/problem+json'].examples;
+		assert.equal(Object.hasOwn(examples, 'validation_failed'), canFail, op.operationId);
+		assert.equal(op['x-kofra-errors'].includes('validation_failed'), canFail, op.operationId);
+		assert.ok(examples.unknown_field, op.operationId);
+	}
 });

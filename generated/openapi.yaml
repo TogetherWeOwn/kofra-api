@@ -106,7 +106,7 @@ paths:
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
         "400":
-          description: "`unknown_field`, `validation_failed`"
+          description: "`unknown_field`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -129,22 +129,6 @@ paths:
                     detail: The query parameter "limt" is not accepted by this operation.
                     hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
                     docs_url: https://kofra.app/docs/errors/unknown_field.md
-                    request_id: req_01jd3examplerequestid0000
-                    retryable: false
-                    errors:
-                      - pointer: "#query/limt"
-                        code: unknown_field
-                        detail: This parameter is not accepted.
-                validation_failed:
-                  summary: Request is not valid
-                  value:
-                    type: https://kofra.app/docs/errors/validation_failed
-                    title: Request is not valid
-                    status: 400
-                    code: validation_failed
-                    detail: The query parameter "limt" is not accepted by this operation.
-                    hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
-                    docs_url: https://kofra.app/docs/errors/validation_failed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                     errors:
@@ -310,7 +294,6 @@ paths:
         - token_expired
         - unauthenticated
         - unknown_field
-        - validation_failed
     delete:
       operationId: account.delete
       tags:
@@ -784,15 +767,15 @@ paths:
                     title: Request is not valid
                     status: 400
                     code: validation_failed
-                    detail: The query parameter "limt" is not accepted by this operation.
+                    detail: The parameter "Idempotency-Key" is not valid.
                     hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
                     docs_url: https://kofra.app/docs/errors/validation_failed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                     errors:
-                      - pointer: "#query/limt"
-                        code: unknown_field
-                        detail: This parameter is not accepted.
+                      - pointer: "#header/Idempotency-Key"
+                        code: invalid_value
+                        detail: Not a valid value.
         "401":
           description: "`token_expired`, `unauthenticated`"
           headers:
@@ -4055,7 +4038,7 @@ paths:
             RateLimit-Policy:
               $ref: "#/components/headers/RateLimitPolicy"
         "400":
-          description: "`unknown_field`, `validation_failed`"
+          description: "`unknown_field`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -4078,22 +4061,6 @@ paths:
                     detail: The query parameter "limt" is not accepted by this operation.
                     hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
                     docs_url: https://kofra.app/docs/errors/unknown_field.md
-                    request_id: req_01jd3examplerequestid0000
-                    retryable: false
-                    errors:
-                      - pointer: "#query/limt"
-                        code: unknown_field
-                        detail: This parameter is not accepted.
-                validation_failed:
-                  summary: Request is not valid
-                  value:
-                    type: https://kofra.app/docs/errors/validation_failed
-                    title: Request is not valid
-                    status: 400
-                    code: validation_failed
-                    detail: The query parameter "limt" is not accepted by this operation.
-                    hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
-                    docs_url: https://kofra.app/docs/errors/validation_failed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                     errors:
@@ -4272,7 +4239,6 @@ paths:
         - token_expired
         - unauthenticated
         - unknown_field
-        - validation_failed
   /v1/usage/days:
     get:
       operationId: usage.days

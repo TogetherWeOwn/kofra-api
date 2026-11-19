@@ -18,9 +18,9 @@ const COMMON_ERRORS = [
 	'internal_error',
 	'service_unavailable'
 ];
-// Every operation refuses undeclared or repeated query parameters, so every
-// operation can answer 400 with these two codes.
-const REQUEST_ERRORS = ['validation_failed', 'unknown_field'];
+// Every operation refuses undeclared query parameters (unknown_field); one
+// that takes parameters or a body can also answer validation_failed.
+const REQUEST_ERRORS = ['unknown_field'];
 const BODY_ERRORS = ['unsupported_media_type', 'payload_too_large'];
 // A blocked account, or one being deleted, can only read itself and cancel the
 // deletion; every other operation can answer account_unavailable.
@@ -169,16 +169,9 @@ function fieldErrorExample(code, op, item, doc) {
 		};
 	}
 	const params = operationParams(op, item, doc);
-	const p = params.find((x) => x.in === 'query') ?? params.find((x) => x.in === 'path');
-	if (!p) {
-		// Nothing to get wrong but the query itself: a parameter it does not declare.
-		return {
-			detail: 'The query parameter "limt" is not accepted by this operation.',
-			errors: [
-				{ pointer: '#query/limt', code: 'unknown_field', detail: 'This parameter is not accepted.' }
-			]
-		};
-	}
+	const p = ['query', 'path', 'header'].map((w) => params.find((x) => x.in === w)).find(Boolean);
+	// validation_failed is only declared where there is something to validate.
+	if (!p) throw new Error(`${op.operationId}: validation_failed without parameters or a body`);
 	return {
 		detail: `The parameter "${p.name}" is not valid.`,
 		errors: [{ pointer: `#${p.in}/${p.name}`, code: 'invalid_value', detail: 'Not a valid value.' }]
@@ -227,6 +220,7 @@ export function buildContract() {
 				throw new Error(`${id}: ${ACCOUNT_UNAVAILABLE} is added by the build; do not list it`);
 			const codes = new Set([...(op['x-kofra-errors'] ?? []), ...COMMON_ERRORS, ...REQUEST_ERRORS]);
 			if (!ACCOUNT_UNAVAILABLE_EXEMPT.includes(id)) codes.add(ACCOUNT_UNAVAILABLE);
+			if (op.requestBody || operationParams(op, item, doc).length) codes.add('validation_failed');
 			if (op.requestBody) BODY_ERRORS.forEach((c) => codes.add(c));
 			if (op['x-kofra-paginated']) codes.add('invalid_cursor');
 			if (['post', 'patch', 'delete'].includes(method))

@@ -40,6 +40,92 @@ const LIMITS: &[(&str, &str, &str)] = &[
 
 const BOUNDED_RS: &str = "crates/kofra-api-types/src/bounded.rs";
 
+/// The exact shape each [`BOUNDED`] type implements: the keywords allowed at a
+/// pointer inside the schema. Any other keyword (a new `maxProperties`, a
+/// `pattern`, another property) is a constraint the hand-written type does not
+/// enforce, so the drift check fails until the type and this table change.
+const SHAPES: &[(&str, &str, &[&str])] = &[
+    (
+        "PresignLifetime",
+        "",
+        &["type", "minimum", "maximum", "default", "description"],
+    ),
+    (
+        "Grants",
+        "",
+        &["type", "minItems", "maxItems", "items", "description"],
+    ),
+    ("Grants", "/items", &["$ref"]),
+    (
+        "AccessKeyUpdate",
+        "",
+        &[
+            "type",
+            "description",
+            "additionalProperties",
+            "minProperties",
+            "properties",
+        ],
+    ),
+    ("AccessKeyUpdate", "/properties", &["name", "grants"]),
+    ("AccessKeyUpdate", "/properties/name", &["$ref"]),
+    (
+        "AccessKeyUpdate",
+        "/properties/grants",
+        &["$ref", "description"],
+    ),
+];
+
+/// Fixed values inside a [`BOUNDED`] schema that its type relies on.
+const FIXED: &[(&str, &str, &str)] = &[
+    ("PresignLifetime", "/type", r#""integer""#),
+    ("Grants", "/type", r#""array""#),
+    (
+        "Grants",
+        "/items/$ref",
+        r##""#/components/schemas/GrantInput""##,
+    ),
+    ("AccessKeyUpdate", "/type", r#""object""#),
+    ("AccessKeyUpdate", "/additionalProperties", "false"),
+    (
+        "AccessKeyUpdate",
+        "/properties/name/$ref",
+        r##""#/components/schemas/KeyName""##,
+    ),
+    (
+        "AccessKeyUpdate",
+        "/properties/grants/$ref",
+        r##""#/components/schemas/Grants""##,
+    ),
+];
+
+/// Every place where a [`BOUNDED`] schema differs from the shape its
+/// hand-written type implements.
+fn shape_mismatches(spec: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    for (schema, _) in BOUNDED {
+        let Some(root) = spec.pointer(&format!("/components/schemas/{schema}")) else {
+            out.push(format!("{schema} is mapped but not in the contract"));
+            continue;
+        };
+        for (_, at, allowed) in SHAPES.iter().filter(|(s, _, _)| s == schema) {
+            match root.pointer(at).and_then(Value::as_object) {
+                Some(map) => out.extend(map.keys().filter(|k| !allowed.contains(&k.as_str())).map(
+                    |k| format!("{schema}{at}: `{k}` is not implemented by the bounded type"),
+                )),
+                None => out.push(format!("{schema}{at}: expected an object")),
+            }
+        }
+        for (_, at, want) in FIXED.iter().filter(|(s, _, _)| s == schema) {
+            let want: Value = serde_json::from_str(want).unwrap_or(Value::Null);
+            if root.pointer(at) != Some(&want) {
+                out.push(format!("{schema}{at}: expected {want}"));
+            }
+        }
+    }
+    out
+}
+
 /// Integer `const`s of every `impl <Type>` block in `source`, as (type, const, value).
 fn rust_consts(source: &str) -> Result<Vec<(String, String, u64)>, String> {
     let file = syn::parse_file(source).map_err(|e| format!("{BOUNDED_RS}: {e}"))?;
@@ -320,7 +406,8 @@ fn main() -> ExitCode {
     let result = load_spec().and_then(|spec| {
         let source = fs::read_to_string(root().join(BOUNDED_RS))
             .map_err(|e| format!("{BOUNDED_RS}: {e}"))?;
-        let mismatched = limit_mismatches(&spec, &source)?;
+        let mut mismatched = shape_mismatches(&spec);
+        mismatched.extend(limit_mismatches(&spec, &source)?);
         if !mismatched.is_empty() {
             return Err(format!(
                 "the hand-written bounded types disagree with the contract:\n  {}",
@@ -443,6 +530,37 @@ mod tests {
     }
 
     #[test]
+    fn a_constraint_a_bounded_type_does_not_implement_is_reported() {
+        let mut spec = load_spec().expect("contract");
+        assert!(shape_mismatches(&spec).is_empty());
+        let update = spec
+            .pointer_mut("/components/schemas/AccessKeyUpdate")
+            .and_then(Value::as_object_mut)
+            .expect("AccessKeyUpdate");
+        update.insert("maxProperties".into(), json!(1));
+        update["properties"]["name"]["maxLength"] = json!(10);
+        update["properties"]["tags"] = json!({ "type": "array" });
+        let lifetime = spec
+            .pointer_mut("/components/schemas/PresignLifetime")
+            .and_then(Value::as_object_mut)
+            .expect("PresignLifetime");
+        lifetime.insert("multipleOf".into(), json!(60));
+        lifetime.insert("type".into(), json!("number"));
+        let mut got = shape_mismatches(&spec);
+        got.sort();
+        assert_eq!(
+            got,
+            [
+                "AccessKeyUpdate/properties/name: `maxLength` is not implemented by the bounded type",
+                "AccessKeyUpdate/properties: `tags` is not implemented by the bounded type",
+                "AccessKeyUpdate: `maxProperties` is not implemented by the bounded type",
+                "PresignLifetime/type: expected \"integer\"",
+                "PresignLifetime: `multipleOf` is not implemented by the bounded type",
+            ]
+        );
+    }
+
+    #[test]
     fn the_bounded_types_match_the_published_contract() {
         let spec = load_spec().expect("contract");
         let source = fs::read_to_string(root().join(BOUNDED_RS)).expect("bounded.rs");
@@ -454,6 +572,10 @@ mod tests {
             assert!(
                 LIMITS.iter().any(|(s, _, _)| s == schema),
                 "{schema} has no LIMITS row"
+            );
+            assert!(
+                SHAPES.iter().any(|(s, at, _)| s == schema && at.is_empty()),
+                "{schema} has no SHAPES row"
             );
         }
     }

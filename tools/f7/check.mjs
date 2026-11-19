@@ -78,7 +78,7 @@ const EMAIL_OK = /@(example\.(com|org|net)|kofra\.(app|io))$/i;
 // Home directories: /home/<name>, /Users/<name>, the root home, ~/<path>, and
 // Windows user folders, with single or doubled (escaped) separators.
 const HOME_PATH =
-	/(^|[^A-Za-z0-9])(\/(home|Users)\/[A-Za-z][A-Za-z0-9._-]*|\/(?:root)(\/|\b)|[A-Za-z]:\\{1,2}Users\\{1,2})|(^|[\s"'=(:`])~\/[A-Za-z0-9._-]/;
+	/(^|[^A-Za-z0-9])(\/(home|Users)\/[A-Za-z][A-Za-z0-9._-]*|\/(?:root)(?=\/|$|[^A-Za-z0-9._-])|[A-Za-z]:\\{1,2}Users\\{1,2})|(^|[\s"'=(:`])~\/[A-Za-z0-9._-]/;
 // Only for the short class: integrity strings, checksums and base64 blobs are
 // random enough to start a token part with a short term by chance, so they are
 // blanked before that class runs. The strict class scans every line whole.

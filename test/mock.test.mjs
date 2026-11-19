@@ -394,3 +394,18 @@ test('a scheme other than Bearer gets the plain challenge; a bad Bearer token ge
 		);
 	}
 });
+
+test('Prefer quoted-string values are read whole, so separators inside quotes do nothing', async () => {
+	for (const prefer of ['custom="note; code; final"', 'custom="a, code=503"', 'x="\\"code=503\\""'])
+		assert.equal((await call('GET', '/v1/usage', { headers: { prefer } })).res.status, 200, prefer);
+	assertProblem(
+		await call('GET', '/v1/usage', { headers: { prefer: 'custom="a;b", code="503"' } }),
+		503,
+		'service_unavailable'
+	);
+	assertProblem(
+		await call('GET', '/v1/usage', { headers: { prefer: 'custom="unterminated; code=503' } }),
+		400,
+		'validation_failed'
+	);
+});

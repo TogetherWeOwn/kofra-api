@@ -16,6 +16,13 @@ fn round_trip<T: DeserializeOwned + Serialize>(name: &str, value: &Value) {
 fn check(schema: &str, value: &Value) {
     match schema {
         "Account" => round_trip::<Account>(schema, value),
+        "AccessKeyId" => round_trip::<AccessKeyId>(schema, value),
+        "BucketName" => round_trip::<BucketName>(schema, value),
+        "Cursor" => round_trip::<Cursor>(schema, value),
+        "Timestamp" => round_trip::<Timestamp>(schema, value),
+        "KeyName" => round_trip::<KeyName>(schema, value),
+        "Grants" => round_trip::<bounded::Grants>(schema, value),
+        "PresignLifetime" => round_trip::<bounded::PresignLifetime>(schema, value),
         "Deletion" => round_trip::<Deletion>(schema, value),
         "Plan" => round_trip::<Plan>(schema, value),
         "Bucket" => round_trip::<Bucket>(schema, value),
@@ -41,6 +48,37 @@ fn schema_name(media: &Value) -> Option<&str> {
     media.pointer("/schema/$ref")?.as_str()?.rsplit('/').next()
 }
 
+/// Example values a schema carries itself: `example` and the JSON Schema
+/// `examples` array.
+fn schema_examples(schema: &Value) -> Vec<&Value> {
+    schema
+        .get("example")
+        .into_iter()
+        .chain(
+            schema
+                .get("examples")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten(),
+        )
+        .collect()
+}
+
+/// Every example value of a media type: the `examples` map, the singular
+/// `example`, and the examples on its schema.
+fn media_examples(media: &Value) -> Vec<&Value> {
+    let named = media
+        .get("examples")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|e| e.values())
+        .map(|e| &e["value"]);
+    named
+        .chain(media.get("example"))
+        .chain(media.get("schema").into_iter().flat_map(schema_examples))
+        .collect()
+}
+
 #[test]
 fn every_contract_example_round_trips_through_the_rust_types() {
     let spec: Value = serde_json::from_str(OPENAPI_JSON).expect("contract is JSON");
@@ -62,18 +100,18 @@ fn every_contract_example_round_trips_through_the_rust_types() {
                 .filter_map(|r| r.get("content"));
             for content in bodies.chain(responses) {
                 for (media_type, media) in content.as_object().expect("content") {
-                    let examples = media.get("examples").and_then(Value::as_object);
-                    let Some(examples) = examples.filter(|e| !e.is_empty()) else {
+                    let examples = media_examples(media);
+                    if examples.is_empty() {
                         continue;
-                    };
+                    }
                     // Every media type with examples is checked: an inline
                     // (non-$ref) schema would otherwise be skipped silently.
                     let schema = schema_name(media).unwrap_or_else(|| {
                         panic!("{media_type}: examples under a schema without a $ref name")
                     });
                     with_examples += 1;
-                    for example in examples.values() {
-                        check(schema, &example["value"]);
+                    for example in examples {
+                        check(schema, example);
                         checked += 1;
                     }
                     checked_media += 1;
@@ -81,10 +119,41 @@ fn every_contract_example_round_trips_through_the_rust_types() {
             }
         }
     }
+    // Examples on the named schemas themselves.
+    for (name, schema) in spec["components"]["schemas"].as_object().expect("schemas") {
+        let examples = schema_examples(schema);
+        if !examples.is_empty() {
+            with_examples += 1;
+            for example in examples {
+                check(name, example);
+                checked += 1;
+            }
+            checked_media += 1;
+        }
+    }
     assert!(checked > 100, "only {checked} examples checked");
     assert_eq!(
         checked_media, with_examples,
         "a media type with examples was not checked"
+    );
+}
+
+#[test]
+fn singular_and_schema_level_examples_are_collected() {
+    let media = serde_json::json!({
+        "schema": { "$ref": "#/components/schemas/Plan", "example": 1, "examples": [2, 3] },
+        "example": 4,
+        "examples": { "a": { "value": 5 } }
+    });
+    let mut got: Vec<i64> = media_examples(&media)
+        .into_iter()
+        .filter_map(Value::as_i64)
+        .collect();
+    got.sort_unstable();
+    assert_eq!(got, [1, 2, 3, 4, 5]);
+    assert_eq!(
+        schema_examples(&serde_json::json!({ "example": 7 })).len(),
+        1
     );
 }
 

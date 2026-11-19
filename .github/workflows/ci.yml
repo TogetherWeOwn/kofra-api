@@ -35,7 +35,8 @@ env:
 
 jobs:
   # Change detection (org CI standard): which areas a pull request touches.
-  # A full-run path or an unclassified path forces a full run. `contract`
+  # A full-run path (dependency manifests, lockfiles, toolchain and tooling
+  # config, workflows) or an unclassified path forces a full run. `contract`
   # runs on every change, because prettier and the F7 deny-list check every
   # file, Markdown included. `rust` runs on a pull request when the `rust`
   # area (the crates, xtask, Cargo files, the toolchain, and the contract
@@ -45,8 +46,8 @@ jobs:
     name: changes
     uses: TogetherWeOwn/.github/.github/workflows/changes.yml@c1e39ff4aa3369b53cc28de36fcd43aef2640b52 # v0.12.0
     with:
-      areas-json: '{"docs":["**.md","docs/**"],"contract":["openapi/**","errors/**","registry/**","generated/**","tools/**","test/**","eslint.config.js","prettier.config.js","redocly.yaml",".prettierignore",".node-version"],"rust":["crates/**","xtask/**","Cargo.toml","Cargo.lock","rust-toolchain.toml","openapi/**","errors/**","registry/**","tools/build.mjs","generated/**"]}'
-      full-run-globs-json: '["package.json","**/package.json","pnpm-lock.yaml","**/pnpm-lock.yaml","pnpm-workspace.yaml","**/pnpm-workspace.yaml",".npmrc","**/.npmrc","Cargo.toml","**/Cargo.toml","Cargo.lock","**/Cargo.lock",".cargo/**","**/.cargo/**","rust-toolchain*","**/rust-toolchain*","osv-scanner.toml",".gitleaks.toml",".github/**"]'
+      areas-json: '{"docs":["**.md","docs/**"],"contract":["openapi/**","errors/**","registry/**","generated/**","tools/**","test/**"],"rust":["crates/**","xtask/**","Cargo.toml","Cargo.lock","rust-toolchain.toml","openapi/**","errors/**","registry/**","tools/build.mjs","generated/**"]}'
+      full-run-globs-json: '["package.json","**/package.json","pnpm-lock.yaml","**/pnpm-lock.yaml","pnpm-workspace.yaml","**/pnpm-workspace.yaml",".npmrc","**/.npmrc",".node-version","redocly.yaml","eslint.config.js","prettier.config.js",".prettierignore",".gitignore",".gitattributes",".editorconfig","Cargo.toml","**/Cargo.toml","Cargo.lock","**/Cargo.lock",".cargo/**","**/.cargo/**","rust-toolchain*","**/rust-toolchain*","osv-scanner.toml",".gitleaks.toml",".github/**"]'
       docs-areas-json: '["docs"]'
 
   public-pr-security:
