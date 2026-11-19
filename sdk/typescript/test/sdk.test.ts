@@ -23,14 +23,18 @@ function spyClient(token = 'kofra_tok_test_1') {
 		baseUrl,
 		maxRetryWaitSeconds: 0,
 		fetch: async (input, init) => {
-			seen.push({ method: init?.method ?? 'GET', url: String(input), headers: new Headers(init?.headers) });
+			seen.push({
+				method: init?.method ?? 'GET',
+				url: String(input),
+				headers: new Headers(init?.headers)
+			});
 			return fetch(input, init);
 		}
 	});
 	return { kofra, seen };
 }
 
-test('every operation is callable as client.<group>.<method>() and returns the contract example', async () => {
+test('every operation is callable as client.<resource>.<method>() and returns the contract example', async () => {
 	const { kofra } = spyClient();
 	assert.equal((await kofra.account.get()).state, 'active');
 	assert.equal((await kofra.buckets.list()).data.length, 2);
@@ -38,15 +42,24 @@ test('every operation is callable as client.<group>.<method>() and returns the c
 	assert.equal((await kofra.buckets.get({ bucket: 'backups' })).object_count, 1204);
 	assert.equal(await kofra.buckets.delete({ bucket: 'old-logs' }), undefined);
 	assert.equal((await kofra.keys.list()).data[0].id, 'KF7Q2M8X4T7R5N0B');
-	const created = await kofra.keys.create({ body: { grants: [{ bucket: 'backups', access: 'read_write' }] } });
+	const created = await kofra.keys.create({
+		body: { grants: [{ bucket: 'backups', access: 'read_write' }] }
+	});
 	assert.ok(created.secret_access_key);
-	assert.equal((await kofra.keys.update({ key_id: 'KF7Q2M8X4T7R5N0B', body: { name: 'x' } })).grants.length, 2);
+	assert.equal(
+		(await kofra.keys.update({ key_id: 'KF7Q2M8X4T7R5N0B', body: { name: 'x' } })).grants.length,
+		2
+	);
 	assert.equal(await kofra.keys.revoke({ key_id: 'KF7Q2M8X4T7R5N0B' }), undefined);
 	assert.equal((await kofra.usage.get()).object_count, 18342);
 	assert.equal((await kofra.usage.days({ after: '2026-11-01' })).data.length, 2);
 	assert.equal((await kofra.usage.buckets()).data.length, 2);
 	assert.equal((await kofra.events.list()).data[0].type, 'key.created');
-	assert.equal((await kofra.objects.presign({ body: { bucket: 'backups', key: 'a.txt', method: 'GET' } })).method, 'GET');
+	assert.equal(
+		(await kofra.objects.presign({ body: { bucket: 'backups', key: 'a.txt', method: 'GET' } }))
+			.method,
+		'GET'
+	);
 	const deletion = await kofra.account.delete();
 	assert.ok(deletion && 'status' in deletion && deletion.status === 'pending_confirmation');
 	assert.equal((await kofra.account.cancelDeletion()).state, 'active');
@@ -79,7 +92,9 @@ test('errors become KofraError with the catalogue code and hint', async () => {
 		return true;
 	});
 	const ro = spyClient('kofra_tok_ci_readonly').kofra;
-	await assert.rejects(ro.buckets.create({ body: { name: 'backups' } }), { code: 'insufficient_scope' });
+	await assert.rejects(ro.buckets.create({ body: { name: 'backups' } }), {
+		code: 'insufficient_scope'
+	});
 });
 
 test('busy answers are retried with the same Idempotency-Key, then surface as retryable', async () => {
@@ -95,7 +110,10 @@ test('busy answers are retried with the same Idempotency-Key, then surface as re
 			return fetch(input, { ...init, headers });
 		}
 	});
-	await assert.rejects(busy.buckets.delete({ bucket: 'photos' }), { code: 'service_unavailable', retryable: true });
+	await assert.rejects(busy.buckets.delete({ bucket: 'photos' }), {
+		code: 'service_unavailable',
+		retryable: true
+	});
 	assert.equal(seen.length, 3);
 	const keys = new Set(seen.map((s) => s.headers.get('idempotency-key')));
 	assert.equal(keys.size, 1);

@@ -41,12 +41,14 @@ jobs:
   # file, Markdown included. `rust` runs on a pull request when the `rust`
   # area (the crates, xtask, Cargo files, the toolchain, and the contract
   # sources and artefacts the types are generated from) or a full-run path
-  # changed, and always on every other event.
+  # changed, and always on every other event. `sdk` follows the same rule
+  # with the `sdk` area (the SDKs, their generator, the mock they are tested
+  # against, and the contract sources and artefacts they are generated from).
   changes:
     name: changes
     uses: TogetherWeOwn/.github/.github/workflows/changes.yml@c1e39ff4aa3369b53cc28de36fcd43aef2640b52 # v0.12.0
     with:
-      areas-json: '{"docs":["**.md","docs/**"],"contract":["openapi/**","errors/**","registry/**","generated/**","tools/**","test/**"],"rust":["crates/**","xtask/**","Cargo.toml","Cargo.lock","rust-toolchain.toml","openapi/**","errors/**","registry/**","tools/build.mjs","generated/**"]}'
+      areas-json: '{"docs":["**.md","docs/**"],"contract":["openapi/**","errors/**","registry/**","generated/**","tools/**","test/**"],"rust":["crates/**","xtask/**","Cargo.toml","Cargo.lock","rust-toolchain.toml","openapi/**","errors/**","registry/**","tools/build.mjs","generated/**"],"sdk":["sdk/**","tools/sdk/**","tools/mock/**",".node-version","openapi/**","errors/**","registry/**","generated/**"]}'
       full-run-globs-json: '["package.json","**/package.json","pnpm-lock.yaml","**/pnpm-lock.yaml","pnpm-workspace.yaml","**/pnpm-workspace.yaml",".npmrc","**/.npmrc",".node-version","redocly.yaml","eslint.config.js","prettier.config.js",".prettierignore",".gitignore",".gitattributes",".editorconfig","Cargo.toml","**/Cargo.toml","Cargo.lock","**/Cargo.lock",".cargo/**","**/.cargo/**","rust-toolchain*","**/rust-toolchain*","osv-scanner.toml",".gitleaks.toml",".github/**"]'
       docs-areas-json: '["docs"]'
 
@@ -115,7 +117,9 @@ jobs:
             "https://github.com/google/osv-scanner/releases/download/v${OSV_VERSION}/osv-scanner_linux_amd64"
           echo "${OSV_SHA256}  ${bin}" | sha256sum --check -
           chmod 0755 "$bin"
-          "$bin" scan source --lockfile pnpm-lock.yaml --lockfile Cargo.lock
+          # osv-scanner reads Go modules from go.mod (go.sum holds only hashes).
+          "$bin" scan source --lockfile pnpm-lock.yaml --lockfile Cargo.lock \
+            --lockfile sdk/go/go.mod --lockfile sdk/python/uv.lock
 
   contract:
     name: contract (build check, lint, tests, F7 deny-list)
@@ -163,9 +167,74 @@ jobs:
       # The contract-derived types must build for the Workers target.
       - run: cargo build --locked -p kofra-api-types --target wasm32-unknown-unknown --release
 
+  sdk:
+    name: sdk (regenerate, TypeScript, Python, Go, CLI cross-build)
+    needs: [changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.full_run == 'true' || fromJSON(needs.changes.outputs.areas).sdk
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: sdk/go/go.mod
+          cache-dependency-path: sdk/go/go.sum
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: pnpm install --frozen-lockfile
+      # The SDKs' generated layers and the CLI table come from the contract
+      # with pinned generators; any drift or stray file fails here.
+      - name: Regenerate the SDKs and fail on drift
+        run: |
+          set -euo pipefail
+          node tools/sdk/generate.mjs
+          git diff --exit-code
+          untracked="$(git status --porcelain)"
+          if [ -n "$untracked" ]; then
+            echo "Files changed or added by the generator:"
+            echo "$untracked"
+            exit 1
+          fi
+      - name: TypeScript (typecheck, tests against the mock)
+        working-directory: sdk/typescript
+        run: |
+          pnpm run check
+          pnpm test
+      - name: Python (tests against the mock)
+        working-directory: sdk/python
+        run: uv run --locked pytest
+      - name: Go (vet, gofmt, tests against the mock)
+        working-directory: sdk/go
+        run: |
+          set -euo pipefail
+          go vet ./...
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt would change: $unformatted"
+            exit 1
+          fi
+          go test ./...
+      - name: Cross-build the CLI
+        working-directory: sdk/go
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          for os in linux darwin windows; do
+            for arch in amd64 arm64; do
+              GOOS="$os" GOARCH="$arch" go build -trimpath -o "$RUNNER_TEMP/kofra-$os-$arch" ./cmd/kofra
+            done
+          done
+
   ci-ok:
     name: ci-ok
-    needs: [changes, public-pr-security, workflow-lint, deps, contract, rust]
+    needs: [changes, public-pr-security, workflow-lint, deps, contract, rust, sdk]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -175,17 +244,22 @@ jobs:
           # must succeed on pull_request and be skipped on any other event.
           # `rust` must succeed when its gate says it is due (any event other
           # than pull_request, a full run, or a change in the `rust` area) and
-          # be skipped otherwise. Every other job must succeed.
+          # be skipped otherwise; `sdk` likewise with the `sdk` area. Every
+          # other job must succeed.
           if ! jq -e --arg event "$CI_EVENT_NAME" '
             . as $n |
             ($event != "pull_request" or
               $n.changes.outputs.full_run == "true" or
               ($n.changes.outputs.areas | fromjson | .rust == true)) as $rust_due |
+            ($event != "pull_request" or
+              $n.changes.outputs.full_run == "true" or
+              ($n.changes.outputs.areas | fromjson | .sdk == true)) as $sdk_due |
             ($n | length) > 1 and
             $n.changes.result == "success" and
             $n["public-pr-security"].result == (if $event == "pull_request" then "success" else "skipped" end) and
             $n.rust.result == (if $rust_due then "success" else "skipped" end) and
-            ($n | del(.["public-pr-security"], .rust) | all(.[]; .result == "success"))
+            $n.sdk.result == (if $sdk_due then "success" else "skipped" end) and
+            ($n | del(.["public-pr-security"], .rust, .sdk) | all(.[]; .result == "success"))
           ' <<< "$NEEDS_JSON" > /dev/null; then
             echo "ci-ok: a required job did not succeed"
             exit 1

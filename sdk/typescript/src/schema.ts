@@ -147,7 +147,12 @@ export interface paths {
          *     secret was lost.
          *
          *     Whoever holds a key with access to a bucket can read its objects, so
-         *     `keys:write` is treated as data access.
+         *     `keys:write` is treated as data access. The grants cannot exceed the
+         *     caller's own access: a grant on a bucket, or an access level, that the
+         *     caller's role does not allow is refused with `role_forbidden`.
+         *
+         *     Through the MCP tool `keys_create`, the secret is not in the tool
+         *     result: the result links to a console page that shows it once.
          *
          *     Scopes: `keys:write`.
          */
@@ -421,23 +426,26 @@ export interface components {
             summary: string;
             /** @description Whether the change could be undone after it is made. */
             reversible: boolean;
-            effects: {
-                /** @enum {string} */
-                resource: "account" | "bucket" | "key";
-                id: string;
-                /** @enum {string} */
-                change: "delete" | "revoke" | "schedule_deletion";
-            }[];
-            totals: {
-                /** Format: int64 */
-                buckets: number;
-                /** Format: int64 */
-                objects: number;
-                /** Format: int64 */
-                stored_bytes: number;
-                /** Format: int64 */
-                keys: number;
-            };
+            effects: components["schemas"]["PlanEffect"][];
+            totals: components["schemas"]["PlanTotals"];
+        };
+        PlanEffect: {
+            /** @enum {string} */
+            resource: "account" | "bucket" | "key";
+            id: string;
+            /** @enum {string} */
+            change: "delete" | "revoke" | "schedule_deletion";
+        };
+        /** @description What the planned change reaches, in total. */
+        PlanTotals: {
+            /** Format: int64 */
+            buckets: number;
+            /** Format: int64 */
+            objects: number;
+            /** Format: int64 */
+            stored_bytes: number;
+            /** Format: int64 */
+            keys: number;
         };
         Bucket: {
             name: components["schemas"]["BucketName"];
@@ -454,7 +462,17 @@ export interface components {
             data: components["schemas"]["Bucket"][];
             next_cursor: components["schemas"]["Cursor"] | null;
         };
+        /** @description One bucket an access key can reach, and how. */
         Grant: {
+            bucket: components["schemas"]["BucketName"];
+            /**
+             * @description `read`: list and read objects. `read_write`: also write and delete objects.
+             * @enum {string}
+             */
+            access: "read" | "read_write";
+        };
+        /** @description A grant in a request. Each bucket at most once per request; a bucket listed twice is refused with `validation_failed`. */
+        GrantInput: {
             bucket: components["schemas"]["BucketName"];
             /**
              * @description `read`: list and read objects. `read_write`: also write and delete objects.
@@ -479,12 +497,13 @@ export interface components {
         };
         AccessKeyCreate: {
             name?: string;
-            grants: components["schemas"]["Grant"][];
+            /** @description The buckets the key can reach. Each bucket at most once. */
+            grants: components["schemas"]["GrantInput"][];
         };
         AccessKeyUpdate: {
             name?: string;
-            /** @description Grants to add or widen. Grants not listed are kept. */
-            grants?: components["schemas"]["Grant"][];
+            /** @description Grants to add or widen. Grants not listed are kept. Each bucket at most once. A key holds at most 32 grants. */
+            grants?: components["schemas"]["GrantInput"][];
         };
         AccessKeyList: {
             data: components["schemas"]["AccessKey"][];
@@ -498,37 +517,43 @@ export interface components {
             object_count: number;
             /** Format: int64 */
             storage_limit_bytes: number | null;
-            /** @description Set while stored bytes are above the storage limit. */
-            over_limit: {
-                since: components["schemas"]["Timestamp"];
-                /** @description When writes stop unless usage is reduced or the limit raised. `null` if no deadline applies. */
-                deadline_at: components["schemas"]["Timestamp"] | null;
-            } | null;
-            upload_24h: {
-                /** Format: int64 */
-                limit_bytes: number | null;
-                /** Format: int64 */
-                used_bytes: number;
-                /** Format: int64 */
-                remaining_bytes: number | null;
-                resets_at: components["schemas"]["Timestamp"];
-            };
-            downloads: {
-                period_start: components["schemas"]["Timestamp"];
-                /** Format: int64 */
-                allowance_bytes: number | null;
-                /** Format: int64 */
-                used_bytes: number;
-                /** Format: int64 */
-                over_bytes: number;
-            };
-            /** @description Multipart uploads started and not yet completed or aborted. */
-            open_uploads: {
-                /** Format: int64 */
-                count: number;
-                /** Format: int64 */
-                limit: number;
-            };
+            over_limit: components["schemas"]["OverLimit"] | null;
+            upload_24h: components["schemas"]["Upload24h"];
+            downloads: components["schemas"]["Downloads"];
+            open_uploads: components["schemas"]["OpenUploads"];
+        };
+        /** @description Set while stored bytes are above the storage limit. */
+        OverLimit: {
+            since: components["schemas"]["Timestamp"];
+            /** @description When writes stop unless usage is reduced or the limit raised. `null` if no deadline applies. */
+            deadline_at: components["schemas"]["Timestamp"] | null;
+        };
+        /** @description Uploads in the current 24-hour window. */
+        Upload24h: {
+            /** Format: int64 */
+            limit_bytes: number | null;
+            /** Format: int64 */
+            used_bytes: number;
+            /** Format: int64 */
+            remaining_bytes: number | null;
+            resets_at: components["schemas"]["Timestamp"];
+        };
+        /** @description Downloads in the current billing period. */
+        Downloads: {
+            period_start: components["schemas"]["Timestamp"];
+            /** Format: int64 */
+            allowance_bytes: number | null;
+            /** Format: int64 */
+            used_bytes: number;
+            /** Format: int64 */
+            over_bytes: number;
+        };
+        /** @description Multipart uploads started and not yet completed or aborted. */
+        OpenUploads: {
+            /** Format: int64 */
+            count: number;
+            /** Format: int64 */
+            limit: number;
         };
         UsageDay: {
             /** Format: date */
@@ -588,8 +613,13 @@ export interface components {
              */
             method: "GET";
             /** @default 900 */
-            expires_in_seconds: number;
+            expires_in_seconds: components["schemas"]["PresignLifetime"];
         };
+        /**
+         * @description How long the URL stays valid, in seconds, 1 to 900 (15 minutes). Default 900.
+         * @default 900
+         */
+        PresignLifetime: number;
         PresignedUrl: {
             /** @enum {string} */
             method: "GET";
@@ -621,12 +651,13 @@ export interface components {
             /** @description Whether the same request may succeed if repeated (after `Retry-After`, when given). */
             retryable: boolean;
             /** @description Per-field problems, for `validation_failed`, `unknown_field` and similar codes. */
-            errors?: {
-                /** @description JSON pointer to the field (RFC 6901), or `#query/<name>` / `#path/<name>` for parameters. */
-                pointer: string;
-                code: string;
-                detail: string;
-            }[];
+            errors?: components["schemas"]["FieldError"][];
+        };
+        FieldError: {
+            /** @description JSON pointer to the field (RFC 6901), or `#query/<name>`, `#path/<name>` or `#header/<name>` for parameters. */
+            pointer: string;
+            code: string;
+            detail: string;
         };
     };
     responses: never;
@@ -646,7 +677,7 @@ export interface components {
         /** @description The `next_cursor` from the previous page. Omit for the first page. */
         Cursor: components["schemas"]["Cursor"];
         /**
-         * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. 1 to 255 printable ASCII characters; a UUID is a good choice.
+         * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. The key is bound to the method, the path, the query and the body of its first request: `dry_run=true` and a request without it (or with `dry_run=false`, which is the same request) are different requests and need different keys. 1 to 255 printable ASCII characters; a UUID is a good choice.
          * @example 6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f
          */
         IdempotencyKey: string;
@@ -675,6 +706,11 @@ export interface components {
          * @example 2
          */
         RetryAfter: number;
+        /**
+         * @description The authentication challenge (RFC 6750): `Bearer realm="kofra"`, with `error="invalid_token"` when a token was sent but is not usable.
+         * @example Bearer realm="kofra", error="invalid_token"
+         */
+        WWWAuthenticate: string;
         /**
          * @description The next page, as `<url>; rel="next"`, while more follow.
          * @example </v1/buckets?cursor=c_2Xk9>; rel="next"
@@ -706,12 +742,25 @@ export interface operations {
                     "application/json": components["schemas"]["Account"];
                 };
             };
+            /** @description `unknown_field`, `validation_failed` */
+            400: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description `token_expired`, `unauthenticated` */
             401: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
                     RateLimit: components["headers"]["RateLimit"];
                     "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -778,7 +827,7 @@ export interface operations {
             };
             header?: {
                 /**
-                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. 1 to 255 printable ASCII characters; a UUID is a good choice.
+                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. The key is bound to the method, the path, the query and the body of its first request: `dry_run=true` and a request without it (or with `dry_run=false`, which is the same request) are different requests and need different keys. 1 to 255 printable ASCII characters; a UUID is a good choice.
                  * @example 6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f
                  */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
@@ -812,7 +861,7 @@ export interface operations {
                     "application/json": components["schemas"]["Deletion"];
                 };
             };
-            /** @description `validation_failed` */
+            /** @description `unknown_field`, `validation_failed` */
             400: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -830,6 +879,7 @@ export interface operations {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
                     RateLimit: components["headers"]["RateLimit"];
                     "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -918,7 +968,7 @@ export interface operations {
             query?: never;
             header?: {
                 /**
-                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. 1 to 255 printable ASCII characters; a UUID is a good choice.
+                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. The key is bound to the method, the path, the query and the body of its first request: `dry_run=true` and a request without it (or with `dry_run=false`, which is the same request) are different requests and need different keys. 1 to 255 printable ASCII characters; a UUID is a good choice.
                  * @example 6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f
                  */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
@@ -940,7 +990,7 @@ export interface operations {
                     "application/json": components["schemas"]["Account"];
                 };
             };
-            /** @description `validation_failed` */
+            /** @description `unknown_field`, `validation_failed` */
             400: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -958,6 +1008,7 @@ export interface operations {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
                     RateLimit: components["headers"]["RateLimit"];
                     "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1068,7 +1119,7 @@ export interface operations {
                     "application/json": components["schemas"]["BucketList"];
                 };
             };
-            /** @description `invalid_cursor`, `validation_failed` */
+            /** @description `invalid_cursor`, `unknown_field`, `validation_failed` */
             400: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -1086,13 +1137,14 @@ export interface operations {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
                     RateLimit: components["headers"]["RateLimit"];
                     "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `insufficient_scope` */
+            /** @description `account_unavailable`, `insufficient_scope` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -1149,7 +1201,7 @@ export interface operations {
             query?: never;
             header?: {
                 /**
-                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. 1 to 255 printable ASCII characters; a UUID is a good choice.
+                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. The key is bound to the method, the path, the query and the body of its first request: `dry_run=true` and a request without it (or with `dry_run=false`, which is the same request) are different requests and need different keys. 1 to 255 printable ASCII characters; a UUID is a good choice.
                  * @example 6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f
                  */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
@@ -1193,6 +1245,7 @@ export interface operations {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
                     RateLimit: components["headers"]["RateLimit"];
                     "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1327,7 +1380,7 @@ export interface operations {
                     "application/json": components["schemas"]["Bucket"];
                 };
             };
-            /** @description `validation_failed` */
+            /** @description `unknown_field`, `validation_failed` */
             400: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -1345,13 +1398,14 @@ export interface operations {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
                     RateLimit: components["headers"]["RateLimit"];
                     "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `insufficient_scope` */
+            /** @description `account_unavailable`, `insufficient_scope` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -1423,7 +1477,7 @@ export interface operations {
             };
             header?: {
                 /**
-                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. 1 to 255 printable ASCII characters; a UUID is a good choice.
+                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. The key is bound to the method, the path, the query and the body of its first request: `dry_run=true` and a request without it (or with `dry_run=false`, which is the same request) are different requests and need different keys. 1 to 255 printable ASCII characters; a UUID is a good choice.
                  * @example 6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f
                  */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
@@ -1461,7 +1515,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description `validation_failed` */
+            /** @description `unknown_field`, `validation_failed` */
             400: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -1479,6 +1533,7 @@ export interface operations {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
                     RateLimit: components["headers"]["RateLimit"];
                     "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1601,7 +1656,7 @@ export interface operations {
                     "application/json": components["schemas"]["AccessKeyList"];
                 };
             };
-            /** @description `invalid_cursor`, `validation_failed` */
+            /** @description `invalid_cursor`, `unknown_field`, `validation_failed` */
             400: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -1619,13 +1674,14 @@ export interface operations {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
                     RateLimit: components["headers"]["RateLimit"];
                     "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `insufficient_scope` */
+            /** @description `account_unavailable`, `insufficient_scope` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -1682,7 +1738,7 @@ export interface operations {
             query?: never;
             header?: {
                 /**
-                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. 1 to 255 printable ASCII characters; a UUID is a good choice.
+                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. The key is bound to the method, the path, the query and the body of its first request: `dry_run=true` and a request without it (or with `dry_run=false`, which is the same request) are different requests and need different keys. 1 to 255 printable ASCII characters; a UUID is a good choice.
                  * @example 6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f
                  */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
@@ -1726,6 +1782,7 @@ export interface operations {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
                     RateLimit: components["headers"]["RateLimit"];
                     "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1853,7 +1910,7 @@ export interface operations {
             };
             header?: {
                 /**
-                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. 1 to 255 printable ASCII characters; a UUID is a good choice.
+                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. The key is bound to the method, the path, the query and the body of its first request: `dry_run=true` and a request without it (or with `dry_run=false`, which is the same request) are different requests and need different keys. 1 to 255 printable ASCII characters; a UUID is a good choice.
                  * @example 6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f
                  */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
@@ -1891,7 +1948,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description `validation_failed` */
+            /** @description `unknown_field`, `validation_failed` */
             400: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -1909,13 +1966,14 @@ export interface operations {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
                     RateLimit: components["headers"]["RateLimit"];
                     "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `insufficient_scope`, `role_forbidden` */
+            /** @description `account_unavailable`, `insufficient_scope`, `role_forbidden` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -2009,7 +2067,7 @@ export interface operations {
             query?: never;
             header?: {
                 /**
-                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. 1 to 255 printable ASCII characters; a UUID is a good choice.
+                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. The key is bound to the method, the path, the query and the body of its first request: `dry_run=true` and a request without it (or with `dry_run=false`, which is the same request) are different requests and need different keys. 1 to 255 printable ASCII characters; a UUID is a good choice.
                  * @example 6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f
                  */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
@@ -2059,6 +2117,7 @@ export interface operations {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
                     RateLimit: components["headers"]["RateLimit"];
                     "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2089,7 +2148,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `grant_narrowing_refused`, `idempotency_key_in_use` */
+            /** @description `grant_limit_reached`, `grant_narrowing_refused`, `idempotency_key_in_use` */
             409: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -2199,8 +2258,8 @@ export interface operations {
                     "application/json": components["schemas"]["Usage"];
                 };
             };
-            /** @description `token_expired`, `unauthenticated` */
-            401: {
+            /** @description `unknown_field`, `validation_failed` */
+            400: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
                     RateLimit: components["headers"]["RateLimit"];
@@ -2211,7 +2270,20 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `insufficient_scope` */
+            /** @description `token_expired`, `unauthenticated` */
+            401: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `account_unavailable`, `insufficient_scope` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -2295,7 +2367,7 @@ export interface operations {
                     "application/json": components["schemas"]["UsageDayList"];
                 };
             };
-            /** @description `invalid_cursor`, `validation_failed` */
+            /** @description `invalid_cursor`, `unknown_field`, `validation_failed` */
             400: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -2313,13 +2385,14 @@ export interface operations {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
                     RateLimit: components["headers"]["RateLimit"];
                     "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `insufficient_scope` */
+            /** @description `account_unavailable`, `insufficient_scope` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -2398,7 +2471,7 @@ export interface operations {
                     "application/json": components["schemas"]["BucketUsageList"];
                 };
             };
-            /** @description `invalid_cursor`, `validation_failed` */
+            /** @description `invalid_cursor`, `unknown_field`, `validation_failed` */
             400: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -2416,13 +2489,14 @@ export interface operations {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
                     RateLimit: components["headers"]["RateLimit"];
                     "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `insufficient_scope` */
+            /** @description `account_unavailable`, `insufficient_scope` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -2501,7 +2575,7 @@ export interface operations {
                     "application/json": components["schemas"]["EventList"];
                 };
             };
-            /** @description `invalid_cursor`, `validation_failed` */
+            /** @description `invalid_cursor`, `unknown_field`, `validation_failed` */
             400: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -2519,13 +2593,14 @@ export interface operations {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
                     RateLimit: components["headers"]["RateLimit"];
                     "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `insufficient_scope` */
+            /** @description `account_unavailable`, `insufficient_scope` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -2594,7 +2669,7 @@ export interface operations {
             query?: never;
             header?: {
                 /**
-                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. 1 to 255 printable ASCII characters; a UUID is a good choice.
+                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. The key is bound to the method, the path, the query and the body of its first request: `dry_run=true` and a request without it (or with `dry_run=false`, which is the same request) are different requests and need different keys. 1 to 255 printable ASCII characters; a UUID is a good choice.
                  * @example 6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f
                  */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
@@ -2638,6 +2713,7 @@ export interface operations {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
                     RateLimit: components["headers"]["RateLimit"];
                     "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
                     [name: string]: unknown;
                 };
                 content: {

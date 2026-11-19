@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-class PlanEffectsItemResource(StrEnum):
+class PlanEffectResource(StrEnum):
     ACCOUNT = "account"
     BUCKET = "bucket"
     KEY = "key"

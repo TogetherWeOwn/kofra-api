@@ -14,7 +14,7 @@ from typing import Any
 from ._core import Core, KofraError
 from ._generated.types import UNSET
 from ._operations import (
-    GROUPS,
+    RESOURCES,
     AccountApi,
     BucketsApi,
     EventsApi,
@@ -45,8 +45,8 @@ class Kofra:
         timeout: float = 30.0,
     ) -> None:
         self._core = Core(token, base_url, max_retries, max_retry_wait, timeout)
-        for name, group in GROUPS.items():
-            setattr(self, name, group(self._core))
+        for name, api in RESOURCES.items():
+            setattr(self, name, api(self._core))
 
 
 def paginate(list_fn: Callable[..., Any], **kwargs: Any) -> Iterator[Any]:

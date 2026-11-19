@@ -12,7 +12,7 @@ from ..types import UNSET, Unset
 from typing import cast
 
 if TYPE_CHECKING:
-  from ..models.grant import Grant
+  from ..models.grant_input import GrantInput
 
 
 
@@ -26,11 +26,11 @@ T = TypeVar("T", bound="AccessKeyCreate")
 class AccessKeyCreate:
     """ 
         Attributes:
-            grants (list[Grant]):
+            grants (list[GrantInput]): The buckets the key can reach. Each bucket at most once.
             name (str | Unset):
      """
 
-    grants: list[Grant]
+    grants: list[GrantInput]
     name: str | Unset = UNSET
 
 
@@ -38,7 +38,7 @@ class AccessKeyCreate:
 
 
     def to_dict(self) -> dict[str, Any]:
-        from ..models.grant import Grant # noqa: PLC0415
+        from ..models.grant_input import GrantInput # noqa: PLC0415
         grants = []
         for grants_item_data in self.grants:
             grants_item = grants_item_data.to_dict()
@@ -63,12 +63,12 @@ class AccessKeyCreate:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.grant import Grant # noqa: PLC0415
+        from ..models.grant_input import GrantInput # noqa: PLC0415
         d = dict(src_dict)
         grants = []
         _grants = d.pop("grants")
         for grants_item_data in (_grants):
-            grants_item = Grant.from_dict(grants_item_data)
+            grants_item = GrantInput.from_dict(grants_item_data)
 
 
 

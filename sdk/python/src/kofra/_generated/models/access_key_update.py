@@ -12,7 +12,7 @@ from ..types import UNSET, Unset
 from typing import cast
 
 if TYPE_CHECKING:
-  from ..models.grant import Grant
+  from ..models.grant_input import GrantInput
 
 
 
@@ -27,18 +27,19 @@ class AccessKeyUpdate:
     """ 
         Attributes:
             name (str | Unset):
-            grants (list[Grant] | Unset): Grants to add or widen. Grants not listed are kept.
+            grants (list[GrantInput] | Unset): Grants to add or widen. Grants not listed are kept. Each bucket at most once.
+                A key holds at most 32 grants.
      """
 
     name: str | Unset = UNSET
-    grants: list[Grant] | Unset = UNSET
+    grants: list[GrantInput] | Unset = UNSET
 
 
 
 
 
     def to_dict(self) -> dict[str, Any]:
-        from ..models.grant import Grant # noqa: PLC0415
+        from ..models.grant_input import GrantInput # noqa: PLC0415
         name = self.name
 
         grants: list[dict[str, Any]] | Unset = UNSET
@@ -66,16 +67,16 @@ class AccessKeyUpdate:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.grant import Grant # noqa: PLC0415
+        from ..models.grant_input import GrantInput # noqa: PLC0415
         d = dict(src_dict)
         name = d.pop("name", UNSET)
 
         _grants = d.pop("grants", UNSET)
-        grants: list[Grant] | Unset = UNSET
+        grants: list[GrantInput] | Unset = UNSET
         if _grants is not UNSET:
             grants = []
             for grants_item_data in _grants:
-                grants_item = Grant.from_dict(grants_item_data)
+                grants_item = GrantInput.from_dict(grants_item_data)
 
 
 

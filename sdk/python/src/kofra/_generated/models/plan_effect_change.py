@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-class PlanEffectsItemChange(StrEnum):
+class PlanEffectChange(StrEnum):
     DELETE = "delete"
     REVOKE = "revoke"
     SCHEDULE_DELETION = "schedule_deletion"

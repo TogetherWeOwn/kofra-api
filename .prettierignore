@@ -8,3 +8,8 @@ xtask/
 openapi/openapi.src.yaml
 errors/catalogue.yaml
 registry/operations.yaml
+# Written by tools/sdk/generate.mjs; CI regenerates them and fails on drift.
+sdk/typescript/src/schema.ts
+sdk/typescript/src/operations.ts
+sdk/python/
+sdk/go/

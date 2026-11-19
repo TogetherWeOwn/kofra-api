@@ -128,8 +128,8 @@ export class ObjectsApi {
 	}
 }
 
-/** The resource groups of the API, as `client.<group>`. */
-export function groups(core: Core) {
+/** The resources of the API, as `client.<resource>`. */
+export function resources(core: Core) {
 	return {
 		account: new AccountApi(core),
 		buckets: new BucketsApi(core),

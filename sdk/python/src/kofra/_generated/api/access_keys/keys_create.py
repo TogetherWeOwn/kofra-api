@@ -162,7 +162,12 @@ def sync_detailed(
     secret was lost.
 
     Whoever holds a key with access to a bucket can read its objects, so
-    `keys:write` is treated as data access.
+    `keys:write` is treated as data access. The grants cannot exceed the
+    caller's own access: a grant on a bucket, or an access level, that the
+    caller's role does not allow is refused with `role_forbidden`.
+
+    Through the MCP tool `keys_create`, the secret is not in the tool
+    result: the result links to a console page that shows it once.
 
     Scopes: `keys:write`.
 
@@ -207,7 +212,12 @@ def sync(
     secret was lost.
 
     Whoever holds a key with access to a bucket can read its objects, so
-    `keys:write` is treated as data access.
+    `keys:write` is treated as data access. The grants cannot exceed the
+    caller's own access: a grant on a bucket, or an access level, that the
+    caller's role does not allow is refused with `role_forbidden`.
+
+    Through the MCP tool `keys_create`, the secret is not in the tool
+    result: the result links to a console page that shows it once.
 
     Scopes: `keys:write`.
 
@@ -247,7 +257,12 @@ async def asyncio_detailed(
     secret was lost.
 
     Whoever holds a key with access to a bucket can read its objects, so
-    `keys:write` is treated as data access.
+    `keys:write` is treated as data access. The grants cannot exceed the
+    caller's own access: a grant on a bucket, or an access level, that the
+    caller's role does not allow is refused with `role_forbidden`.
+
+    Through the MCP tool `keys_create`, the secret is not in the tool
+    result: the result links to a console page that shows it once.
 
     Scopes: `keys:write`.
 
@@ -292,7 +307,12 @@ async def asyncio(
     secret was lost.
 
     Whoever holds a key with access to a bucket can read its objects, so
-    `keys:write` is treated as data access.
+    `keys:write` is treated as data access. The grants cannot exceed the
+    caller's own access: a grant on a bucket, or an access level, that the
+    caller's role does not allow is refused with `role_forbidden`.
+
+    Through the MCP tool `keys_create`, the secret is not in the tool
+    result: the result links to a console page that shows it once.
 
     Scopes: `keys:write`.
 

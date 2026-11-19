@@ -69,9 +69,13 @@ def test_errors_carry_the_catalogue_code_and_hint(kofra, base_url):
     assert err.value.code == "insufficient_scope"
 
 
-def test_unknown_fields_are_refused_before_or_by_the_server(kofra):
-    with pytest.raises((KofraError, TypeError, KeyError)):
+def test_unknown_fields_are_refused_before_sending(kofra):
+    with pytest.raises(ValueError, match=r"body\.nmae"):
         kofra.buckets.create(body={"name": "backups", "nmae": "x"})
+    with pytest.raises(ValueError, match=r"body\.grants\[0\]\.acess"):
+        kofra.keys.create(body={"grants": [{"bucket": "backups", "access": "read", "acess": "x"}]})
+    with pytest.raises(ValueError, match="name"):
+        kofra.buckets.create(body={"nmae": "backups"})
 
 
 def test_paginate_walks_a_list(kofra):

@@ -14,15 +14,16 @@ from ..types import UNSET, Unset
 
 
 
-T = TypeVar("T", bound="ProblemErrorsItem")
+T = TypeVar("T", bound="FieldError")
 
 
 
 @_attrs_define
-class ProblemErrorsItem:
+class FieldError:
     """ 
         Attributes:
-            pointer (str): JSON pointer to the field (RFC 6901), or `#query/<name>` / `#path/<name>` for parameters.
+            pointer (str): JSON pointer to the field (RFC 6901), or `#query/<name>`, `#path/<name>` or `#header/<name>` for
+                parameters.
             code (str):
             detail (str):
      """
@@ -65,15 +66,15 @@ class ProblemErrorsItem:
 
         detail = d.pop("detail")
 
-        problem_errors_item = cls(
+        field_error = cls(
             pointer=pointer,
             code=code,
             detail=detail,
         )
 
 
-        problem_errors_item.additional_properties = d
-        return problem_errors_item
+        field_error.additional_properties = d
+        return field_error
 
     @property
     def additional_keys(self) -> list[str]:

@@ -14,12 +14,12 @@ from ..types import UNSET, Unset
 
 
 
-T = TypeVar("T", bound="UsageOpenUploads")
+T = TypeVar("T", bound="OpenUploads")
 
 
 
 @_attrs_define
-class UsageOpenUploads:
+class OpenUploads:
     """ Multipart uploads started and not yet completed or aborted.
 
         Attributes:
@@ -59,14 +59,14 @@ class UsageOpenUploads:
 
         limit = d.pop("limit")
 
-        usage_open_uploads = cls(
+        open_uploads = cls(
             count=count,
             limit=limit,
         )
 
 
-        usage_open_uploads.additional_properties = d
-        return usage_open_uploads
+        open_uploads.additional_properties = d
+        return open_uploads
 
     @property
     def additional_keys(self) -> list[str]:

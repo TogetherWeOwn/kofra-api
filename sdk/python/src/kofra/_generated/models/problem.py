@@ -12,7 +12,7 @@ from ..types import UNSET, Unset
 from typing import cast
 
 if TYPE_CHECKING:
-  from ..models.problem_errors_item import ProblemErrorsItem
+  from ..models.field_error import FieldError
 
 
 
@@ -36,8 +36,8 @@ class Problem:
             docs_url (str): The Markdown version of the error page.
             request_id (str): Same as the `Kofra-Request-Id` header. Quote it to support.
             retryable (bool): Whether the same request may succeed if repeated (after `Retry-After`, when given).
-            errors (list[ProblemErrorsItem] | Unset): Per-field problems, for `validation_failed`, `unknown_field` and
-                similar codes.
+            errors (list[FieldError] | Unset): Per-field problems, for `validation_failed`, `unknown_field` and similar
+                codes.
      """
 
     type_: str
@@ -49,7 +49,7 @@ class Problem:
     docs_url: str
     request_id: str
     retryable: bool
-    errors: list[ProblemErrorsItem] | Unset = UNSET
+    errors: list[FieldError] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
 
@@ -57,7 +57,7 @@ class Problem:
 
 
     def to_dict(self) -> dict[str, Any]:
-        from ..models.problem_errors_item import ProblemErrorsItem # noqa: PLC0415
+        from ..models.field_error import FieldError # noqa: PLC0415
         type_ = self.type_
 
         title = self.title
@@ -108,7 +108,7 @@ class Problem:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.problem_errors_item import ProblemErrorsItem # noqa: PLC0415
+        from ..models.field_error import FieldError # noqa: PLC0415
         d = dict(src_dict)
         type_ = d.pop("type")
 
@@ -129,11 +129,11 @@ class Problem:
         retryable = d.pop("retryable")
 
         _errors = d.pop("errors", UNSET)
-        errors: list[ProblemErrorsItem] | Unset = UNSET
+        errors: list[FieldError] | Unset = UNSET
         if _errors is not UNSET:
             errors = []
             for errors_item_data in _errors:
-                errors_item = ProblemErrorsItem.from_dict(errors_item_data)
+                errors_item = FieldError.from_dict(errors_item_data)
 
 
 

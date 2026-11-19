@@ -16,13 +16,14 @@ import datetime
 
 
 
-T = TypeVar("T", bound="UsageUpload24H")
+T = TypeVar("T", bound="Upload24H")
 
 
 
 @_attrs_define
-class UsageUpload24H:
-    """ 
+class Upload24H:
+    """ Uploads in the current 24-hour window.
+
         Attributes:
             limit_bytes (int | None):
             used_bytes (int):
@@ -91,7 +92,7 @@ class UsageUpload24H:
 
 
 
-        usage_upload_24h = cls(
+        upload_24h = cls(
             limit_bytes=limit_bytes,
             used_bytes=used_bytes,
             remaining_bytes=remaining_bytes,
@@ -99,8 +100,8 @@ class UsageUpload24H:
         )
 
 
-        usage_upload_24h.additional_properties = d
-        return usage_upload_24h
+        upload_24h.additional_properties = d
+        return upload_24h
 
     @property
     def additional_keys(self) -> list[str]:

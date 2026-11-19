@@ -16,13 +16,14 @@ import datetime
 
 
 
-T = TypeVar("T", bound="UsageDownloads")
+T = TypeVar("T", bound="Downloads")
 
 
 
 @_attrs_define
-class UsageDownloads:
-    """ 
+class Downloads:
+    """ Downloads in the current billing period.
+
         Attributes:
             period_start (datetime.datetime): RFC 3339 timestamp in UTC.
             allowance_bytes (int | None):
@@ -84,7 +85,7 @@ class UsageDownloads:
 
         over_bytes = d.pop("over_bytes")
 
-        usage_downloads = cls(
+        downloads = cls(
             period_start=period_start,
             allowance_bytes=allowance_bytes,
             used_bytes=used_bytes,
@@ -92,8 +93,8 @@ class UsageDownloads:
         )
 
 
-        usage_downloads.additional_properties = d
-        return usage_downloads
+        downloads.additional_properties = d
+        return downloads
 
     @property
     def additional_keys(self) -> list[str]:

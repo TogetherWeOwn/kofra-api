@@ -11,7 +11,7 @@ from ..types import UNSET, Unset
 from typing import cast
 
 if TYPE_CHECKING:
-  from ..models.plan_effects_item import PlanEffectsItem
+  from ..models.plan_effect import PlanEffect
   from ..models.plan_totals import PlanTotals
 
 
@@ -31,15 +31,15 @@ class Plan:
             operation (str): The operationId that was planned.
             summary (str): One plain sentence describing the effect.
             reversible (bool): Whether the change could be undone after it is made.
-            effects (list[PlanEffectsItem]):
-            totals (PlanTotals):
+            effects (list[PlanEffect]):
+            totals (PlanTotals): What the planned change reaches, in total.
      """
 
     dry_run: bool
     operation: str
     summary: str
     reversible: bool
-    effects: list[PlanEffectsItem]
+    effects: list[PlanEffect]
     totals: PlanTotals
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -48,7 +48,7 @@ class Plan:
 
 
     def to_dict(self) -> dict[str, Any]:
-        from ..models.plan_effects_item import PlanEffectsItem # noqa: PLC0415
+        from ..models.plan_effect import PlanEffect # noqa: PLC0415
         from ..models.plan_totals import PlanTotals # noqa: PLC0415
         dry_run = self.dry_run
 
@@ -85,7 +85,7 @@ class Plan:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.plan_effects_item import PlanEffectsItem # noqa: PLC0415
+        from ..models.plan_effect import PlanEffect # noqa: PLC0415
         from ..models.plan_totals import PlanTotals # noqa: PLC0415
         d = dict(src_dict)
         dry_run = d.pop("dry_run")
@@ -99,7 +99,7 @@ class Plan:
         effects = []
         _effects = d.pop("effects")
         for effects_item_data in (_effects):
-            effects_item = PlanEffectsItem.from_dict(effects_item_data)
+            effects_item = PlanEffect.from_dict(effects_item_data)
 
 
 

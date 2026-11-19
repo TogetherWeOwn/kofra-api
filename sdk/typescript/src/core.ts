@@ -116,7 +116,8 @@ export class Core {
 			authorization: `Bearer ${this.#token}`,
 			accept: 'application/json'
 		};
-		if (method !== 'GET') headers['idempotency-key'] = options.idempotencyKey ?? crypto.randomUUID();
+		if (method !== 'GET')
+			headers['idempotency-key'] = options.idempotencyKey ?? crypto.randomUUID();
 		let body: string | undefined;
 		if (args.body !== undefined) {
 			headers['content-type'] = 'application/json';
@@ -144,7 +145,8 @@ export class Core {
 	}
 
 	#backoff(attempt: number, retryAfter: string | null): number {
-		const seconds = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) : 0.5 * 2 ** attempt;
+		const seconds =
+			retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) : 0.5 * 2 ** attempt;
 		return Math.min(seconds, this.#maxWait) * 1000;
 	}
 }

@@ -8,30 +8,30 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
-from ..models.plan_effects_item_change import PlanEffectsItemChange
-from ..models.plan_effects_item_resource import PlanEffectsItemResource
+from ..models.plan_effect_change import PlanEffectChange
+from ..models.plan_effect_resource import PlanEffectResource
 
 
 
 
 
 
-T = TypeVar("T", bound="PlanEffectsItem")
+T = TypeVar("T", bound="PlanEffect")
 
 
 
 @_attrs_define
-class PlanEffectsItem:
+class PlanEffect:
     """ 
         Attributes:
-            resource (PlanEffectsItemResource):
+            resource (PlanEffectResource):
             id (str):
-            change (PlanEffectsItemChange):
+            change (PlanEffectChange):
      """
 
-    resource: PlanEffectsItemResource
+    resource: PlanEffectResource
     id: str
-    change: PlanEffectsItemChange
+    change: PlanEffectChange
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
 
@@ -61,27 +61,27 @@ class PlanEffectsItem:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        resource = PlanEffectsItemResource(d.pop("resource"))
+        resource = PlanEffectResource(d.pop("resource"))
 
 
 
 
         id = d.pop("id")
 
-        change = PlanEffectsItemChange(d.pop("change"))
+        change = PlanEffectChange(d.pop("change"))
 
 
 
 
-        plan_effects_item = cls(
+        plan_effect = cls(
             resource=resource,
             id=id,
             change=change,
         )
 
 
-        plan_effects_item.additional_properties = d
-        return plan_effects_item
+        plan_effect.additional_properties = d
+        return plan_effect
 
     @property
     def additional_keys(self) -> list[str]:

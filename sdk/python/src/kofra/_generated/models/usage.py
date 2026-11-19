@@ -12,10 +12,10 @@ from typing import cast
 import datetime
 
 if TYPE_CHECKING:
-  from ..models.usage_downloads import UsageDownloads
-  from ..models.usage_open_uploads import UsageOpenUploads
-  from ..models.usage_over_limit_type_0 import UsageOverLimitType0
-  from ..models.usage_upload_24h import UsageUpload24H
+  from ..models.downloads import Downloads
+  from ..models.open_uploads import OpenUploads
+  from ..models.over_limit import OverLimit
+  from ..models.upload_24h import Upload24H
 
 
 
@@ -33,20 +33,20 @@ class Usage:
             stored_bytes (int):
             object_count (int):
             storage_limit_bytes (int | None):
-            over_limit (None | UsageOverLimitType0): Set while stored bytes are above the storage limit.
-            upload_24h (UsageUpload24H):
-            downloads (UsageDownloads):
-            open_uploads (UsageOpenUploads): Multipart uploads started and not yet completed or aborted.
+            over_limit (None | OverLimit):
+            upload_24h (Upload24H): Uploads in the current 24-hour window.
+            downloads (Downloads): Downloads in the current billing period.
+            open_uploads (OpenUploads): Multipart uploads started and not yet completed or aborted.
      """
 
     as_of: datetime.datetime
     stored_bytes: int
     object_count: int
     storage_limit_bytes: int | None
-    over_limit: None | UsageOverLimitType0
-    upload_24h: UsageUpload24H
-    downloads: UsageDownloads
-    open_uploads: UsageOpenUploads
+    over_limit: None | OverLimit
+    upload_24h: Upload24H
+    downloads: Downloads
+    open_uploads: OpenUploads
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
 
@@ -54,10 +54,10 @@ class Usage:
 
 
     def to_dict(self) -> dict[str, Any]:
-        from ..models.usage_downloads import UsageDownloads # noqa: PLC0415
-        from ..models.usage_open_uploads import UsageOpenUploads # noqa: PLC0415
-        from ..models.usage_over_limit_type_0 import UsageOverLimitType0 # noqa: PLC0415
-        from ..models.usage_upload_24h import UsageUpload24H # noqa: PLC0415
+        from ..models.downloads import Downloads # noqa: PLC0415
+        from ..models.open_uploads import OpenUploads # noqa: PLC0415
+        from ..models.over_limit import OverLimit # noqa: PLC0415
+        from ..models.upload_24h import Upload24H # noqa: PLC0415
         as_of = self.as_of.isoformat()
 
         stored_bytes = self.stored_bytes
@@ -68,7 +68,7 @@ class Usage:
         storage_limit_bytes = self.storage_limit_bytes
 
         over_limit: dict[str, Any] | None
-        if isinstance(self.over_limit, UsageOverLimitType0):
+        if isinstance(self.over_limit, OverLimit):
             over_limit = self.over_limit.to_dict()
         else:
             over_limit = self.over_limit
@@ -99,10 +99,10 @@ class Usage:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.usage_downloads import UsageDownloads # noqa: PLC0415
-        from ..models.usage_open_uploads import UsageOpenUploads # noqa: PLC0415
-        from ..models.usage_over_limit_type_0 import UsageOverLimitType0 # noqa: PLC0415
-        from ..models.usage_upload_24h import UsageUpload24H # noqa: PLC0415
+        from ..models.downloads import Downloads # noqa: PLC0415
+        from ..models.open_uploads import OpenUploads # noqa: PLC0415
+        from ..models.over_limit import OverLimit # noqa: PLC0415
+        from ..models.upload_24h import Upload24H # noqa: PLC0415
         d = dict(src_dict)
         as_of = datetime.datetime.fromisoformat(d.pop("as_of"))
 
@@ -121,35 +121,35 @@ class Usage:
         storage_limit_bytes = _parse_storage_limit_bytes(d.pop("storage_limit_bytes"))
 
 
-        def _parse_over_limit(data: object) -> None | UsageOverLimitType0:
+        def _parse_over_limit(data: object) -> None | OverLimit:
             if data is None:
                 return data
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                over_limit_type_0 = UsageOverLimitType0.from_dict(data)
+                over_limit_type_0 = OverLimit.from_dict(data)
 
 
 
                 return over_limit_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(None | UsageOverLimitType0, data)
+            return cast(None | OverLimit, data)
 
         over_limit = _parse_over_limit(d.pop("over_limit"))
 
 
-        upload_24h = UsageUpload24H.from_dict(d.pop("upload_24h"))
+        upload_24h = Upload24H.from_dict(d.pop("upload_24h"))
 
 
 
 
-        downloads = UsageDownloads.from_dict(d.pop("downloads"))
+        downloads = Downloads.from_dict(d.pop("downloads"))
 
 
 
 
-        open_uploads = UsageOpenUploads.from_dict(d.pop("open_uploads"))
+        open_uploads = OpenUploads.from_dict(d.pop("open_uploads"))
 
 
 

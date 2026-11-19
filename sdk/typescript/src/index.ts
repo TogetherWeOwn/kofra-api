@@ -1,6 +1,6 @@
 // The Kofra API client for TypeScript and JavaScript.
 import { Core, type ClientOptions } from './core.ts';
-import { groups } from './operations.ts';
+import { resources } from './operations.ts';
 
 export { KofraError, type Problem, type ClientOptions, type CallOptions } from './core.ts';
 export type { Plan } from './operations.ts';
@@ -18,13 +18,13 @@ export class Kofra {
 
 	constructor(options: ClientOptions = {}) {
 		this.core = new Core(options);
-		const g = groups(this.core);
-		this.account = g.account;
-		this.buckets = g.buckets;
-		this.keys = g.keys;
-		this.usage = g.usage;
-		this.events = g.events;
-		this.objects = g.objects;
+		const r = resources(this.core);
+		this.account = r.account;
+		this.buckets = r.buckets;
+		this.keys = r.keys;
+		this.usage = r.usage;
+		this.events = r.events;
+		this.objects = r.objects;
 	}
 }
 

@@ -16,13 +16,14 @@ import datetime
 
 
 
-T = TypeVar("T", bound="UsageOverLimitType0")
+T = TypeVar("T", bound="OverLimit")
 
 
 
 @_attrs_define
-class UsageOverLimitType0:
-    """ 
+class OverLimit:
+    """ Set while stored bytes are above the storage limit.
+
         Attributes:
             since (datetime.datetime): RFC 3339 timestamp in UTC.
             deadline_at (datetime.datetime | None): When writes stop unless usage is reduced or the limit raised. `null` if
@@ -84,14 +85,14 @@ class UsageOverLimitType0:
         deadline_at = _parse_deadline_at(d.pop("deadline_at"))
 
 
-        usage_over_limit_type_0 = cls(
+        over_limit = cls(
             since=since,
             deadline_at=deadline_at,
         )
 
 
-        usage_over_limit_type_0.additional_properties = d
-        return usage_over_limit_type_0
+        over_limit.additional_properties = d
+        return over_limit
 
     @property
     def additional_keys(self) -> list[str]:

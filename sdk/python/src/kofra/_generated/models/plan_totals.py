@@ -20,7 +20,8 @@ T = TypeVar("T", bound="PlanTotals")
 
 @_attrs_define
 class PlanTotals:
-    """ 
+    """ What the planned change reaches, in total.
+
         Attributes:
             buckets (int):
             objects (int):

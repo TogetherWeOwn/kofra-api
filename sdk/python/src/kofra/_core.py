@@ -57,8 +57,22 @@ class KofraError(Exception):
         )
 
 
+def _refuse_unknown_keys(sent: Any, kept: Any, path: str) -> None:
+    """The generated models silently drop keys they do not know. A typo such
+    as `nmae` would then vanish without an error, so refuse it here: any key
+    of the caller's dict that does not survive the model round trip."""
+    if isinstance(sent, dict) and isinstance(kept, dict):
+        for key, value in sent.items():
+            if key not in kept:
+                raise ValueError(f"Kofra: unknown field {path}.{key}; check the spelling against the API reference.")
+            _refuse_unknown_keys(value, kept[key], f"{path}.{key}")
+    elif isinstance(sent, list) and isinstance(kept, list):
+        for i, (a, b) in enumerate(zip(sent, kept)):
+            _refuse_unknown_keys(a, b, f"{path}[{i}]")
+
+
 class Core:
-    """Shared by every resource group of one client."""
+    """Shared by every resource of one client."""
 
     def __init__(
         self,
@@ -94,7 +108,13 @@ class Core:
         if "body" in kwargs and isinstance(kwargs["body"], dict):
             body_type = typing.get_type_hints(fn).get("body")
             if hasattr(body_type, "from_dict"):
-                kwargs["body"] = body_type.from_dict(kwargs["body"])
+                raw = kwargs["body"]
+                try:
+                    model = body_type.from_dict(raw)
+                except KeyError as missing:
+                    raise ValueError(f"Kofra: body is missing the required field {missing}.") from None
+                _refuse_unknown_keys(raw, model.to_dict(), "body")
+                kwargs["body"] = model
         for attempt in range(self.max_retries + 1):
             try:
                 resp = fn(*args, client=self.client, **kwargs)

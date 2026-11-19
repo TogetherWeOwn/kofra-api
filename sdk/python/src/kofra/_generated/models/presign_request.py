@@ -27,13 +27,13 @@ class PresignRequest:
             bucket (str): 3 to 63 lowercase letters, digits or hyphens; starts and ends with a letter or digit.
             key (str): The object key.
             method (PresignRequestMethod): Only downloads are offered for now.
-            expires_in_seconds (int | Unset):  Default: 900.
+            expires_in_seconds (int | Unset): How long the URL stays valid, in seconds, 1 to 900 (15 minutes). Default 900.
      """
 
     bucket: str
     key: str
     method: PresignRequestMethod
-    expires_in_seconds: int | Unset = 900
+    expires_in_seconds: int | Unset = UNSET
 
 
 

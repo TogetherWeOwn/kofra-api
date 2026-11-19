@@ -2,13 +2,17 @@
 
 package kofra
 
-import "context"
+import (
+	"context"
+
+	"github.com/TogetherWeOwn/kofra-api/sdk/go/kofra/api"
+)
 
 // AccountService holds the `account` operations.
 type AccountService struct{ c *Client }
 
 // Get: Get the account. Operation `account.get`.
-func (s *AccountService) Get(ctx context.Context) (*AccountGetResponse, error) {
+func (s *AccountService) Get(ctx context.Context) (*api.AccountGetResponse, error) {
 	resp, err := s.c.raw.AccountGetWithResponse(ctx)
 	if err != nil {
 		return nil, err
@@ -17,7 +21,7 @@ func (s *AccountService) Get(ctx context.Context) (*AccountGetResponse, error) {
 }
 
 // Delete: Request deletion of the account. Operation `account.delete`. Set DryRun in params to preview.
-func (s *AccountService) Delete(ctx context.Context, params *AccountDeleteParams) (*AccountDeleteResponse, error) {
+func (s *AccountService) Delete(ctx context.Context, params *api.AccountDeleteParams) (*api.AccountDeleteResponse, error) {
 	resp, err := s.c.raw.AccountDeleteWithResponse(ctx, params)
 	if err != nil {
 		return nil, err
@@ -26,7 +30,7 @@ func (s *AccountService) Delete(ctx context.Context, params *AccountDeleteParams
 }
 
 // CancelDeletion: Cancel a deletion. Operation `account.cancel_deletion`.
-func (s *AccountService) CancelDeletion(ctx context.Context, params *AccountCancelDeletionParams) (*AccountCancelDeletionResponse, error) {
+func (s *AccountService) CancelDeletion(ctx context.Context, params *api.AccountCancelDeletionParams) (*api.AccountCancelDeletionResponse, error) {
 	resp, err := s.c.raw.AccountCancelDeletionWithResponse(ctx, params)
 	if err != nil {
 		return nil, err
@@ -38,7 +42,7 @@ func (s *AccountService) CancelDeletion(ctx context.Context, params *AccountCanc
 type BucketsService struct{ c *Client }
 
 // List: List buckets. Operation `buckets.list`.
-func (s *BucketsService) List(ctx context.Context, params *BucketsListParams) (*BucketsListResponse, error) {
+func (s *BucketsService) List(ctx context.Context, params *api.BucketsListParams) (*api.BucketsListResponse, error) {
 	resp, err := s.c.raw.BucketsListWithResponse(ctx, params)
 	if err != nil {
 		return nil, err
@@ -47,7 +51,7 @@ func (s *BucketsService) List(ctx context.Context, params *BucketsListParams) (*
 }
 
 // Create: Create a bucket. Operation `buckets.create`.
-func (s *BucketsService) Create(ctx context.Context, params *BucketsCreateParams, body BucketsCreateJSONRequestBody) (*BucketsCreateResponse, error) {
+func (s *BucketsService) Create(ctx context.Context, params *api.BucketsCreateParams, body api.BucketsCreateJSONRequestBody) (*api.BucketsCreateResponse, error) {
 	resp, err := s.c.raw.BucketsCreateWithResponse(ctx, params, body)
 	if err != nil {
 		return nil, err
@@ -56,7 +60,7 @@ func (s *BucketsService) Create(ctx context.Context, params *BucketsCreateParams
 }
 
 // Get: Get a bucket. Operation `buckets.get`.
-func (s *BucketsService) Get(ctx context.Context, bucket BucketName) (*BucketsGetResponse, error) {
+func (s *BucketsService) Get(ctx context.Context, bucket api.BucketName) (*api.BucketsGetResponse, error) {
 	resp, err := s.c.raw.BucketsGetWithResponse(ctx, bucket)
 	if err != nil {
 		return nil, err
@@ -65,7 +69,7 @@ func (s *BucketsService) Get(ctx context.Context, bucket BucketName) (*BucketsGe
 }
 
 // Delete: Delete a bucket. Operation `buckets.delete`. Set DryRun in params to preview.
-func (s *BucketsService) Delete(ctx context.Context, bucket BucketName, params *BucketsDeleteParams) (*BucketsDeleteResponse, error) {
+func (s *BucketsService) Delete(ctx context.Context, bucket api.BucketName, params *api.BucketsDeleteParams) (*api.BucketsDeleteResponse, error) {
 	resp, err := s.c.raw.BucketsDeleteWithResponse(ctx, bucket, params)
 	if err != nil {
 		return nil, err
@@ -77,7 +81,7 @@ func (s *BucketsService) Delete(ctx context.Context, bucket BucketName, params *
 type KeysService struct{ c *Client }
 
 // List: List access keys. Operation `keys.list`.
-func (s *KeysService) List(ctx context.Context, params *KeysListParams) (*KeysListResponse, error) {
+func (s *KeysService) List(ctx context.Context, params *api.KeysListParams) (*api.KeysListResponse, error) {
 	resp, err := s.c.raw.KeysListWithResponse(ctx, params)
 	if err != nil {
 		return nil, err
@@ -86,7 +90,7 @@ func (s *KeysService) List(ctx context.Context, params *KeysListParams) (*KeysLi
 }
 
 // Create: Create an access key. Operation `keys.create`.
-func (s *KeysService) Create(ctx context.Context, params *KeysCreateParams, body KeysCreateJSONRequestBody) (*KeysCreateResponse, error) {
+func (s *KeysService) Create(ctx context.Context, params *api.KeysCreateParams, body api.KeysCreateJSONRequestBody) (*api.KeysCreateResponse, error) {
 	resp, err := s.c.raw.KeysCreateWithResponse(ctx, params, body)
 	if err != nil {
 		return nil, err
@@ -95,7 +99,7 @@ func (s *KeysService) Create(ctx context.Context, params *KeysCreateParams, body
 }
 
 // Update: Update an access key. Operation `keys.update`.
-func (s *KeysService) Update(ctx context.Context, keyId AccessKeyId, params *KeysUpdateParams, body KeysUpdateJSONRequestBody) (*KeysUpdateResponse, error) {
+func (s *KeysService) Update(ctx context.Context, keyId api.AccessKeyId, params *api.KeysUpdateParams, body api.KeysUpdateJSONRequestBody) (*api.KeysUpdateResponse, error) {
 	resp, err := s.c.raw.KeysUpdateWithResponse(ctx, keyId, params, body)
 	if err != nil {
 		return nil, err
@@ -104,7 +108,7 @@ func (s *KeysService) Update(ctx context.Context, keyId AccessKeyId, params *Key
 }
 
 // Revoke: Revoke an access key. Operation `keys.revoke`. Set DryRun in params to preview.
-func (s *KeysService) Revoke(ctx context.Context, keyId AccessKeyId, params *KeysRevokeParams) (*KeysRevokeResponse, error) {
+func (s *KeysService) Revoke(ctx context.Context, keyId api.AccessKeyId, params *api.KeysRevokeParams) (*api.KeysRevokeResponse, error) {
 	resp, err := s.c.raw.KeysRevokeWithResponse(ctx, keyId, params)
 	if err != nil {
 		return nil, err
@@ -116,7 +120,7 @@ func (s *KeysService) Revoke(ctx context.Context, keyId AccessKeyId, params *Key
 type UsageService struct{ c *Client }
 
 // Get: Get current usage. Operation `usage.get`.
-func (s *UsageService) Get(ctx context.Context) (*UsageGetResponse, error) {
+func (s *UsageService) Get(ctx context.Context) (*api.UsageGetResponse, error) {
 	resp, err := s.c.raw.UsageGetWithResponse(ctx)
 	if err != nil {
 		return nil, err
@@ -125,7 +129,7 @@ func (s *UsageService) Get(ctx context.Context) (*UsageGetResponse, error) {
 }
 
 // Days: List daily usage. Operation `usage.days`.
-func (s *UsageService) Days(ctx context.Context, params *UsageDaysParams) (*UsageDaysResponse, error) {
+func (s *UsageService) Days(ctx context.Context, params *api.UsageDaysParams) (*api.UsageDaysResponse, error) {
 	resp, err := s.c.raw.UsageDaysWithResponse(ctx, params)
 	if err != nil {
 		return nil, err
@@ -134,7 +138,7 @@ func (s *UsageService) Days(ctx context.Context, params *UsageDaysParams) (*Usag
 }
 
 // Buckets: List usage per bucket. Operation `usage.buckets`.
-func (s *UsageService) Buckets(ctx context.Context, params *UsageBucketsParams) (*UsageBucketsResponse, error) {
+func (s *UsageService) Buckets(ctx context.Context, params *api.UsageBucketsParams) (*api.UsageBucketsResponse, error) {
 	resp, err := s.c.raw.UsageBucketsWithResponse(ctx, params)
 	if err != nil {
 		return nil, err
@@ -146,7 +150,7 @@ func (s *UsageService) Buckets(ctx context.Context, params *UsageBucketsParams) 
 type EventsService struct{ c *Client }
 
 // List: Read the event feed. Operation `events.list`.
-func (s *EventsService) List(ctx context.Context, params *EventsListParams) (*EventsListResponse, error) {
+func (s *EventsService) List(ctx context.Context, params *api.EventsListParams) (*api.EventsListResponse, error) {
 	resp, err := s.c.raw.EventsListWithResponse(ctx, params)
 	if err != nil {
 		return nil, err
@@ -158,7 +162,7 @@ func (s *EventsService) List(ctx context.Context, params *EventsListParams) (*Ev
 type ObjectsService struct{ c *Client }
 
 // Presign: Create a presigned URL. Operation `objects.presign`.
-func (s *ObjectsService) Presign(ctx context.Context, params *ObjectsPresignParams, body ObjectsPresignJSONRequestBody) (*ObjectsPresignResponse, error) {
+func (s *ObjectsService) Presign(ctx context.Context, params *api.ObjectsPresignParams, body api.ObjectsPresignJSONRequestBody) (*api.ObjectsPresignResponse, error) {
 	resp, err := s.c.raw.ObjectsPresignWithResponse(ctx, params, body)
 	if err != nil {
 		return nil, err
@@ -175,7 +179,7 @@ func (c *Client) initServices() {
 	c.Objects = &ObjectsService{c: c}
 }
 
-// services are the resource groups, as client.<Group>.
+// services are the resources of the API, as client.<Resource>.
 type services struct {
 	Account *AccountService
 	Buckets *BucketsService
