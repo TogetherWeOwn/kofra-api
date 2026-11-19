@@ -23,7 +23,7 @@ const BUSY_409 = {
 	retryable: true
 };
 
-type Answer = [number, unknown, Record<string, string>?] | Error;
+type Answer = [number, unknown, Record<string, string>?] | Error | (() => Response);
 
 function scripted(
 	answers: Answer[],
@@ -40,6 +40,7 @@ function scripted(
 			const next = answers.shift();
 			if (!next) throw new Error('no scripted answer left');
 			if (next instanceof Error) throw next;
+			if (typeof next === 'function') return next();
 			const [status, body, headers] = next;
 			const text = typeof body === 'string' ? body : JSON.stringify(body);
 			return new Response(status === 204 ? null : text, { status, headers });
@@ -169,4 +170,38 @@ test('an abort during a retry wait stops at once', async () => {
 		/stopped by the caller/
 	);
 	assert.ok(Date.now() - started < 1000, 'waited out the backoff');
+});
+
+/** A response whose body errors after the headers arrived. */
+function brokenBody(status: number, headers: Record<string, string> = {}): () => Response {
+	return () =>
+		new Response(
+			new ReadableStream({
+				start(controller) {
+					controller.error(new Error('connection reset'));
+				}
+			}),
+			{ status, headers }
+		);
+}
+
+test('a busy answer whose body breaks off is still retried, with the same key', async () => {
+	for (const status of [429, 503]) {
+		const { kofra, seen } = scripted([brokenBody(status, { 'retry-after': '0' }), [201, BUCKET]]);
+		assert.equal((await kofra.buckets.create({ body: { name: 'backups' } })).name, 'backups');
+		assert.equal(seen.length, 2, String(status));
+		assert.equal(seen[0].get('idempotency-key'), seen[1].get('idempotency-key'));
+	}
+});
+
+test('a broken body on a non-busy answer, or on the last attempt, surfaces the read error', async () => {
+	const once = scripted([brokenBody(400), [200, LIST]]);
+	await assert.rejects(once.kofra.buckets.list(), /connection reset/);
+	assert.equal(once.seen.length, 1);
+	const last = scripted([brokenBody(503, { 'retry-after': '0' })], { maxRetries: 0 });
+	await assert.rejects(last.kofra.buckets.list(), /connection reset/);
+	assert.equal(last.seen.length, 1);
+	const tooLong = scripted([brokenBody(503, { 'retry-after': '60' }), [200, LIST]]);
+	await assert.rejects(tooLong.kofra.buckets.list(), /connection reset/);
+	assert.equal(tooLong.seen.length, 1);
 });

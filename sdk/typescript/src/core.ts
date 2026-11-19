@@ -154,7 +154,20 @@ export class Core {
 				await sleep(Math.min(0.5 * 2 ** attempt, this.#maxWait) * 1000, options.signal);
 				continue;
 			}
-			const text = await res.text();
+			let text: string;
+			try {
+				text = await res.text();
+			} catch (err) {
+				// The body broke off after the headers. A busy answer (429, 503) is
+				// retryable on its status alone, so the lost body does not use up
+				// the call; anything else, or an abort, surfaces the read error.
+				const busy = res.status === 429 || res.status === 503;
+				if (!busy || attempt >= this.#maxRetries || options.signal?.aborted) throw err;
+				const wait = this.#backoff(attempt, res.headers.get('retry-after'));
+				if (wait === null) throw err;
+				await sleep(wait, options.signal);
+				continue;
+			}
 			if (res.ok) return text ? JSON.parse(text) : undefined;
 			const problem = toProblem(res, text);
 			if (attempt < this.#maxRetries && isRetryable(res.status, problem)) {
