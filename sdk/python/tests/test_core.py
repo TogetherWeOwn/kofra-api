@@ -240,3 +240,32 @@ def test_request_only_enums_stay_strict():
     for enum in (GrantInputAccess, PresignRequestMethod):
         with pytest.raises(ValueError):
             enum("not_a_value")
+
+
+def test_every_generated_enum_but_the_request_only_ones_tolerates_new_values():
+    # Catches a single enum losing its hook. A new request-only enum must be
+    # added here on purpose.
+    import enum
+    import importlib
+    import pkgutil
+
+    import kofra._generated.models as models
+
+    request_only = {"GrantInputAccess", "PresignRequestMethod"}
+    seen = set()
+    for info in pkgutil.iter_modules(models.__path__):
+        module = importlib.import_module(f"{models.__name__}.{info.name}")
+        for obj in vars(module).values():
+            if not (isinstance(obj, type) and issubclass(obj, enum.StrEnum)) or obj is enum.StrEnum:
+                continue
+            if obj.__module__ != module.__name__:
+                continue
+            seen.add(obj.__name__)
+            if obj.__name__ in request_only:
+                with pytest.raises(ValueError):
+                    obj("value_added_later")
+            else:
+                member = obj("value_added_later")
+                assert member.name == "OTHER" and str(member) == "value_added_later", obj.__name__
+    assert request_only <= seen
+    assert len(seen) >= 13

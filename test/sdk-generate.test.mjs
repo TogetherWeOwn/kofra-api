@@ -47,10 +47,14 @@ test('only enums a response can carry tolerate new values; request-only enums st
 			'from ..models.grant_input_access import GrantInputAccess\n\nclass GrantInput:\n    pass\n',
 		grant_input_access: enumSrc('GrantInputAccess'),
 		shared: enumSrc('Shared'),
-		both: 'from ..models.shared import Shared\n\nclass Both:\n    pass\n'
+		both: 'from ..models.shared import Shared\n\nclass Both:\n    pass\n',
+		// Imports inside functions are indented and may carry a noqa comment.
+		lazy: 'class Lazy:\n    def f(self):\n        from ..models.late import Late  # noqa: E501\n',
+		late: enumSrc('Late')
 	};
-	assert.deepEqual([...responseEnumModules(sources, ['Account', 'Both'])].sort(), [
+	assert.deepEqual([...responseEnumModules(sources, ['Account', 'Both', 'Lazy'])].sort(), [
 		'account_state',
+		'late',
 		'shared'
 	]);
 	assert.throws(
