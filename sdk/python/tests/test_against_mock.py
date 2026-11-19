@@ -82,6 +82,32 @@ def test_paginate_walks_a_list(kofra):
     assert [b.name for b in paginate(kofra.buckets.list)] == ["backups", "photos"]
 
 
+def test_paginate_refuses_a_repeated_cursor_but_ends_on_empty_feed_pages():
+    class Page:
+        def __init__(self, data, next_cursor):
+            self.data = data
+            self.next_cursor = next_cursor
+
+    def scripted(pages):
+        sent = []
+
+        def list_fn(**kwargs):
+            sent.append(kwargs.get("cursor"))
+            return pages.pop(0)
+
+        return list_fn, sent
+
+    stuck, sent = scripted([Page(["a"], "c1"), Page(["b"], "c1")])
+    got = []
+    with pytest.raises(RuntimeError, match="same cursor"):
+        for x in paginate(stuck):
+            got.append(x)
+    assert got == ["a"]
+    assert sent == [None, "c1"]
+    feed, _ = scripted([Page(["a"], "c1"), Page([], "c1")])
+    assert list(paginate(feed)) == ["a"]
+
+
 def test_a_missing_token_is_refused(monkeypatch, base_url):
     monkeypatch.delenv("KOFRA_API_TOKEN", raising=False)
     with pytest.raises(ValueError, match="KOFRA_API_TOKEN"):

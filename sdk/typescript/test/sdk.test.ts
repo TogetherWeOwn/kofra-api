@@ -130,6 +130,48 @@ test('paginate walks a list', async () => {
 	assert.deepEqual(names, ['backups', 'photos']);
 });
 
+test('paginate refuses a non-empty page that repeats its cursor, and still ends on empty feed pages', async () => {
+	type P = { data: string[]; next_cursor: string | null };
+	const pages = (script: P[]) => {
+		const sent: (string | undefined)[] = [];
+		return {
+			sent,
+			list: async (a: { cursor?: string }): Promise<P> => {
+				sent.push(a.cursor);
+				return script.shift()!;
+			}
+		};
+	};
+	const stuck = pages([
+		{ data: ['a'], next_cursor: 'c1' },
+		{ data: ['b'], next_cursor: 'c1' }
+	]);
+	const got: string[] = [];
+	await assert.rejects(async () => {
+		for await (const x of paginate(stuck.list)) got.push(x);
+	}, /same cursor/);
+	assert.deepEqual(got, ['a']);
+	assert.deepEqual(stuck.sent, [undefined, 'c1']);
+	const feed = pages([
+		{ data: ['a'], next_cursor: 'c1' },
+		{ data: [], next_cursor: 'c1' }
+	]);
+	const all: string[] = [];
+	for await (const x of paginate(feed.list)) all.push(x);
+	assert.deepEqual(all, ['a']);
+});
+
+test('maxRetries and maxRetryWaitSeconds must be finite and non-negative', () => {
+	for (const maxRetries of [NaN, Infinity, -1, 1.5])
+		assert.throws(() => new Kofra({ token: 'kofra_tok_x', baseUrl, maxRetries }), /maxRetries/);
+	for (const maxRetryWaitSeconds of [NaN, Infinity, -1])
+		assert.throws(
+			() => new Kofra({ token: 'kofra_tok_x', baseUrl, maxRetryWaitSeconds }),
+			/maxRetryWaitSeconds/
+		);
+	new Kofra({ token: 'kofra_tok_x', baseUrl, maxRetries: 0, maxRetryWaitSeconds: 0 });
+});
+
 test('a missing token is refused before any request', () => {
 	const saved = process.env.KOFRA_API_TOKEN;
 	delete process.env.KOFRA_API_TOKEN;

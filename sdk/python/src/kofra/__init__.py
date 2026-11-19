@@ -61,6 +61,13 @@ def paginate(list_fn: Callable[..., Any], **kwargs: Any) -> Iterator[Any]:
     feed always returns a cursor to poll from)."""
     while True:
         page = list_fn(**kwargs)
+        # A non-empty page that hands back the cursor it was fetched with would
+        # repeat forever; refuse it before yielding its rows.
+        sent = kwargs.get("cursor")
+        if page.data and sent not in (None, UNSET) and page.next_cursor == sent:
+            raise RuntimeError(
+                "Kofra: the list returned the same cursor again; stopping instead of looping."
+            )
         yield from page.data
         cursor = page.next_cursor
         if cursor in (None, UNSET) or not page.data:

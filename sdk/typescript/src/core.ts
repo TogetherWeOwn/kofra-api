@@ -100,6 +100,11 @@ export class Core {
 		checkBaseUrl(this.baseUrl, options.allowInsecureHttp ?? false);
 		this.#maxRetries = options.maxRetries ?? 2;
 		this.#maxWait = options.maxRetryWaitSeconds ?? 30;
+		// NaN or Infinity would never exhaust the retry loop.
+		if (!Number.isSafeInteger(this.#maxRetries) || this.#maxRetries < 0)
+			throw new Error('Kofra: `maxRetries` must be a non-negative integer.');
+		if (!Number.isFinite(this.#maxWait) || this.#maxWait < 0)
+			throw new Error('Kofra: `maxRetryWaitSeconds` must be a non-negative finite number.');
 		this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
 	}
 

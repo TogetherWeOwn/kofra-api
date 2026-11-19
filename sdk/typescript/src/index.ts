@@ -46,6 +46,12 @@ export async function* paginate<T, A extends { cursor?: string }>(
 	let cursor = args.cursor;
 	for (;;) {
 		const page = await list({ ...args, cursor });
+		// A non-empty page that hands back the cursor it was fetched with would
+		// repeat forever; refuse it before yielding its rows.
+		if (page.data.length > 0 && cursor !== undefined && page.next_cursor === cursor)
+			throw new Error(
+				'Kofra: the list returned the same cursor again; stopping instead of looping.'
+			);
 		yield* page.data;
 		if (!page.next_cursor || page.data.length === 0) return;
 		cursor = page.next_cursor;
