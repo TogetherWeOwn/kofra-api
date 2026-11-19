@@ -32,3 +32,33 @@ test('the SDK generator refuses an HTTP method it does not handle', () => {
 	withHead.paths['/v1/buckets'].head = {};
 	assert.throws(() => operations(withHead, registry()), /HEAD \/v1\/buckets/);
 });
+
+test('only enums a response can carry tolerate new values; request-only enums stay strict', async () => {
+	const { responseSchemaNames, responseEnumModules } = await import('../tools/sdk/generate.mjs');
+	const roots = responseSchemaNames(spec);
+	assert.ok(roots.has('Account') && roots.has('Problem'));
+	assert.ok(!roots.has('PresignRequest'));
+	const enumSrc = (name) =>
+		`class ${name}(StrEnum):\n    A = "a"\n\n    def __str__(self) -> str:\n        return str(self.value)\n`;
+	const sources = {
+		account: 'from ..models.account_state import AccountState\n\nclass Account:\n    pass\n',
+		account_state: enumSrc('AccountState'),
+		grant_input:
+			'from ..models.grant_input_access import GrantInputAccess\n\nclass GrantInput:\n    pass\n',
+		grant_input_access: enumSrc('GrantInputAccess'),
+		shared: enumSrc('Shared'),
+		both: 'from ..models.shared import Shared\n\nclass Both:\n    pass\n',
+		// Imports inside functions are indented and may carry a noqa comment.
+		lazy: 'class Lazy:\n    def f(self):\n        from ..models.late import Late  # noqa: E501\n',
+		late: enumSrc('Late')
+	};
+	assert.deepEqual([...responseEnumModules(sources, ['Account', 'Both', 'Lazy'])].sort(), [
+		'account_state',
+		'late',
+		'shared'
+	]);
+	assert.throws(
+		() => responseEnumModules(sources, ['Missing']),
+		/no generated model for response schema Missing/
+	);
+});

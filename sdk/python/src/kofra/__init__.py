@@ -4,6 +4,11 @@
     kofra = Kofra(token="...")          # or KOFRA_API_TOKEN
     for bucket in kofra.buckets.list().data:
         print(bucket.name)
+
+An enum value the API added after this SDK was released reads as a member
+named OTHER that keeps the value as sent. Check it with
+`value.name == "OTHER"`, not by identity: an enum that also defines a real
+"other" value keeps the two distinct, so no information is lost.
 """
 
 from __future__ import annotations

@@ -186,3 +186,86 @@ def test_unknown_enum_values_in_answers_are_kept(slept):
     }
     page = client(Script((200, keys, {}))).keys.list()
     assert page.data[0].grants[0].access.value == "read_only_soon"
+
+
+ACCOUNT = {
+    "id": "ws_01jd3k9v6q2m8x4t7r5n0b1c2d",
+    "state": "active",
+    "access": "full",
+    "s3_endpoint": "https://s3.kofra.io",
+    "limits": {
+        "storage_bytes": 1099511627776,
+        "upload_24h_bytes": 214748364800,
+        "download_allowance_bytes": 1099511627776,
+        "active_keys": 20,
+    },
+    "suspension": None,
+    "deletion": None,
+    "created_at": "2026-11-01T09:30:00Z",
+}
+
+
+def test_an_unknown_response_enum_value_reads_as_other_and_keeps_its_value():
+    # The contract adds enum values within /v1; a client reads an unknown one as "other".
+    body = {**ACCOUNT, "state": "archived", "access": "read_only_plus"}
+    account = client(Script((200, body, {}))).account.get()
+    assert account.state.name == "OTHER"
+    assert account.access.name == "OTHER"
+    assert str(account.state) == "archived"
+    assert account.state.value == "archived"
+    assert account.state != "active"
+    assert account.to_dict()["state"] == "archived"
+    # Known values are unchanged.
+    known = client(Script((200, ACCOUNT, {}))).account.get()
+    assert known.state.name == "ACTIVE"
+
+
+def test_an_unknown_nested_response_enum_value_reads_as_other():
+    body = {
+        **ACCOUNT,
+        "state": "suspended",
+        "suspension": {"reason": "fraud_review", "mode": "frozen", "since": "2026-11-02T08:00:00Z"},
+    }
+    from kofra._generated.models.suspension import Suspension
+
+    s = Suspension.from_dict(body["suspension"])
+    assert s.reason.name == "OTHER" and str(s.reason) == "fraud_review"
+    assert s.mode.name == "OTHER" and str(s.mode) == "frozen"
+
+
+def test_request_only_enums_stay_strict():
+    from kofra._generated.models.grant_input_access import GrantInputAccess
+    from kofra._generated.models.presign_request_method import PresignRequestMethod
+
+    for enum in (GrantInputAccess, PresignRequestMethod):
+        with pytest.raises(ValueError):
+            enum("not_a_value")
+
+
+def test_every_generated_enum_but_the_request_only_ones_tolerates_new_values():
+    # Catches a single enum losing its hook. A new request-only enum must be
+    # added here on purpose.
+    import enum
+    import importlib
+    import pkgutil
+
+    import kofra._generated.models as models
+
+    request_only = {"GrantInputAccess", "PresignRequestMethod"}
+    seen = set()
+    for info in pkgutil.iter_modules(models.__path__):
+        module = importlib.import_module(f"{models.__name__}.{info.name}")
+        for obj in vars(module).values():
+            if not (isinstance(obj, type) and issubclass(obj, enum.StrEnum)) or obj is enum.StrEnum:
+                continue
+            if obj.__module__ != module.__name__:
+                continue
+            seen.add(obj.__name__)
+            if obj.__name__ in request_only:
+                with pytest.raises(ValueError):
+                    obj("value_added_later")
+            else:
+                member = obj("value_added_later")
+                assert member.name == "OTHER" and str(member) == "value_added_later", obj.__name__
+    assert request_only <= seen
+    assert len(seen) >= 13

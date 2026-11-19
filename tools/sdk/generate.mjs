@@ -192,7 +192,8 @@ function python(ops) {
 		{ stdio: ['ignore', 'ignore', 'inherit'] }
 	);
 	rmSync(join(out, '.ruff_cache'), { recursive: true, force: true });
-	tolerateNewEnumValues(join(out, 'models'));
+	const spec = JSON.parse(readFileSync(join(root, 'generated/openapi.json'), 'utf8'));
+	tolerateNewEnumValues(join(out, 'models'), responseSchemaNames(spec));
 
 	const lines = [
 		`# ${HEADER}`,
@@ -244,15 +245,66 @@ function python(ops) {
 }
 
 // The contract lets the API add enum values within /v1 and asks clients to
-// treat an unknown one as "other". The generated StrEnums raise on an unknown
-// value, which would fail a whole answer, so each gets a _missing_ hook that
-// keeps the value as an OTHER member. The server still validates requests.
-function tolerateNewEnumValues(dir) {
+// treat an unknown one in a response as "other". The generated StrEnums raise
+// on an unknown value, which would fail a whole answer, so every enum a
+// response can carry gets a _missing_ hook: the unknown value decodes to a
+// member named OTHER that keeps the value as sent (str() and to_dict() return
+// it unchanged). Enums used only in request bodies stay strict, so a typo is
+// refused before it is sent.
+
+/** Component schema names a response body refers to directly. */
+export function responseSchemaNames(spec) {
+	const names = new Set();
+	for (const item of Object.values(spec.paths ?? {}))
+		for (const op of Object.values(item)) {
+			if (!op || typeof op !== 'object' || !op.responses) continue;
+			for (const resp of Object.values(op.responses))
+				for (const media of Object.values(resp.content ?? {})) {
+					const ref = media.schema?.$ref;
+					if (typeof ref !== 'string' || !ref.startsWith('#/components/schemas/'))
+						throw new Error(
+							`a response schema is not a component $ref: ${JSON.stringify(media.schema)}`
+						);
+					names.add(ref.slice('#/components/schemas/'.length));
+				}
+		}
+	return names;
+}
+
+/**
+ * The enum modules reachable from response models, given the generated model
+ * sources ({ module: source }) and the response schema names. Follows each
+ * model's `from ..models.<module> import` lines.
+ */
+export function responseEnumModules(sources, roots) {
+	const moduleOf = new Map();
+	for (const [mod, src] of Object.entries(sources))
+		for (const m of src.matchAll(/^class (\w+)[(:]/gm)) moduleOf.set(m[1], mod);
+	const queue = [];
+	for (const name of roots) {
+		const mod = moduleOf.get(name);
+		if (!mod) throw new Error(`no generated model for response schema ${name}`);
+		queue.push(mod);
+	}
+	const seen = new Set();
+	while (queue.length) {
+		const mod = queue.pop();
+		if (seen.has(mod)) continue;
+		seen.add(mod);
+		for (const m of (sources[mod] ?? '').matchAll(/from \.\.models\.(\w+) import/g))
+			queue.push(m[1]);
+	}
+	const isEnum = (mod) => /^class \w+\(StrEnum\):$/m.test(sources[mod] ?? '');
+	return new Set([...seen].filter(isEnum));
+}
+
+function tolerateNewEnumValues(dir, roots) {
 	const hook = [
 		'',
 		'    @classmethod',
 		'    def _missing_(cls, value: object) -> "StrEnum | None":',
-		'        # A value added to the API after this SDK was generated.',
+		'        # A value added to the API after this SDK was generated reads as',
+		'        # OTHER and keeps the value as sent; check it with .name == "OTHER".',
 		'        if not isinstance(value, str):',
 		'            return None',
 		'        member = str.__new__(cls, value)',
@@ -261,17 +313,18 @@ function tolerateNewEnumValues(dir) {
 		'        return member',
 		''
 	].join('\n');
-	let patched = 0;
-	for (const name of readdirSync(dir)) {
-		const file = join(dir, name);
-		const src = readFileSync(file, 'utf8');
-		if (!/^class \w+\(StrEnum\):$/m.test(src)) continue;
+	const sources = {};
+	for (const name of readdirSync(dir))
+		if (name.endsWith('.py') && name !== '__init__.py')
+			sources[name.slice(0, -3)] = readFileSync(join(dir, name), 'utf8');
+	const tolerant = responseEnumModules(sources, roots);
+	if (tolerant.size === 0) throw new Error('no generated response StrEnum found to patch');
+	for (const mod of tolerant) {
+		const src = sources[mod];
 		const anchor = '    def __str__(self) -> str:\n        return str(self.value)\n';
-		if (!src.includes(anchor)) throw new Error(`${name}: unexpected StrEnum layout`);
-		writeFileSync(file, src.replace(anchor, anchor + hook));
-		patched++;
+		if (!src.includes(anchor)) throw new Error(`${mod}: unexpected StrEnum layout`);
+		writeFileSync(join(dir, `${mod}.py`), src.replace(anchor, anchor + hook));
 	}
-	if (patched === 0) throw new Error('no generated StrEnum found to patch');
 }
 
 // ------------------------------------------------------------------------ Go
