@@ -208,6 +208,8 @@ test('a broken body on a non-busy answer, or on the last attempt, surfaces the r
 
 test('trailing slashes on the base URL are trimmed in linear time', async () => {
 	const seen: string[] = [];
+	// The clock starts before the constructor: it is the constructor that trims.
+	const t = performance.now();
 	const kofra = new Kofra({
 		token: 'kofra_tok_test_1',
 		baseUrl: 'https://api.example.test' + '/'.repeat(100_000),
@@ -216,8 +218,24 @@ test('trailing slashes on the base URL are trimmed in linear time', async () => 
 			return new Response(JSON.stringify(LIST), { status: 200 });
 		}
 	});
-	const t = performance.now();
 	await kofra.buckets.list();
 	assert.ok(performance.now() - t < 1000);
 	assert.equal(seen[0], 'https://api.example.test/v1/buckets');
+});
+
+test('a base URL with a long run of slashes before the end is handled in linear time', async () => {
+	// The worst case for a /\/+$/ regex: every start position scans the run, then fails.
+	const seen: string[] = [];
+	const t = performance.now();
+	const kofra = new Kofra({
+		token: 'kofra_tok_test_1',
+		baseUrl: 'https://api.example.test' + '/'.repeat(100_000) + 'x/',
+		fetch: async (input) => {
+			seen.push(String(input));
+			return new Response(JSON.stringify(LIST), { status: 200 });
+		}
+	});
+	assert.ok(performance.now() - t < 1000);
+	await kofra.buckets.list();
+	assert.ok(seen[0].endsWith('/x/v1/buckets'));
 });
