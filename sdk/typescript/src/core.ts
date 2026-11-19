@@ -93,9 +93,8 @@ export class Core {
 		const token = options.token ?? env('KOFRA_API_TOKEN');
 		if (!token) throw new Error('Kofra: no API token; pass `token` or set KOFRA_API_TOKEN.');
 		this.#token = token;
-		this.baseUrl = (options.baseUrl ?? env('KOFRA_API_URL') ?? 'https://api.kofra.app').replace(
-			/\/+$/,
-			''
+		this.baseUrl = trimTrailingSlashes(
+			options.baseUrl ?? env('KOFRA_API_URL') ?? 'https://api.kofra.app'
 		);
 		checkBaseUrl(this.baseUrl, options.allowInsecureHttp ?? false);
 		this.#maxRetries = options.maxRetries ?? 2;
@@ -192,6 +191,13 @@ export class Core {
 		if (asked !== null) return asked <= this.#maxWait ? asked * 1000 : null;
 		return Math.min(0.5 * 2 ** attempt, this.#maxWait) * 1000;
 	}
+}
+
+/** Drops trailing "/" in linear time (a `/\/+$/` regex is quadratic on long runs of "/"). */
+function trimTrailingSlashes(url: string): string {
+	let end = url.length;
+	while (end > 0 && url[end - 1] === '/') end--;
+	return url.slice(0, end);
 }
 
 /** Seconds from a Retry-After header: delta-seconds or an HTTP date. */

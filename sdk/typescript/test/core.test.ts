@@ -205,3 +205,19 @@ test('a broken body on a non-busy answer, or on the last attempt, surfaces the r
 	await assert.rejects(tooLong.kofra.buckets.list(), /connection reset/);
 	assert.equal(tooLong.seen.length, 1);
 });
+
+test('trailing slashes on the base URL are trimmed in linear time', async () => {
+	const seen: string[] = [];
+	const kofra = new Kofra({
+		token: 'kofra_tok_test_1',
+		baseUrl: 'https://api.example.test' + '/'.repeat(100_000),
+		fetch: async (input) => {
+			seen.push(String(input));
+			return new Response(JSON.stringify(LIST), { status: 200 });
+		}
+	});
+	const t = performance.now();
+	await kofra.buckets.list();
+	assert.ok(performance.now() - t < 1000);
+	assert.equal(seen[0], 'https://api.example.test/v1/buckets');
+});
