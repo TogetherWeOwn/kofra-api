@@ -44,8 +44,10 @@ impl PresignLifetime {
     pub const MIN: u16 = 1;
     /// The longest lifetime, in seconds (15 minutes).
     pub const MAX: u16 = 900;
+    /// The lifetime in seconds when the request does not give one.
+    pub const DEFAULT_SECONDS: u16 = 900;
     /// The lifetime when the request does not give one.
-    pub const DEFAULT: Self = Self(Self::MAX);
+    pub const DEFAULT: Self = Self(Self::DEFAULT_SECONDS);
 
     /// The lifetime of `seconds`, if it is within the bounds.
     pub fn new(seconds: u64) -> Result<Self, OutOfBounds> {
@@ -189,9 +191,12 @@ impl fmt::Display for EmptyUpdate {
 impl std::error::Error for EmptyUpdate {}
 
 impl AccessKeyUpdate {
+    /// The fewest fields an update gives.
+    pub const MIN_FIELDS: usize = 1;
+
     /// An update, if it changes something.
     pub fn new(name: Option<crate::KeyName>, grants: Option<Grants>) -> Result<Self, EmptyUpdate> {
-        if name.is_none() && grants.is_none() {
+        if usize::from(name.is_some()) + usize::from(grants.is_some()) < Self::MIN_FIELDS {
             return Err(EmptyUpdate);
         }
         Ok(Self { name, grants })

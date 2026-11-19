@@ -157,11 +157,18 @@
                       "title": "Request is not valid",
                       "status": 400,
                       "code": "validation_failed",
-                      "detail": "The request has 1 invalid field.",
+                      "detail": "The query parameter \"limt\" is not accepted by this operation.",
                       "hint": "Fix each field listed in `errors` (the `pointer` names it), then send the request again.",
                       "docs_url": "https://kofra.app/docs/errors/validation_failed.md",
                       "request_id": "req_01jd3examplerequestid0000",
-                      "retryable": false
+                      "retryable": false,
+                      "errors": [
+                        {
+                          "pointer": "#query/limt",
+                          "code": "unknown_field",
+                          "detail": "This parameter is not accepted."
+                        }
+                      ]
                     }
                   }
                 }
@@ -1028,11 +1035,18 @@
                       "title": "Request is not valid",
                       "status": 400,
                       "code": "validation_failed",
-                      "detail": "The request has 1 invalid field.",
+                      "detail": "The query parameter \"limt\" is not accepted by this operation.",
                       "hint": "Fix each field listed in `errors` (the `pointer` names it), then send the request again.",
                       "docs_url": "https://kofra.app/docs/errors/validation_failed.md",
                       "request_id": "req_01jd3examplerequestid0000",
-                      "retryable": false
+                      "retryable": false,
+                      "errors": [
+                        {
+                          "pointer": "#query/limt",
+                          "code": "unknown_field",
+                          "detail": "This parameter is not accepted."
+                        }
+                      ]
                     }
                   }
                 }
@@ -2891,14 +2905,14 @@
                       "title": "Request is not valid",
                       "status": 400,
                       "code": "validation_failed",
-                      "detail": "The parameter \"bucket\" is not valid.",
+                      "detail": "The parameter \"dry_run\" is not valid.",
                       "hint": "Fix each field listed in `errors` (the `pointer` names it), then send the request again.",
                       "docs_url": "https://kofra.app/docs/errors/validation_failed.md",
                       "request_id": "req_01jd3examplerequestid0000",
                       "retryable": false,
                       "errors": [
                         {
-                          "pointer": "#path/bucket",
+                          "pointer": "#query/dry_run",
                           "code": "invalid_value",
                           "detail": "Not a valid value."
                         }
@@ -5105,14 +5119,14 @@
                       "title": "Request is not valid",
                       "status": 400,
                       "code": "validation_failed",
-                      "detail": "The parameter \"key_id\" is not valid.",
+                      "detail": "The parameter \"dry_run\" is not valid.",
                       "hint": "Fix each field listed in `errors` (the `pointer` names it), then send the request again.",
                       "docs_url": "https://kofra.app/docs/errors/validation_failed.md",
                       "request_id": "req_01jd3examplerequestid0000",
                       "retryable": false,
                       "errors": [
                         {
-                          "pointer": "#path/key_id",
+                          "pointer": "#query/dry_run",
                           "code": "invalid_value",
                           "detail": "Not a valid value."
                         }
@@ -5600,11 +5614,18 @@
                       "title": "Request is not valid",
                       "status": 400,
                       "code": "validation_failed",
-                      "detail": "The request has 1 invalid field.",
+                      "detail": "The query parameter \"limt\" is not accepted by this operation.",
                       "hint": "Fix each field listed in `errors` (the `pointer` names it), then send the request again.",
                       "docs_url": "https://kofra.app/docs/errors/validation_failed.md",
                       "request_id": "req_01jd3examplerequestid0000",
-                      "retryable": false
+                      "retryable": false,
+                      "errors": [
+                        {
+                          "pointer": "#query/limt",
+                          "code": "unknown_field",
+                          "detail": "This parameter is not accepted."
+                        }
+                      ]
                     }
                   }
                 }

@@ -275,6 +275,8 @@ test('every pointer in a 400 example names something the operation accepts', () 
 		for (const [name, ex] of Object.entries(
 			op.responses['400'].content['application/problem+json'].examples
 		)) {
+			if (['validation_failed', 'unknown_field'].includes(name))
+				assert.ok(ex.value.errors?.length > 0, `${op.operationId} ${name}: errors is empty`);
 			for (const fe of ex.value.errors ?? []) {
 				const where = `${op.operationId} ${name} ${fe.pointer}`;
 				const param = /^#(query|path|header)\/(.+)$/.exec(fe.pointer);

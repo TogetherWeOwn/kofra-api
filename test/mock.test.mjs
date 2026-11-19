@@ -377,3 +377,20 @@ test('Prefer values split on the first "=" and odd shapes are refused', async ()
 		'service_unavailable'
 	);
 });
+
+test('a scheme other than Bearer gets the plain challenge; a bad Bearer token gets invalid_token', async () => {
+	for (const token of ['Basic dXNlcjpwYXNz', 'Digest x', 'kofra_tok_abc', 'Token kofra_tok_abc']) {
+		const r = await call('GET', '/v1/buckets', { token });
+		assertProblem(r, 401, 'unauthenticated');
+		assert.equal(r.res.headers.get('www-authenticate'), 'Bearer realm="kofra"', token);
+	}
+	for (const token of ['Bearer nope', 'bearer kofra_tok_', 'Bearer kofra_tok_a-b']) {
+		const r = await call('GET', '/v1/buckets', { token });
+		assertProblem(r, 401, 'unauthenticated');
+		assert.equal(
+			r.res.headers.get('www-authenticate'),
+			'Bearer realm="kofra", error="invalid_token"',
+			token
+		);
+	}
+});

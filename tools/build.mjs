@@ -168,8 +168,17 @@ function fieldErrorExample(code, op, item, doc) {
 			errors: [{ pointer: `/${field}`, code: 'invalid_value', detail: 'Not a valid value.' }]
 		};
 	}
-	const p = operationParams(op, item, doc).find((x) => x.in === 'query' || x.in === 'path');
-	if (!p) return {};
+	const params = operationParams(op, item, doc);
+	const p = params.find((x) => x.in === 'query') ?? params.find((x) => x.in === 'path');
+	if (!p) {
+		// Nothing to get wrong but the query itself: a parameter it does not declare.
+		return {
+			detail: 'The query parameter "limt" is not accepted by this operation.',
+			errors: [
+				{ pointer: '#query/limt', code: 'unknown_field', detail: 'This parameter is not accepted.' }
+			]
+		};
+	}
 	return {
 		detail: `The parameter "${p.name}" is not valid.`,
 		errors: [{ pointer: `#${p.in}/${p.name}`, code: 'invalid_value', detail: 'Not a valid value.' }]

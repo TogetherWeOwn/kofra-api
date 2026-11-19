@@ -220,9 +220,12 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 		// Authentication and scopes. The scheme name is case-insensitive (RFC 9110 11.1).
 		const auth = req.headers['authorization'];
 		if (auth === undefined) return fail('unauthenticated');
+		// Another scheme (or no scheme) is no Bearer credential at all: the plain
+		// challenge. A Bearer value that is not a token adds invalid_token.
 		const m = /^([A-Za-z]+) +(\S+)$/.exec(auth);
-		const token = m && m[1].toLowerCase() === 'bearer' ? m[2] : null;
-		if (!token || !/^kofra_tok_[A-Za-z0-9_]+$/.test(token))
+		if (!m || m[1].toLowerCase() !== 'bearer') return fail('unauthenticated');
+		const token = m[2];
+		if (!/^kofra_tok_[A-Za-z0-9_]+$/.test(token))
 			return fail('unauthenticated', {}, { 'WWW-Authenticate': challenge('token_expired') });
 		if (token === 'kofra_tok_expired') return fail('token_expired');
 		const scopes = op.security?.[0]?.bearerAuth ?? [];

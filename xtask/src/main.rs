@@ -27,6 +27,83 @@ const BOUNDED: &[(&str, &str)] = &[
     ("AccessKeyUpdate", "crate::bounded::AccessKeyUpdate"),
 ];
 
+/// Each limit of a [`BOUNDED`] type: (schema, keyword in the contract, the
+/// `pub const` of the hand-written type that must equal it).
+const LIMITS: &[(&str, &str, &str)] = &[
+    ("PresignLifetime", "minimum", "MIN"),
+    ("PresignLifetime", "maximum", "MAX"),
+    ("PresignLifetime", "default", "DEFAULT_SECONDS"),
+    ("Grants", "minItems", "MIN"),
+    ("Grants", "maxItems", "MAX"),
+    ("AccessKeyUpdate", "minProperties", "MIN_FIELDS"),
+];
+
+const BOUNDED_RS: &str = "crates/kofra-api-types/src/bounded.rs";
+
+/// Integer `const`s of every `impl <Type>` block in `source`, as (type, const, value).
+fn rust_consts(source: &str) -> Result<Vec<(String, String, u64)>, String> {
+    let file = syn::parse_file(source).map_err(|e| format!("{BOUNDED_RS}: {e}"))?;
+    let mut out = Vec::new();
+    for item in file.items {
+        let syn::Item::Impl(block) = item else {
+            continue;
+        };
+        if block.trait_.is_some() {
+            continue;
+        }
+        let syn::Type::Path(ty) = &*block.self_ty else {
+            continue;
+        };
+        let Some(ty) = ty.path.segments.last().map(|s| s.ident.to_string()) else {
+            continue;
+        };
+        for item in block.items {
+            let syn::ImplItem::Const(c) = item else {
+                continue;
+            };
+            if let syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Int(v),
+                ..
+            }) = &c.expr
+            {
+                let value = v
+                    .base10_parse::<u64>()
+                    .map_err(|e| format!("{ty}::{}: {e}", c.ident))?;
+                out.push((ty.clone(), c.ident.to_string(), value));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Every [`LIMITS`] row whose Rust constant differs from the contract, or is missing.
+fn limit_mismatches(spec: &Value, source: &str) -> Result<Vec<String>, String> {
+    let consts = rust_consts(source)?;
+    let mut out = Vec::new();
+    for (schema, keyword, name) in LIMITS {
+        let rust_type = BOUNDED
+            .iter()
+            .find(|(s, _)| s == schema)
+            .and_then(|(_, t)| t.rsplit("::").next())
+            .ok_or(format!("{schema} is in LIMITS but not in BOUNDED"))?;
+        let contract = spec
+            .pointer(&format!("/components/schemas/{schema}/{keyword}"))
+            .and_then(Value::as_u64);
+        let rust = consts
+            .iter()
+            .find(|(t, c, _)| t == rust_type && c == name)
+            .map(|(_, _, v)| *v);
+        if contract.is_none() || contract != rust {
+            out.push(format!(
+                "{schema}.{keyword} is {} in the contract but {rust_type}::{name} is {}",
+                contract.map_or("absent".into(), |v| v.to_string()),
+                rust.map_or("absent".into(), |v| v.to_string())
+            ));
+        }
+    }
+    Ok(out)
+}
+
 /// Validation keywords that typify does not enforce on any type.
 const UNENFORCED: &[&str] = &[
     "maxItems",
@@ -241,6 +318,15 @@ fn gen_routes(spec: &Value) -> Result<String, String> {
 fn main() -> ExitCode {
     let mode = std::env::args().nth(1).unwrap_or_default();
     let result = load_spec().and_then(|spec| {
+        let source = fs::read_to_string(root().join(BOUNDED_RS))
+            .map_err(|e| format!("{BOUNDED_RS}: {e}"))?;
+        let mismatched = limit_mismatches(&spec, &source)?;
+        if !mismatched.is_empty() {
+            return Err(format!(
+                "the hand-written bounded types disagree with the contract:\n  {}",
+                mismatched.join("\n  ")
+            ));
+        }
         let unmapped = unenforced_bounds(&spec);
         if !unmapped.is_empty() {
             return Err(format!(
@@ -329,6 +415,47 @@ mod tests {
                 "#/components/schemas/Req/properties/n"
             ]
         );
+    }
+
+    #[test]
+    fn a_bounded_type_limit_that_differs_from_the_contract_is_reported() {
+        let spec = json!({ "components": { "schemas": {
+            "PresignLifetime": { "type": "integer", "minimum": 1, "maximum": 600, "default": 900 },
+            "Grants": { "type": "array", "minItems": 1, "maxItems": 32 },
+            "AccessKeyUpdate": { "type": "object", "minProperties": 1 }
+        } } });
+        let source = "
+            pub struct PresignLifetime(u16);
+            impl PresignLifetime { pub const MIN: u16 = 1; pub const MAX: u16 = 900; pub const DEFAULT_SECONDS: u16 = 900; }
+            impl Default for PresignLifetime { fn default() -> Self { Self(1) } }
+            pub struct Grants(Vec<u8>);
+            impl Grants { pub const MIN: usize = 1; }
+            pub struct AccessKeyUpdate;
+            impl AccessKeyUpdate { pub const MIN_FIELDS: usize = 1; }
+        ";
+        assert_eq!(
+            limit_mismatches(&spec, source).expect("parses"),
+            [
+                "PresignLifetime.maximum is 600 in the contract but PresignLifetime::MAX is 900",
+                "Grants.maxItems is 32 in the contract but Grants::MAX is absent"
+            ]
+        );
+    }
+
+    #[test]
+    fn the_bounded_types_match_the_published_contract() {
+        let spec = load_spec().expect("contract");
+        let source = fs::read_to_string(root().join(BOUNDED_RS)).expect("bounded.rs");
+        assert_eq!(
+            limit_mismatches(&spec, &source).expect("parses"),
+            Vec::<String>::new()
+        );
+        for (schema, _) in BOUNDED {
+            assert!(
+                LIMITS.iter().any(|(s, _, _)| s == schema),
+                "{schema} has no LIMITS row"
+            );
+        }
     }
 
     #[test]

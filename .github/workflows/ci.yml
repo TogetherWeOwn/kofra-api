@@ -37,13 +37,15 @@ jobs:
   # Change detection (org CI standard): which areas a pull request touches.
   # A full-run path or an unclassified path forces a full run. `contract`
   # runs on every change, because prettier and the F7 deny-list check every
-  # file, Markdown included. `rust` is skipped only on a docs-only pull
-  # request; it runs on every other event.
+  # file, Markdown included. `rust` runs on a pull request when the `rust`
+  # area (the crates, xtask, Cargo files, the toolchain, and the contract
+  # sources and artefacts the types are generated from) or a full-run path
+  # changed, and always on every other event.
   changes:
     name: changes
     uses: TogetherWeOwn/.github/.github/workflows/changes.yml@c05610872587137c3c492b7025f02585a1b8ba7d # v0.11.0
     with:
-      areas-json: '{"docs":["**.md","docs/**"],"contract":["openapi/**","errors/**","registry/**","generated/**","tools/**","test/**","eslint.config.js","prettier.config.js","redocly.yaml",".prettierignore",".node-version"],"rust":["crates/**","xtask/**","generated/openapi.json"]}'
+      areas-json: '{"docs":["**.md","docs/**"],"contract":["openapi/**","errors/**","registry/**","generated/**","tools/**","test/**","eslint.config.js","prettier.config.js","redocly.yaml",".prettierignore",".node-version"],"rust":["crates/**","xtask/**","Cargo.toml","Cargo.lock","rust-toolchain.toml","openapi/**","errors/**","registry/**","tools/build.mjs","generated/**"]}'
       full-run-globs-json: '["package.json","**/package.json","pnpm-lock.yaml","**/pnpm-lock.yaml","pnpm-workspace.yaml","**/pnpm-workspace.yaml",".npmrc","**/.npmrc","Cargo.toml","**/Cargo.toml","Cargo.lock","**/Cargo.lock",".cargo/**","**/.cargo/**","rust-toolchain*","**/rust-toolchain*","osv-scanner.toml",".gitleaks.toml",".github/**"]'
       docs-areas-json: '["docs"]'
 
@@ -141,7 +143,7 @@ jobs:
   rust:
     name: rust (fmt, clippy, tests, wasm32, types match contract)
     needs: [changes]
-    if: github.event_name != 'pull_request' || needs.changes.outputs.docs_only != 'true'
+    if: github.event_name != 'pull_request' || needs.changes.outputs.full_run == 'true' || fromJSON(needs.changes.outputs.areas).rust
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -170,15 +172,18 @@ jobs:
       - run: |
           # Fail closed. `changes` must succeed. The PR-only security caller
           # must succeed on pull_request and be skipped on any other event.
-          # `rust` may be skipped only on a pull request that `changes` calls
-          # docs-only. Every other job must succeed.
+          # `rust` must succeed when its gate says it is due (any event other
+          # than pull_request, a full run, or a change in the `rust` area) and
+          # be skipped otherwise. Every other job must succeed.
           if ! jq -e --arg event "$CI_EVENT_NAME" '
             . as $n |
-            ($event == "pull_request" and $n.changes.outputs.docs_only == "true") as $docs_only |
+            ($event != "pull_request" or
+              $n.changes.outputs.full_run == "true" or
+              ($n.changes.outputs.areas | fromjson | .rust == true)) as $rust_due |
             ($n | length) > 1 and
             $n.changes.result == "success" and
             $n["public-pr-security"].result == (if $event == "pull_request" then "success" else "skipped" end) and
-            $n.rust.result == (if $docs_only then "skipped" else "success" end) and
+            $n.rust.result == (if $rust_due then "success" else "skipped" end) and
             ($n | del(.["public-pr-security"], .rust) | all(.[]; .result == "success"))
           ' <<< "$NEEDS_JSON" > /dev/null; then
             echo "ci-ok: a required job did not succeed"
