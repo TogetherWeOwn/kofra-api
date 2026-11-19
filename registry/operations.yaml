@@ -1,0 +1,111 @@
+# One name everywhere. Each API operation has exactly one row, and each row names the
+# operation in every surface. test/registry.test.mjs fails when an operation in the
+# contract has no row, a row has no operation, a column is empty, or a name breaks
+# the naming rules:
+#   sdk.typescript  client.<resource>.<method>()          (camelCase method)
+#   sdk.python      client.<resource>.<method>()          (snake_case method)
+#   sdk.go          client.<Resource>.<Method>(ctx, ...)  (PascalCase)
+#   cli             kofra <resource> <command>            (kebab-case command)
+#   mcp.tool        <resource>_<method> (the operationId with "." replaced by "_"),
+#                   or another tool of the design that covers this operation (with a note),
+#                   or null with a reason when the operation is kept out of MCP.
+#   mcp.secret      console_only on every tool whose operation answers a secret: the
+#                   tool result never holds it; a console page shows it once.
+#   console         the label of the console action.
+
+operations:
+  - operation_id: account.get
+    sdk: { typescript: client.account.get(), python: client.account.get(), go: 'client.Account.Get(ctx)' }
+    cli: kofra account get
+    mcp: { tool: account_get }
+    console: View account
+
+  - operation_id: account.delete
+    sdk: { typescript: client.account.delete(), python: client.account.delete(), go: 'client.Account.Delete(ctx)' }
+    cli: kofra account delete
+    mcp: { tool: null, reason: Workspace deletion is never offered to AI agents; it stays in the API and the console. }
+    console: Delete workspace
+
+  - operation_id: account.cancel_deletion
+    sdk: { typescript: client.account.cancelDeletion(), python: client.account.cancel_deletion(), go: 'client.Account.CancelDeletion(ctx)' }
+    cli: kofra account cancel-deletion
+    mcp: { tool: null, reason: Part of workspace deletion, which is kept out of MCP. }
+    console: Cancel deletion
+
+  - operation_id: buckets.list
+    sdk: { typescript: client.buckets.list(), python: client.buckets.list(), go: 'client.Buckets.List(ctx)' }
+    cli: kofra buckets list
+    mcp: { tool: buckets_list }
+    console: Buckets
+
+  - operation_id: buckets.create
+    sdk: { typescript: client.buckets.create(), python: client.buckets.create(), go: 'client.Buckets.Create(ctx)' }
+    cli: kofra buckets create
+    mcp: { tool: buckets_create }
+    console: Create bucket
+
+  - operation_id: buckets.get
+    sdk: { typescript: client.buckets.get(), python: client.buckets.get(), go: 'client.Buckets.Get(ctx)' }
+    cli: kofra buckets get
+    mcp: { tool: buckets_get }
+    console: Bucket details
+
+  - operation_id: buckets.delete
+    sdk: { typescript: client.buckets.delete(), python: client.buckets.delete(), go: 'client.Buckets.Delete(ctx)' }
+    cli: kofra buckets delete
+    mcp: { tool: buckets_delete }
+    console: Delete bucket
+
+  - operation_id: keys.list
+    sdk: { typescript: client.keys.list(), python: client.keys.list(), go: 'client.Keys.List(ctx)' }
+    cli: kofra keys list
+    mcp: { tool: keys_list }
+    console: Access keys
+
+  - operation_id: keys.create
+    sdk: { typescript: client.keys.create(), python: client.keys.create(), go: 'client.Keys.Create(ctx)' }
+    cli: kofra keys create
+    mcp: { tool: keys_create, secret: console_only }
+    console: Create access key
+
+  - operation_id: keys.update
+    sdk: { typescript: client.keys.update(), python: client.keys.update(), go: 'client.Keys.Update(ctx)' }
+    cli: kofra keys update
+    mcp: { tool: null, reason: Not in the MCP tool set; widening a key's access stays in the API and the console, and new access goes through keys_create, whose secret is shown only on a console page. }
+    console: Edit access key
+
+  - operation_id: keys.revoke
+    sdk: { typescript: client.keys.revoke(), python: client.keys.revoke(), go: 'client.Keys.Revoke(ctx)' }
+    cli: kofra keys revoke
+    mcp: { tool: keys_revoke }
+    console: Revoke access key
+
+  - operation_id: usage.get
+    sdk: { typescript: client.usage.get(), python: client.usage.get(), go: 'client.Usage.Get(ctx)' }
+    cli: kofra usage get
+    mcp: { tool: usage_get }
+    console: Usage
+
+  - operation_id: usage.days
+    sdk: { typescript: client.usage.days(), python: client.usage.days(), go: 'client.Usage.Days(ctx)' }
+    cli: kofra usage days
+    mcp: { tool: usage_get, note: The usage tool returns totals, the daily series and per-bucket figures together. }
+    console: Daily usage
+
+  - operation_id: usage.buckets
+    sdk: { typescript: client.usage.buckets(), python: client.usage.buckets(), go: 'client.Usage.Buckets(ctx)' }
+    cli: kofra usage buckets
+    mcp: { tool: usage_get, note: The usage tool returns totals, the daily series and per-bucket figures together. }
+    console: Usage by bucket
+
+  - operation_id: events.list
+    sdk: { typescript: client.events.list(), python: client.events.list(), go: 'client.Events.List(ctx)' }
+    cli: kofra events list
+    mcp: { tool: null, reason: The feed is for programs that sync state; agents read the audit log instead. }
+    console: Events
+
+  - operation_id: objects.presign
+    sdk: { typescript: client.objects.presign(), python: client.objects.presign(), go: 'client.Objects.Presign(ctx)' }
+    cli: kofra objects presign
+    mcp: { tool: objects_get, note: The object tool returns a presigned URL for files too large or not text. }
+    console: Copy download link

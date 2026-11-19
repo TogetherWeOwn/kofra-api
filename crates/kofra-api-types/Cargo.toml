@@ -1,0 +1,15 @@
+[package]
+name = "kofra-api-types"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Request and response types of the Kofra API, generated from its OpenAPI contract."
+
+[dependencies]
+regress = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints]
+workspace = true
