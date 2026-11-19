@@ -10,7 +10,7 @@ typify = "0.10.1"
 schemars = "0.8.22"
 serde_json = { version = "1", features = ["preserve_order"] }
 syn = { version = "2", features = ["full"] }
-prettyplease = "0.2"
+prettyplease = "0.3"
 
 [lints]
 workspace = true
