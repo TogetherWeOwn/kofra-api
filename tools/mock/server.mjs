@@ -203,9 +203,44 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 		}
 
 		// Parameters.
-		const pathValues = Object.fromEntries(
-			route.names.map((n, i) => [n, decodeURIComponent(route.re.exec(url.pathname)[i + 1])])
-		);
+		let pathValues;
+		try {
+			pathValues = Object.fromEntries(
+				route.names.map((n, i) => [n, decodeURIComponent(route.re.exec(url.pathname)[i + 1])])
+			);
+		} catch {
+			return fail('validation_failed', {
+				detail: 'The path has an invalid percent-encoding.',
+				errors: [
+					{ pointer: '#path', code: 'invalid_encoding', detail: 'Not valid percent-encoding.' }
+				]
+			});
+		}
+		// Undeclared or repeated query parameters are refused, like unknown body fields.
+		const declared = new Set(entry.params.filter((p) => p.in === 'query').map((p) => p.name));
+		const names = [...url.searchParams.keys()];
+		const unknownQuery = [...new Set(names.filter((n) => !declared.has(n)))];
+		if (unknownQuery.length) {
+			return fail('unknown_field', {
+				detail: `The query parameter "${unknownQuery[0]}" is not accepted by this operation.`,
+				errors: unknownQuery.map((n) => ({
+					pointer: `#query/${n}`,
+					code: 'unknown_field',
+					detail: 'This parameter is not accepted.'
+				}))
+			});
+		}
+		const repeated = [...new Set(names.filter((n, i) => names.indexOf(n) !== i))];
+		if (repeated.length) {
+			return fail('validation_failed', {
+				detail: `The query parameter "${repeated[0]}" is repeated.`,
+				errors: repeated.map((n) => ({
+					pointer: `#query/${n}`,
+					code: 'repeated',
+					detail: 'Give this parameter once.'
+				}))
+			});
+		}
 		const paramErrors = [];
 		const query = {};
 		for (const p of entry.params) {
@@ -272,52 +307,47 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 		}
 
 		// Choose the answer.
-		const prefer = Object.fromEntries(
+		const prefer = new Map(
 			(req.headers['prefer'] ?? '')
 				.split(/[,;]/)
 				.map((s) => s.trim().split('='))
 				.filter((kv) => kv.length === 2)
 		);
+		const badPrefer = (detail) =>
+			fail('validation_failed', {
+				detail,
+				errors: [{ pointer: '#header/prefer', code: 'invalid_value', detail }]
+			});
 		let status = String(op['x-kofra-success']);
 		if (query.dry_run === true && op.responses['200'] && op['x-kofra-dry-run']) status = '200';
-		if (prefer.code) {
-			if (!op.responses[prefer.code])
-				return fail('validation_failed', {
-					detail: `This operation has no ${prefer.code} answer in the contract.`,
-					errors: [
-						{
-							pointer: '#header/prefer',
-							code: 'invalid_value',
-							detail: 'No such status for this operation.'
-						}
-					]
-				});
-			status = prefer.code;
-		} else if (prefer.example) {
-			const found = Object.entries(op.responses).find(
-				([, r]) => pickExample(r.content).examples?.[prefer.example]
+		const preferCode = prefer.get('code');
+		const preferExample = prefer.get('example');
+		if (preferCode !== undefined) {
+			if (!/^[1-5][0-9]{2}$/.test(preferCode) || !Object.hasOwn(op.responses, preferCode))
+				return badPrefer('This operation has no such answer in the contract.');
+			status = preferCode;
+		} else if (preferExample !== undefined) {
+			const found = Object.entries(op.responses).find(([, r]) =>
+				Object.hasOwn(pickExample(r.content).examples ?? {}, preferExample)
 			);
-			if (found) status = found[0];
+			if (!found) return badPrefer('This operation has no example with that name.');
+			status = found[0];
 		}
 		const resp = op.responses[status];
 		const headers = {};
 		if (status === '204' || !resp.content) return reply(Number(status), null, headers);
 		const { examples } = pickExample(resp.content);
 		const name =
-			prefer.example && examples[prefer.example] ? prefer.example : Object.keys(examples)[0];
+			preferExample !== undefined && Object.hasOwn(examples, preferExample)
+				? preferExample
+				: Object.keys(examples)[0];
 		let body = structuredClone(examples[name]?.value ?? null);
 		const isProblem = Boolean(resp.content['application/problem+json']);
 		if (isProblem) {
 			body.request_id = requestId;
 			if (body.retryable) headers['Retry-After'] = '1';
 		}
-		if (
-			op['x-kofra-paginated'] &&
-			body &&
-			body.next_cursor &&
-			status === '200' &&
-			route.path !== '/v1/events'
-		) {
+		if (op['x-kofra-paginated'] && body && body.next_cursor && status === '200') {
 			headers['Link'] =
 				`<${route.path}?cursor=${encodeURIComponent(body.next_cursor)}>; rel="next"`;
 		}
@@ -353,6 +383,9 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 			...out.headers
 		};
 		if (out.allow) headers['Allow'] = out.allow;
+		if (!Number.isInteger(out.status) || out.status < 200 || out.status > 599) {
+			out = { ...out, status: 500, body: problem('internal_error', out.requestId).body };
+		}
 		if (out.body !== null && out.body !== undefined) {
 			headers['Content-Type'] = out.status >= 400 ? 'application/problem+json' : 'application/json';
 			res.writeHead(out.status, headers);

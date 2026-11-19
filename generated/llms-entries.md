@@ -31,6 +31,7 @@
 - [bucket_not_empty](https://kofra.app/docs/errors/bucket_not_empty.md): Bucket is not empty
 - [key_limit_reached](https://kofra.app/docs/errors/key_limit_reached.md): Too many active access keys
 - [grant_narrowing_refused](https://kofra.app/docs/errors/grant_narrowing_refused.md): Access can only be widened
+- [grant_limit_reached](https://kofra.app/docs/errors/grant_limit_reached.md): Too many grants on one key
 - [deletion_already_requested](https://kofra.app/docs/errors/deletion_already_requested.md): Deletion already requested
 - [deletion_not_requested](https://kofra.app/docs/errors/deletion_not_requested.md): No deletion to cancel
 - [deletion_final](https://kofra.app/docs/errors/deletion_final.md): Deletion can no longer be cancelled

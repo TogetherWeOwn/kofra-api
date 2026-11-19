@@ -26,6 +26,7 @@ Every error is an RFC 9457 `application/problem+json` body with a stable `code`,
 | [`bucket_not_empty`](bucket_not_empty.md) | 409 | no | Bucket is not empty |
 | [`key_limit_reached`](key_limit_reached.md) | 409 | no | Too many active access keys |
 | [`grant_narrowing_refused`](grant_narrowing_refused.md) | 409 | no | Access can only be widened |
+| [`grant_limit_reached`](grant_limit_reached.md) | 409 | no | Too many grants on one key |
 | [`deletion_already_requested`](deletion_already_requested.md) | 409 | no | Deletion already requested |
 | [`deletion_not_requested`](deletion_not_requested.md) | 409 | no | No deletion to cancel |
 | [`deletion_final`](deletion_final.md) | 409 | no | Deletion can no longer be cancelled |

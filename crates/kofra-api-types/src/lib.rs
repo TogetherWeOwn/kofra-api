@@ -16,6 +16,9 @@ pub use generated::*;
 /// The published contract, as served at `/openapi.json`.
 pub const OPENAPI_JSON: &str = include_str!("../../../generated/openapi.json");
 
+/// The published contract in YAML, as served at `/openapi.yaml`.
+pub const OPENAPI_YAML: &str = include_str!("../../../generated/openapi.yaml");
+
 /// The RFC 9727 API catalogue, as served at `/.well-known/api-catalog`.
 pub const API_CATALOG_JSON: &str = include_str!("../../../generated/well-known/api-catalog");
 

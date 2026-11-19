@@ -120,6 +120,17 @@ const COMPONENT_PARAMETERS = {
 	}
 };
 
+// Byte sizes and counts can pass 2^31, so every integer without a small
+// maximum is declared int64 (generators would otherwise pick 32-bit types).
+function widenIntegers(node) {
+	if (Array.isArray(node)) return node.forEach(widenIntegers);
+	if (!node || typeof node !== 'object') return;
+	const types = Array.isArray(node.type) ? node.type : [node.type];
+	if (types.includes('integer') && !node.format && !(node.maximum <= 2147483647))
+		node.format = 'int64';
+	Object.values(node).forEach(widenIntegers);
+}
+
 export function buildContract() {
 	const src = YAML.parse(readFileSync(join(root, 'openapi/openapi.src.yaml'), 'utf8'));
 	const cat = loadCatalogue();
@@ -209,6 +220,8 @@ export function buildContract() {
 			op['x-kofra-errors'] = [...codes].sort();
 		}
 	}
+	widenIntegers(doc.components.schemas);
+	for (const item of Object.values(doc.paths)) widenIntegers(item);
 	return doc;
 }
 

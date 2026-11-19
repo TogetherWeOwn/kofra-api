@@ -26,8 +26,10 @@ info:
       hours. Destructive operations accept `dry_run=true`.
     - Every response carries `Kofra-Request-Id`, `RateLimit` and
       `RateLimit-Policy`; `429` and `503` also carry `Retry-After`.
-    - Unknown request fields are refused (`unknown_field`). Clients must ignore
-      unknown response fields: new fields are added within `/v1`.
+    - Unknown request fields and undeclared or repeated query parameters are
+      refused (`unknown_field`, `validation_failed`). Clients must ignore
+      unknown response fields, and treat an unknown enum value in a response
+      as "other": new fields and new enum values are added within `/v1`.
     - Timestamps are RFC 3339 UTC. Sizes are integers in bytes, in fields that
       end in `_bytes`.
   license:
@@ -215,7 +217,7 @@ paths:
                     status: 500
                     code: internal_error
                     detail: The request could not be completed.
-                    hint: Retry once later; if it fails again, contact support and quote the `request_id`.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
                     docs_url: https://kofra.app/docs/errors/internal_error.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -577,7 +579,7 @@ paths:
                     status: 500
                     code: internal_error
                     detail: The request could not be completed.
-                    hint: Retry once later; if it fails again, contact support and quote the `request_id`.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
                     docs_url: https://kofra.app/docs/errors/internal_error.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -907,7 +909,7 @@ paths:
                     status: 500
                     code: internal_error
                     detail: The request could not be completed.
-                    hint: Retry once later; if it fails again, contact support and quote the `request_id`.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
                     docs_url: https://kofra.app/docs/errors/internal_error.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -1144,7 +1146,7 @@ paths:
                     status: 500
                     code: internal_error
                     detail: The request could not be completed.
-                    hint: Retry once later; if it fails again, contact support and quote the `request_id`.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
                     docs_url: https://kofra.app/docs/errors/internal_error.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -1580,7 +1582,7 @@ paths:
                     status: 500
                     code: internal_error
                     detail: The request could not be completed.
-                    hint: Retry once later; if it fails again, contact support and quote the `request_id`.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
                     docs_url: https://kofra.app/docs/errors/internal_error.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -1619,7 +1621,7 @@ paths:
         - $ref: "#/components/parameters/IdempotencyKey"
   /v1/buckets/{bucket}:
     parameters:
-      - $ref: "#/components/parameters/Bucket"
+      - $ref: "#/components/parameters/BucketPath"
     get:
       operationId: buckets.get
       tags:
@@ -1833,7 +1835,7 @@ paths:
                     status: 500
                     code: internal_error
                     detail: The request could not be completed.
-                    hint: Retry once later; if it fails again, contact support and quote the `request_id`.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
                     docs_url: https://kofra.app/docs/errors/internal_error.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -2197,7 +2199,7 @@ paths:
                     status: 500
                     code: internal_error
                     detail: The request could not be completed.
-                    hint: Retry once later; if it fails again, contact support and quote the `request_id`.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
                     docs_url: https://kofra.app/docs/errors/internal_error.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -2434,7 +2436,7 @@ paths:
                     status: 500
                     code: internal_error
                     detail: The request could not be completed.
-                    hint: Retry once later; if it fails again, contact support and quote the `request_id`.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
                     docs_url: https://kofra.app/docs/errors/internal_error.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -2899,7 +2901,7 @@ paths:
                     status: 500
                     code: internal_error
                     detail: The request could not be completed.
-                    hint: Retry once later; if it fails again, contact support and quote the `request_id`.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
                     docs_url: https://kofra.app/docs/errors/internal_error.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -2938,7 +2940,7 @@ paths:
         - $ref: "#/components/parameters/IdempotencyKey"
   /v1/keys/{key_id}:
     parameters:
-      - $ref: "#/components/parameters/KeyId"
+      - $ref: "#/components/parameters/KeyIdPath"
     patch:
       operationId: keys.update
       tags:
@@ -2956,6 +2958,7 @@ paths:
         - account_read_only
         - account_unavailable
         - bucket_not_found
+        - grant_limit_reached
         - grant_narrowing_refused
         - idempotency_key_in_use
         - idempotency_key_reused
@@ -3197,7 +3200,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "409":
-          description: "`grant_narrowing_refused`, `idempotency_key_in_use`"
+          description: "`grant_limit_reached`, `grant_narrowing_refused`, `idempotency_key_in_use`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -3212,6 +3215,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
               examples:
+                grant_limit_reached:
+                  summary: Too many grants on one key
+                  value:
+                    type: https://kofra.app/docs/errors/grant_limit_reached
+                    title: Too many grants on one key
+                    status: 409
+                    code: grant_limit_reached
+                    detail: The key already has grants on 32 buckets.
+                    hint: Create a second access key for the remaining buckets.
+                    docs_url: https://kofra.app/docs/errors/grant_limit_reached.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
                 grant_narrowing_refused:
                   summary: Access can only be widened
                   value:
@@ -3364,7 +3379,7 @@ paths:
                     status: 500
                     code: internal_error
                     detail: The request could not be completed.
-                    hint: Retry once later; if it fails again, contact support and quote the `request_id`.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
                     docs_url: https://kofra.app/docs/errors/internal_error.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -3704,7 +3719,7 @@ paths:
                     status: 500
                     code: internal_error
                     detail: The request could not be completed.
-                    hint: Retry once later; if it fails again, contact support and quote the `request_id`.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
                     docs_url: https://kofra.app/docs/errors/internal_error.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -3905,7 +3920,7 @@ paths:
                     status: 500
                     code: internal_error
                     detail: The request could not be completed.
-                    hint: Retry once later; if it fails again, contact support and quote the `request_id`.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
                     docs_url: https://kofra.app/docs/errors/internal_error.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -4163,7 +4178,7 @@ paths:
                     status: 500
                     code: internal_error
                     detail: The request could not be completed.
-                    hint: Retry once later; if it fails again, contact support and quote the `request_id`.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
                     docs_url: https://kofra.app/docs/errors/internal_error.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -4407,7 +4422,7 @@ paths:
                     status: 500
                     code: internal_error
                     detail: The request could not be completed.
-                    hint: Retry once later; if it fails again, contact support and quote the `request_id`.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
                     docs_url: https://kofra.app/docs/errors/internal_error.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -4694,7 +4709,7 @@ paths:
                     status: 500
                     code: internal_error
                     detail: The request could not be completed.
-                    hint: Retry once later; if it fails again, contact support and quote the `request_id`.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
                     docs_url: https://kofra.app/docs/errors/internal_error.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -5114,7 +5129,7 @@ paths:
                     status: 500
                     code: internal_error
                     detail: The request could not be completed.
-                    hint: Retry once later; if it fails again, contact support and quote the `request_id`.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
                     docs_url: https://kofra.app/docs/errors/internal_error.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
@@ -5165,7 +5180,7 @@ components:
         `usage:read`, `events:read`, `objects:read`. A token's effective
         permission is its scopes limited by its member's workspace role.
   parameters:
-    Bucket:
+    BucketPath:
       name: bucket
       in: path
       required: true
@@ -5173,7 +5188,7 @@ components:
       schema:
         $ref: "#/components/schemas/BucketName"
       example: backups
-    KeyId:
+    KeyIdPath:
       name: key_id
       in: path
       required: true
@@ -5301,22 +5316,26 @@ components:
             - "null"
           minimum: 0
           description: Most bytes the workspace may store. `null` means no fixed limit.
+          format: int64
         upload_24h_bytes:
           type:
             - integer
             - "null"
           minimum: 0
           description: Most bytes that may be uploaded in any 24 hours. `null` means no fixed limit.
+          format: int64
         download_allowance_bytes:
           type:
             - integer
             - "null"
           minimum: 0
           description: Bytes that may be downloaded per billing period. `null` means no fixed allowance.
+          format: int64
         active_keys:
           type: integer
           minimum: 0
           description: Most active S3 access keys at once.
+          format: int64
     Suspension:
       type: object
       required:
@@ -5403,46 +5422,55 @@ components:
         effects:
           type: array
           items:
-            type: object
-            required:
-              - resource
-              - id
-              - change
-            properties:
-              resource:
-                type: string
-                enum:
-                  - account
-                  - bucket
-                  - key
-              id:
-                type: string
-              change:
-                type: string
-                enum:
-                  - delete
-                  - revoke
-                  - schedule_deletion
+            $ref: "#/components/schemas/PlanEffect"
         totals:
-          type: object
-          required:
-            - buckets
-            - objects
-            - stored_bytes
-            - keys
-          properties:
-            buckets:
-              type: integer
-              minimum: 0
-            objects:
-              type: integer
-              minimum: 0
-            stored_bytes:
-              type: integer
-              minimum: 0
-            keys:
-              type: integer
-              minimum: 0
+          $ref: "#/components/schemas/PlanTotals"
+    PlanEffect:
+      type: object
+      required:
+        - resource
+        - id
+        - change
+      properties:
+        resource:
+          type: string
+          enum:
+            - account
+            - bucket
+            - key
+        id:
+          type: string
+        change:
+          type: string
+          enum:
+            - delete
+            - revoke
+            - schedule_deletion
+    PlanTotals:
+      type: object
+      description: What the planned change reaches, in total.
+      required:
+        - buckets
+        - objects
+        - stored_bytes
+        - keys
+      properties:
+        buckets:
+          type: integer
+          minimum: 0
+          format: int64
+        objects:
+          type: integer
+          minimum: 0
+          format: int64
+        stored_bytes:
+          type: integer
+          minimum: 0
+          format: int64
+        keys:
+          type: integer
+          minimum: 0
+          format: int64
     Bucket:
       type: object
       required:
@@ -5458,9 +5486,11 @@ components:
         stored_bytes:
           type: integer
           minimum: 0
+          format: int64
         object_count:
           type: integer
           minimum: 0
+          format: int64
     BucketCreate:
       type: object
       additionalProperties: false
@@ -5485,6 +5515,22 @@ components:
             - type: "null"
     Grant:
       type: object
+      description: One bucket an access key can reach, and how.
+      required:
+        - bucket
+        - access
+      properties:
+        bucket:
+          $ref: "#/components/schemas/BucketName"
+        access:
+          type: string
+          enum:
+            - read
+            - read_write
+          description: "`read`: list and read objects. `read_write`: also write and delete objects."
+    GrantInput:
+      type: object
+      description: A grant in a request. Each bucket may appear once per request.
       additionalProperties: false
       required:
         - bucket
@@ -5557,7 +5603,7 @@ components:
           minItems: 1
           maxItems: 32
           items:
-            $ref: "#/components/schemas/Grant"
+            $ref: "#/components/schemas/GrantInput"
     AccessKeyUpdate:
       type: object
       additionalProperties: false
@@ -5571,9 +5617,9 @@ components:
           type: array
           minItems: 1
           maxItems: 32
-          description: Grants to add or widen. Grants not listed are kept.
+          description: Grants to add or widen. Grants not listed are kept. A key holds at most 32 grants.
           items:
-            $ref: "#/components/schemas/Grant"
+            $ref: "#/components/schemas/GrantInput"
     AccessKeyList:
       type: object
       required:
@@ -5605,87 +5651,108 @@ components:
         stored_bytes:
           type: integer
           minimum: 0
+          format: int64
         object_count:
           type: integer
           minimum: 0
+          format: int64
         storage_limit_bytes:
           type:
             - integer
             - "null"
           minimum: 0
+          format: int64
         over_limit:
-          description: Set while stored bytes are above the storage limit.
           oneOf:
-            - type: object
-              required:
-                - since
-                - deadline_at
-              properties:
-                since:
-                  $ref: "#/components/schemas/Timestamp"
-                deadline_at:
-                  description: When writes stop unless usage is reduced or the limit raised. `null` if no deadline applies.
-                  oneOf:
-                    - $ref: "#/components/schemas/Timestamp"
-                    - type: "null"
+            - $ref: "#/components/schemas/OverLimit"
             - type: "null"
         upload_24h:
-          type: object
-          required:
-            - limit_bytes
-            - used_bytes
-            - remaining_bytes
-            - resets_at
-          properties:
-            limit_bytes:
-              type:
-                - integer
-                - "null"
-              minimum: 0
-            used_bytes:
-              type: integer
-              minimum: 0
-            remaining_bytes:
-              type:
-                - integer
-                - "null"
-              minimum: 0
-            resets_at:
-              $ref: "#/components/schemas/Timestamp"
+          $ref: "#/components/schemas/Upload24h"
         downloads:
-          type: object
-          required:
-            - period_start
-            - allowance_bytes
-            - used_bytes
-            - over_bytes
-          properties:
-            period_start:
-              $ref: "#/components/schemas/Timestamp"
-            allowance_bytes:
-              type:
-                - integer
-                - "null"
-              minimum: 0
-            used_bytes:
-              type: integer
-              minimum: 0
-            over_bytes:
-              type: integer
-              minimum: 0
+          $ref: "#/components/schemas/Downloads"
         open_uploads:
-          type: object
-          description: Multipart uploads started and not yet completed or aborted.
-          required:
-            - count
-            - limit
-          properties:
-            count:
-              type: integer
-              minimum: 0
-            limit:
-              type: integer
-              minimum: 0
+          $ref: "#/components/schemas/OpenUploads"
+    OverLimit:
+      type: object
+      description: Set while stored bytes are above the storage limit.
+      required:
+        - since
+        - deadline_at
+      properties:
+        since:
+          $ref: "#/components/schemas/Timestamp"
+        deadline_at:
+          description: When writes stop unless usage is reduced or the limit raised. `null` if no deadline applies.
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+    Upload24h:
+      type: object
+      description: Uploads in the current 24-hour window.
+      required:
+        - limit_bytes
+        - used_bytes
+        - remaining_bytes
+        - resets_at
+      properties:
+        limit_bytes:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+          format: int64
+        used_bytes:
+          type: integer
+          minimum: 0
+          format: int64
+        remaining_bytes:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+          format: int64
+        resets_at:
+          $ref: "#/components/schemas/Timestamp"
+    Downloads:
+      type: object
+      description: Downloads in the current billing period.
+      required:
+        - period_start
+        - allowance_bytes
+        - used_bytes
+        - over_bytes
+      properties:
+        period_start:
+          $ref: "#/components/schemas/Timestamp"
+        allowance_bytes:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+          format: int64
+        used_bytes:
+          type: integer
+          minimum: 0
+          format: int64
+        over_bytes:
+          type: integer
+          minimum: 0
+          format: int64
+    OpenUploads:
+      type: object
+      description: Multipart uploads started and not yet completed or aborted.
+      required:
+        - count
+        - limit
+      properties:
+        count:
+          type: integer
+          minimum: 0
+          format: int64
+        limit:
+          type: integer
+          minimum: 0
+          format: int64
     UsageDay:
       type: object
       required:
@@ -5708,16 +5775,20 @@ components:
         peak_stored_bytes:
           type: integer
           minimum: 0
+          format: int64
         uploaded_bytes:
           type: integer
           minimum: 0
+          format: int64
         downloaded_bytes:
           type: integer
           minimum: 0
+          format: int64
         requests_approx:
           type: integer
           minimum: 0
           description: Approximate number of S3 requests that day.
+          format: int64
     UsageDayList:
       type: object
       required:
@@ -5745,9 +5816,11 @@ components:
         stored_bytes:
           type: integer
           minimum: 0
+          format: int64
         object_count:
           type: integer
           minimum: 0
+          format: int64
         as_of:
           $ref: "#/components/schemas/Timestamp"
     BucketUsageList:
@@ -5796,8 +5869,9 @@ components:
           items:
             $ref: "#/components/schemas/Event"
         next_cursor:
+          allOf:
+            - $ref: "#/components/schemas/Cursor"
           description: The position to continue from. Never `null` for the feed.
-          $ref: "#/components/schemas/Cursor"
     PresignRequest:
       type: object
       additionalProperties: false
@@ -5886,19 +5960,21 @@ components:
           type: array
           description: Per-field problems, for `validation_failed`, `unknown_field` and similar codes.
           items:
-            type: object
-            required:
-              - pointer
-              - code
-              - detail
-            properties:
-              pointer:
-                type: string
-                description: JSON pointer to the field (RFC 6901), or `#query/<name>` / `#path/<name>` for parameters.
-              code:
-                type: string
-              detail:
-                type: string
+            $ref: "#/components/schemas/FieldError"
+    FieldError:
+      type: object
+      required:
+        - pointer
+        - code
+        - detail
+      properties:
+        pointer:
+          type: string
+          description: JSON pointer to the field (RFC 6901), or `#query/<name>`, `#path/<name>` or `#header/<name>` for parameters.
+        code:
+          type: string
+        detail:
+          type: string
   headers:
     KofraRequestId:
       description: Unique ID of this request. The same ID is in the error body and the audit log; quote it to support.

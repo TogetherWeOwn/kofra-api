@@ -44,8 +44,10 @@ info:
       hours. Destructive operations accept `dry_run=true`.
     - Every response carries `Kofra-Request-Id`, `RateLimit` and
       `RateLimit-Policy`; `429` and `503` also carry `Retry-After`.
-    - Unknown request fields are refused (`unknown_field`). Clients must ignore
-      unknown response fields: new fields are added within `/v1`.
+    - Unknown request fields and undeclared or repeated query parameters are
+      refused (`unknown_field`, `validation_failed`). Clients must ignore
+      unknown response fields, and treat an unknown enum value in a response
+      as "other": new fields and new enum values are added within `/v1`.
     - Timestamps are RFC 3339 UTC. Sizes are integers in bytes, in fields that
       end in `_bytes`.
   license:
@@ -259,7 +261,7 @@ paths:
 
   /v1/buckets/{bucket}:
     parameters:
-      - $ref: '#/components/parameters/Bucket'
+      - $ref: '#/components/parameters/BucketPath'
     get:
       operationId: buckets.get
       tags: [Buckets]
@@ -394,7 +396,7 @@ paths:
 
   /v1/keys/{key_id}:
     parameters:
-      - $ref: '#/components/parameters/KeyId'
+      - $ref: '#/components/parameters/KeyIdPath'
     patch:
       operationId: keys.update
       tags: [Access keys]
@@ -404,7 +406,7 @@ paths:
         (`read_write` to `read`) or removed: create a new key with the narrower
         access and revoke this one. Grants not listed are left as they are.
       x-kofra-scopes: [keys:write]
-      x-kofra-errors: [key_not_found, bucket_not_found, grant_narrowing_refused, account_read_only, account_unavailable, role_forbidden]
+      x-kofra-errors: [key_not_found, bucket_not_found, grant_narrowing_refused, grant_limit_reached, account_read_only, account_unavailable, role_forbidden]
       x-kofra-success: 200
       requestBody:
         required: true
@@ -659,14 +661,14 @@ components:
         permission is its scopes limited by its member's workspace role.
 
   parameters:
-    Bucket:
+    BucketPath:
       name: bucket
       in: path
       required: true
       description: The bucket name.
       schema: { $ref: '#/components/schemas/BucketName' }
       example: backups
-    KeyId:
+    KeyIdPath:
       name: key_id
       in: path
       required: true
@@ -816,26 +818,31 @@ components:
           description: Whether the change could be undone after it is made.
         effects:
           type: array
-          items:
-            type: object
-            required: [resource, id, change]
-            properties:
-              resource:
-                type: string
-                enum: [account, bucket, key]
-              id:
-                type: string
-              change:
-                type: string
-                enum: [delete, revoke, schedule_deletion]
-        totals:
-          type: object
-          required: [buckets, objects, stored_bytes, keys]
-          properties:
-            buckets: { type: integer, minimum: 0 }
-            objects: { type: integer, minimum: 0 }
-            stored_bytes: { type: integer, minimum: 0 }
-            keys: { type: integer, minimum: 0 }
+          items: { $ref: '#/components/schemas/PlanEffect' }
+        totals: { $ref: '#/components/schemas/PlanTotals' }
+
+    PlanEffect:
+      type: object
+      required: [resource, id, change]
+      properties:
+        resource:
+          type: string
+          enum: [account, bucket, key]
+        id:
+          type: string
+        change:
+          type: string
+          enum: [delete, revoke, schedule_deletion]
+
+    PlanTotals:
+      type: object
+      description: What the planned change reaches, in total.
+      required: [buckets, objects, stored_bytes, keys]
+      properties:
+        buckets: { type: integer, minimum: 0 }
+        objects: { type: integer, minimum: 0 }
+        stored_bytes: { type: integer, minimum: 0 }
+        keys: { type: integer, minimum: 0 }
 
     Bucket:
       type: object
@@ -867,6 +874,18 @@ components:
 
     Grant:
       type: object
+      description: One bucket an access key can reach, and how.
+      required: [bucket, access]
+      properties:
+        bucket: { $ref: '#/components/schemas/BucketName' }
+        access:
+          type: string
+          enum: [read, read_write]
+          description: '`read`: list and read objects. `read_write`: also write and delete objects.'
+
+    GrantInput:
+      type: object
+      description: A grant in a request. Each bucket may appear once per request.
       additionalProperties: false
       required: [bucket, access]
       properties:
@@ -921,7 +940,7 @@ components:
           type: array
           minItems: 1
           maxItems: 32
-          items: { $ref: '#/components/schemas/Grant' }
+          items: { $ref: '#/components/schemas/GrantInput' }
 
     AccessKeyUpdate:
       type: object
@@ -936,8 +955,8 @@ components:
           type: array
           minItems: 1
           maxItems: 32
-          description: Grants to add or widen. Grants not listed are kept.
-          items: { $ref: '#/components/schemas/Grant' }
+          description: Grants to add or widen. Grants not listed are kept. A key holds at most 32 grants.
+          items: { $ref: '#/components/schemas/GrantInput' }
 
     AccessKeyList:
       type: object
@@ -962,41 +981,52 @@ components:
           type: [integer, 'null']
           minimum: 0
         over_limit:
-          description: Set while stored bytes are above the storage limit.
           oneOf:
-            - type: object
-              required: [since, deadline_at]
-              properties:
-                since: { $ref: '#/components/schemas/Timestamp' }
-                deadline_at:
-                  description: When writes stop unless usage is reduced or the limit raised. `null` if no deadline applies.
-                  oneOf:
-                    - $ref: '#/components/schemas/Timestamp'
-                    - type: 'null'
+            - $ref: '#/components/schemas/OverLimit'
             - type: 'null'
-        upload_24h:
-          type: object
-          required: [limit_bytes, used_bytes, remaining_bytes, resets_at]
-          properties:
-            limit_bytes: { type: [integer, 'null'], minimum: 0 }
-            used_bytes: { type: integer, minimum: 0 }
-            remaining_bytes: { type: [integer, 'null'], minimum: 0 }
-            resets_at: { $ref: '#/components/schemas/Timestamp' }
-        downloads:
-          type: object
-          required: [period_start, allowance_bytes, used_bytes, over_bytes]
-          properties:
-            period_start: { $ref: '#/components/schemas/Timestamp' }
-            allowance_bytes: { type: [integer, 'null'], minimum: 0 }
-            used_bytes: { type: integer, minimum: 0 }
-            over_bytes: { type: integer, minimum: 0 }
-        open_uploads:
-          type: object
-          description: Multipart uploads started and not yet completed or aborted.
-          required: [count, limit]
-          properties:
-            count: { type: integer, minimum: 0 }
-            limit: { type: integer, minimum: 0 }
+        upload_24h: { $ref: '#/components/schemas/Upload24h' }
+        downloads: { $ref: '#/components/schemas/Downloads' }
+        open_uploads: { $ref: '#/components/schemas/OpenUploads' }
+
+    OverLimit:
+      type: object
+      description: Set while stored bytes are above the storage limit.
+      required: [since, deadline_at]
+      properties:
+        since: { $ref: '#/components/schemas/Timestamp' }
+        deadline_at:
+          description: When writes stop unless usage is reduced or the limit raised. `null` if no deadline applies.
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+
+    Upload24h:
+      type: object
+      description: Uploads in the current 24-hour window.
+      required: [limit_bytes, used_bytes, remaining_bytes, resets_at]
+      properties:
+        limit_bytes: { type: [integer, 'null'], minimum: 0 }
+        used_bytes: { type: integer, minimum: 0 }
+        remaining_bytes: { type: [integer, 'null'], minimum: 0 }
+        resets_at: { $ref: '#/components/schemas/Timestamp' }
+
+    Downloads:
+      type: object
+      description: Downloads in the current billing period.
+      required: [period_start, allowance_bytes, used_bytes, over_bytes]
+      properties:
+        period_start: { $ref: '#/components/schemas/Timestamp' }
+        allowance_bytes: { type: [integer, 'null'], minimum: 0 }
+        used_bytes: { type: integer, minimum: 0 }
+        over_bytes: { type: integer, minimum: 0 }
+
+    OpenUploads:
+      type: object
+      description: Multipart uploads started and not yet completed or aborted.
+      required: [count, limit]
+      properties:
+        count: { type: integer, minimum: 0 }
+        limit: { type: integer, minimum: 0 }
 
     UsageDay:
       type: object
@@ -1072,8 +1102,9 @@ components:
           type: array
           items: { $ref: '#/components/schemas/Event' }
         next_cursor:
+          allOf:
+            - $ref: '#/components/schemas/Cursor'
           description: The position to continue from. Never `null` for the feed.
-          $ref: '#/components/schemas/Cursor'
 
     PresignRequest:
       type: object
@@ -1140,12 +1171,14 @@ components:
         errors:
           type: array
           description: Per-field problems, for `validation_failed`, `unknown_field` and similar codes.
-          items:
-            type: object
-            required: [pointer, code, detail]
-            properties:
-              pointer:
-                type: string
-                description: JSON pointer to the field (RFC 6901), or `#query/<name>` / `#path/<name>` for parameters.
-              code: { type: string }
-              detail: { type: string }
+          items: { $ref: '#/components/schemas/FieldError' }
+
+    FieldError:
+      type: object
+      required: [pointer, code, detail]
+      properties:
+        pointer:
+          type: string
+          description: JSON pointer to the field (RFC 6901), or `#query/<name>`, `#path/<name>` or `#header/<name>` for parameters.
+        code: { type: string }
+        detail: { type: string }

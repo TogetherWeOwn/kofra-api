@@ -201,6 +201,16 @@
       "docs_url": "https://kofra.app/docs/errors/grant_narrowing_refused.md"
     },
     {
+      "code": "grant_limit_reached",
+      "status": 409,
+      "title": "Too many grants on one key",
+      "retryable": false,
+      "hint": "Create a second access key for the remaining buckets.",
+      "meaning": "An access key can hold grants on at most 32 buckets.",
+      "type": "https://kofra.app/docs/errors/grant_limit_reached",
+      "docs_url": "https://kofra.app/docs/errors/grant_limit_reached.md"
+    },
+    {
       "code": "deletion_already_requested",
       "status": 409,
       "title": "Deletion already requested",
@@ -275,7 +285,7 @@
       "status": 500,
       "title": "Internal error",
       "retryable": false,
-      "hint": "Retry once later; if it fails again, contact support and quote the `request_id`.",
+      "hint": "Contact support and quote the `request_id`; repeating the same request is not expected to help.",
       "meaning": "The request failed for a reason that is not one of the codes above. No detail of the cause is returned.",
       "type": "https://kofra.app/docs/errors/internal_error",
       "docs_url": "https://kofra.app/docs/errors/internal_error.md"

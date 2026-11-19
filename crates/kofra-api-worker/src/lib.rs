@@ -3,7 +3,7 @@
 //! contract's `not_found` problem. Operations are added against
 //! `kofra_api_types::routes::OPERATIONS`, which is generated from the contract.
 
-use kofra_api_types::{API_CATALOG_JSON, ERRORS_JSON, OPENAPI_JSON};
+use kofra_api_types::{API_CATALOG_JSON, ERRORS_JSON, OPENAPI_JSON, OPENAPI_YAML};
 use serde_json::{Value, json};
 
 /// A response before it is handed to the Workers runtime.
@@ -23,8 +23,24 @@ pub fn problem(code: &str, request_id: &str) -> Answer {
     let entry = errors["errors"]
         .as_array()
         .and_then(|all| all.iter().find(|e| e["code"] == code))
-        .cloned()
-        .unwrap_or(Value::Null);
+        .cloned();
+    // A code missing from the catalogue is a bug; answer the generic error.
+    let Some(entry) = entry.or_else(|| {
+        errors["errors"]
+            .as_array()
+            .and_then(|all| all.iter().find(|e| e["code"] == "internal_error"))
+            .cloned()
+    }) else {
+        return Answer {
+            status: 500,
+            content_type: "application/problem+json",
+            body: "{}".to_owned(),
+        };
+    };
+    let code = entry["code"]
+        .as_str()
+        .unwrap_or("internal_error")
+        .to_owned();
     let status = entry["status"]
         .as_u64()
         .and_then(|s| u16::try_from(s).ok())
@@ -52,8 +68,13 @@ pub fn route(method: &str, path: &str, request_id: &str) -> Answer {
     match (method, path) {
         ("GET", "/openapi.json") => Answer {
             status: 200,
-            content_type: "application/json",
+            content_type: "application/openapi+json",
             body: OPENAPI_JSON.to_owned(),
+        },
+        ("GET", "/openapi.yaml") => Answer {
+            status: 200,
+            content_type: "application/openapi+yaml",
+            body: OPENAPI_YAML.to_owned(),
         },
         ("GET", "/.well-known/api-catalog") => Answer {
             status: 200,
@@ -109,5 +130,16 @@ mod tests {
         assert_eq!(body["request_id"], "req_t");
         assert_eq!(body["retryable"], false);
         assert!(body["hint"].as_str().is_some_and(|h| !h.is_empty()));
+    }
+
+    #[test]
+    fn serves_the_yaml_contract_and_maps_unknown_codes_to_internal_error() {
+        let yaml = route("GET", "/openapi.yaml", "req_t");
+        assert_eq!(yaml.content_type, "application/openapi+yaml");
+        assert!(yaml.body.starts_with("openapi: 3.1.0"));
+        let answer = problem("no_such_code", "req_t");
+        assert_eq!(answer.status, 500);
+        let body: Value = serde_json::from_str(&answer.body).expect("JSON");
+        assert_eq!(body["code"], "internal_error");
     }
 }

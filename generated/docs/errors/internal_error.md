@@ -8,7 +8,7 @@ The request failed for a reason that is not one of the codes above. No detail of
 
 ## What to do
 
-Retry once later; if it fails again, contact support and quote the `request_id`.
+Contact support and quote the `request_id`; repeating the same request is not expected to help.
 
 ## Example
 
@@ -25,7 +25,7 @@ Kofra-Request-Id: req_01jd3examplerequestid0000
   "status": 500,
   "code": "internal_error",
   "detail": "The request could not be completed.",
-  "hint": "Retry once later; if it fails again, contact support and quote the `request_id`.",
+  "hint": "Contact support and quote the `request_id`; repeating the same request is not expected to help.",
   "docs_url": "https://kofra.app/docs/errors/internal_error.md",
   "request_id": "req_01jd3examplerequestid0000",
   "retryable": false

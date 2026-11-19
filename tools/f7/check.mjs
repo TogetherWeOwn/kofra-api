@@ -49,13 +49,33 @@ const PROSE_KEYS = new Set([
 	'reason',
 	'note',
 	'console',
-	'label'
+	'label',
+	'example',
+	'message'
 ]);
+// Comments in these files are prose too: generated SDK docs and help text live there.
+const COMMENT_EXT = new Set([
+	'.mjs',
+	'.js',
+	'.ts',
+	'.rs',
+	'.go',
+	'.py',
+	'.toml',
+	'.yaml',
+	'.yml',
+	'.sh'
+]);
+const COMMENT = /(?:^|\s)(?:\/\/+|#|\/\*+|\*)\s?(.*)$/;
 const EMAIL = /[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}/g;
 const EMAIL_OK = /@(example\.(com|org|net)|kofra\.(app|io))$/i;
-const HOME_PATH = /(^|[^A-Za-z0-9])\/(home|Users)\/[a-z][a-z0-9_-]*/;
-// Hashes, integrity strings and other long random-looking runs are skipped.
-const BLOB = /(sha(1|256|384|512)-[A-Za-z0-9+/=]+|[A-Za-z0-9+/=_-]{40,})/g;
+const HOME_PATH =
+	/(^|[^A-Za-z0-9])(\/(home|Users)\/[A-Za-z][A-Za-z0-9._-]*|\/root\/|[A-Za-z]:\\Users\\)/;
+// Only for the short class: integrity strings, checksums and base64 blobs are
+// random enough to start a token part with a short term by chance, so they are
+// blanked before that class runs. The strict class scans every line whole.
+const BLOB =
+	/(sha(1|256|384|512)-[A-Za-z0-9+/]+=*|h1:[A-Za-z0-9+/]+=*|\b[0-9a-f]{32,}\b|[A-Za-z0-9+/]{40,}(==?|(?=\+))[A-Za-z0-9+/=]*)/g;
 const BINARY_EXT = new Set([
 	'.png',
 	'.jpg',
@@ -82,15 +102,15 @@ function hashed(s) {
 	return h;
 }
 
-function blobFree(line) {
-	return line.replace(BLOB, (m) => (/[0-9]/.test(m) && /[A-Za-z]/.test(m) ? ' ' : m));
-}
+const TOKEN = /[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*/g;
+// Token parts: separators, lower-to-upper, acronym-to-word and letter-digit edges.
+const PART_EDGE =
+	/[._-]|(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|(?<=[0-9])(?=[A-Za-z])|(?<=[A-Za-z])(?=[0-9])/;
 
 /** Strict and short hits in one line of any file. */
 export function scanLine(line) {
 	const hits = [];
-	const clean = blobFree(line);
-	for (const m of clean.matchAll(/[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*/g)) {
+	for (const m of line.matchAll(TOKEN)) {
 		const raw = m[0];
 		const token = raw.toLowerCase().replace(/[._-]/g, '');
 		for (const L of STRICT_LENGTHS) {
@@ -99,8 +119,11 @@ export function scanLine(line) {
 				if (STRICT.has(hashed(token.slice(i, i + L)))) hits.push({ cls: 'strict', text: raw });
 			}
 		}
-		// Token parts: split on separators and on lower-to-upper and letter-digit edges.
-		const parts = [token, ...raw.split(/[._-]|(?<=[a-z])(?=[A-Z])/).map((p) => p.toLowerCase())];
+	}
+	for (const m of line.replace(BLOB, ' ').matchAll(TOKEN)) {
+		const raw = m[0];
+		const token = raw.toLowerCase().replace(/[._-]/g, '');
+		const parts = [token, ...raw.split(PART_EDGE).map((p) => p.toLowerCase())];
 		for (const part of parts) {
 			for (const L of SHORT_LENGTHS) {
 				if (L > part.length) break;
@@ -147,18 +170,34 @@ export function scanText(path, text) {
 			findings.push({ path, line: i + 1, cls: 'path', text: line.match(HOME_PATH)[0].trim() });
 	});
 	const ext = extname(path);
+	// CI configuration is not customer-facing; its comments use CI words for
+	// concurrency settings. Strict, short, e-mail and path rules still apply there.
+	if (COMMENT_EXT.has(ext) && !path.startsWith('.github/')) {
+		lines.forEach((line, i) => {
+			const c = COMMENT.exec(line);
+			if (c) scanProse(c[1]).forEach((h) => findings.push({ path, line: i + 1, ...h }));
+		});
+	}
 	if (ext === '.md' || ext === '.txt') {
 		lines.forEach((line, i) =>
 			scanProse(line).forEach((h) => findings.push({ path, line: i + 1, ...h }))
 		);
 	} else if (ext === '.json' || ext === '.yaml' || ext === '.yml') {
-		let doc;
+		let docs;
 		try {
-			doc = ext === '.json' ? JSON.parse(text) : YAML.parse(text);
+			docs =
+				ext === '.json'
+					? [JSON.parse(text)]
+					: YAML.parseAllDocuments(text).map((d) => {
+							if (d.errors.length) throw d.errors[0];
+							return d.toJS();
+						});
 		} catch {
-			doc = undefined;
+			// Fail closed: text that cannot be parsed cannot be checked.
+			findings.push({ path, line: 1, cls: 'unparsed', text: `${ext} file did not parse` });
+			docs = [];
 		}
-		for (const s of proseStrings(doc)) {
+		for (const s of docs.flatMap((d) => proseStrings(d))) {
 			for (const h of scanProse(s)) {
 				const line = lines.findIndex((l) => l.includes(h.text)) + 1;
 				findings.push({ path, line: line || 1, ...h });
@@ -179,7 +218,8 @@ function listFiles(args, root) {
 		const st = statSync(join(root, p));
 		if (st.isDirectory()) {
 			for (const f of readdirSync(join(root, p)))
-				if (f !== 'node_modules' && f !== '.git' && f !== 'target') walk(join(p, f));
+				if (!['node_modules', '.git', 'target', '.venv', '__pycache__', 'dist'].includes(f))
+					walk(join(p, f));
 		} else out.push(p);
 	};
 	for (const a of args) walk(relative(root, join(root, a)) || '.');

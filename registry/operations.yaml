@@ -2,12 +2,12 @@
 # operation in every surface. test/registry.test.mjs fails when an operation in the
 # contract has no row, a row has no operation, a column is empty, or a name breaks
 # the naming rules:
-#   sdk.typescript  client.<group>.<method>()          (camelCase method)
-#   sdk.python      client.<group>.<method>()          (snake_case method)
-#   sdk.go          client.<Group>.<Method>(ctx, ...)  (PascalCase)
-#   cli             kofra <group> <command>            (kebab-case command)
-#   mcp.tool        <group>_<method> (the operationId with "." replaced by "_"),
-#                   or another row's tool that already covers this operation,
+#   sdk.typescript  client.<resource>.<method>()          (camelCase method)
+#   sdk.python      client.<resource>.<method>()          (snake_case method)
+#   sdk.go          client.<Resource>.<Method>(ctx, ...)  (PascalCase)
+#   cli             kofra <resource> <command>            (kebab-case command)
+#   mcp.tool        <resource>_<method> (the operationId with "." replaced by "_"),
+#                   or another tool of the design that covers this operation (with a note),
 #                   or null with a reason when the operation is kept out of MCP.
 #   console         the label of the console action.
 
@@ -69,7 +69,7 @@ operations:
   - operation_id: keys.update
     sdk: { typescript: client.keys.update(), python: client.keys.update(), go: 'client.Keys.Update(ctx)' }
     cli: kofra keys update
-    mcp: { tool: null, reason: Widening a key's access is how a misled agent would gain wider access; it stays in the API and the console. }
+    mcp: { tool: null, reason: Not in the MCP tool set; widening a key's access stays in the API and the console, and new access goes through keys_create, whose secret is shown only on a console page. }
     console: Edit access key
 
   - operation_id: keys.revoke

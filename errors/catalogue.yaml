@@ -162,6 +162,13 @@ errors:
     meaning: An access key's permission on a bucket can be added or widened (from read to read_write), never narrowed. A narrowed grant could silently become wide again after a recovery, so narrowing is refused.
     hint: Create a new key with the narrower access, move your tools to it, then revoke the old key.
     detail_example: 'The key has read_write on "photos"; it cannot be narrowed to read.'
+  - code: grant_limit_reached
+    status: 409
+    title: Too many grants on one key
+    retryable: false
+    meaning: An access key can hold grants on at most 32 buckets.
+    hint: Create a second access key for the remaining buckets.
+    detail_example: 'The key already has grants on 32 buckets.'
   - code: deletion_already_requested
     status: 409
     title: Deletion already requested
@@ -222,7 +229,7 @@ errors:
     title: Internal error
     retryable: false
     meaning: The request failed for a reason that is not one of the codes above. No detail of the cause is returned.
-    hint: Retry once later; if it fails again, contact support and quote the `request_id`.
+    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
     detail_example: 'The request could not be completed.'
   - code: service_unavailable
     status: 503

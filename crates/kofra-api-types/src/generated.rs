@@ -17,7 +17,7 @@ pub struct AccessKey {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct AccessKeyCreate {
-    pub grants: ::std::vec::Vec<Grant>,
+    pub grants: ::std::vec::Vec<GrantInput>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub name: ::std::option::Option<AccessKeyCreateName>,
 }
@@ -279,9 +279,9 @@ impl<'de> ::serde::Deserialize<'de> for AccessKeyName {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct AccessKeyUpdate {
-    ///Grants to add or widen. Grants not listed are kept.
+    ///Grants to add or widen. Grants not listed are kept. A key holds at most 32 grants.
     #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub grants: ::std::vec::Vec<Grant>,
+    pub grants: ::std::vec::Vec<GrantInput>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub name: ::std::option::Option<AccessKeyUpdateName>,
 }
@@ -483,16 +483,16 @@ impl<'de> ::serde::Deserialize<'de> for AccountId {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 pub struct AccountLimits {
     ///Most active S3 access keys at once.
-    pub active_keys: u64,
+    pub active_keys: i64,
     ///Bytes that may be downloaded per billing period. `null` means no fixed allowance.
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
-    pub download_allowance_bytes: ::std::option::Option<u64>,
+    pub download_allowance_bytes: ::std::option::Option<i64>,
     ///Most bytes the workspace may store. `null` means no fixed limit.
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
-    pub storage_bytes: ::std::option::Option<u64>,
+    pub storage_bytes: ::std::option::Option<i64>,
     ///Most bytes that may be uploaded in any 24 hours. `null` means no fixed limit.
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
-    pub upload_24h_bytes: ::std::option::Option<u64>,
+    pub upload_24h_bytes: ::std::option::Option<i64>,
 }
 /**`active`: normal service. `suspended`: see `suspension`. `deleting`:
 a confirmed deletion is in progress; see `deletion`.
@@ -560,8 +560,8 @@ impl ::std::convert::TryFrom<::std::string::String> for AccountState {
 pub struct Bucket {
     pub created_at: Timestamp,
     pub name: BucketName,
-    pub object_count: u64,
-    pub stored_bytes: u64,
+    pub object_count: i64,
+    pub stored_bytes: i64,
 }
 ///`BucketCreate`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
@@ -649,8 +649,8 @@ impl<'de> ::serde::Deserialize<'de> for BucketName {
 pub struct BucketUsage {
     pub as_of: Timestamp,
     pub bucket: BucketName,
-    pub object_count: u64,
-    pub stored_bytes: u64,
+    pub object_count: i64,
+    pub stored_bytes: i64,
 }
 ///`BucketUsageList`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
@@ -849,6 +849,15 @@ impl ::std::convert::TryFrom<::std::string::String> for DeletionStatus {
         value.parse()
     }
 }
+///Downloads in the current billing period.
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+pub struct Downloads {
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub allowance_bytes: ::std::option::Option<i64>,
+    pub over_bytes: i64,
+    pub period_start: Timestamp,
+    pub used_bytes: i64,
+}
 ///`Event`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 pub struct Event {
@@ -981,9 +990,16 @@ impl<'de> ::serde::Deserialize<'de> for EventType {
             })
     }
 }
-///`Grant`
+///`FieldError`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
+pub struct FieldError {
+    pub code: ::std::string::String,
+    pub detail: ::std::string::String,
+    ///JSON pointer to the field (RFC 6901), or `#query/<name>`, `#path/<name>` or `#header/<name>` for parameters.
+    pub pointer: ::std::string::String,
+}
+///One bucket an access key can reach, and how.
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 pub struct Grant {
     ///`read`: list and read objects. `read_write`: also write and delete objects.
     pub access: GrantAccess,
@@ -1044,27 +1060,15 @@ impl ::std::convert::TryFrom<::std::string::String> for GrantAccess {
         value.parse()
     }
 }
-///The answer to `dry_run=true`. Nothing was changed.
+///A grant in a request. Each bucket may appear once per request.
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-pub struct Plan {
-    pub dry_run: bool,
-    pub effects: ::std::vec::Vec<PlanEffectsItem>,
-    ///The operationId that was planned.
-    pub operation: ::std::string::String,
-    ///Whether the change could be undone after it is made.
-    pub reversible: bool,
-    ///One plain sentence describing the effect.
-    pub summary: ::std::string::String,
-    pub totals: PlanTotals,
+#[serde(deny_unknown_fields)]
+pub struct GrantInput {
+    ///`read`: list and read objects. `read_write`: also write and delete objects.
+    pub access: GrantInputAccess,
+    pub bucket: BucketName,
 }
-///`PlanEffectsItem`
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-pub struct PlanEffectsItem {
-    pub change: PlanEffectsItemChange,
-    pub id: ::std::string::String,
-    pub resource: PlanEffectsItemResource,
-}
-///`PlanEffectsItemChange`
+///`read`: list and read objects. `read_write`: also write and delete objects.
 #[derive(
     ::serde::Deserialize,
     ::serde::Serialize,
@@ -1077,7 +1081,96 @@ pub struct PlanEffectsItem {
     PartialEq,
     PartialOrd
 )]
-pub enum PlanEffectsItemChange {
+pub enum GrantInputAccess {
+    #[serde(rename = "read")]
+    Read,
+    #[serde(rename = "read_write")]
+    ReadWrite,
+}
+impl ::std::fmt::Display for GrantInputAccess {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Read => f.write_str("read"),
+            Self::ReadWrite => f.write_str("read_write"),
+        }
+    }
+}
+impl ::std::str::FromStr for GrantInputAccess {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "read" => Ok(Self::Read),
+            "read_write" => Ok(Self::ReadWrite),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for GrantInputAccess {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for GrantInputAccess {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///Multipart uploads started and not yet completed or aborted.
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+pub struct OpenUploads {
+    pub count: i64,
+    pub limit: i64,
+}
+///Set while stored bytes are above the storage limit.
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+pub struct OverLimit {
+    ///When writes stop unless usage is reduced or the limit raised. `null` if no deadline applies.
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub deadline_at: ::std::option::Option<Timestamp>,
+    pub since: Timestamp,
+}
+///The answer to `dry_run=true`. Nothing was changed.
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+pub struct Plan {
+    pub dry_run: bool,
+    pub effects: ::std::vec::Vec<PlanEffect>,
+    ///The operationId that was planned.
+    pub operation: ::std::string::String,
+    ///Whether the change could be undone after it is made.
+    pub reversible: bool,
+    ///One plain sentence describing the effect.
+    pub summary: ::std::string::String,
+    pub totals: PlanTotals,
+}
+///`PlanEffect`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+pub struct PlanEffect {
+    pub change: PlanEffectChange,
+    pub id: ::std::string::String,
+    pub resource: PlanEffectResource,
+}
+///`PlanEffectChange`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum PlanEffectChange {
     #[serde(rename = "delete")]
     Delete,
     #[serde(rename = "revoke")]
@@ -1085,7 +1178,7 @@ pub enum PlanEffectsItemChange {
     #[serde(rename = "schedule_deletion")]
     ScheduleDeletion,
 }
-impl ::std::fmt::Display for PlanEffectsItemChange {
+impl ::std::fmt::Display for PlanEffectChange {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
             Self::Delete => f.write_str("delete"),
@@ -1094,7 +1187,7 @@ impl ::std::fmt::Display for PlanEffectsItemChange {
         }
     }
 }
-impl ::std::str::FromStr for PlanEffectsItemChange {
+impl ::std::str::FromStr for PlanEffectChange {
     type Err = self::error::ConversionError;
     fn from_str(
         value: &str,
@@ -1107,7 +1200,7 @@ impl ::std::str::FromStr for PlanEffectsItemChange {
         }
     }
 }
-impl ::std::convert::TryFrom<&str> for PlanEffectsItemChange {
+impl ::std::convert::TryFrom<&str> for PlanEffectChange {
     type Error = self::error::ConversionError;
     fn try_from(
         value: &str,
@@ -1115,7 +1208,7 @@ impl ::std::convert::TryFrom<&str> for PlanEffectsItemChange {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<::std::string::String> for PlanEffectsItemChange {
+impl ::std::convert::TryFrom<::std::string::String> for PlanEffectChange {
     type Error = self::error::ConversionError;
     fn try_from(
         value: ::std::string::String,
@@ -1123,7 +1216,7 @@ impl ::std::convert::TryFrom<::std::string::String> for PlanEffectsItemChange {
         value.parse()
     }
 }
-///`PlanEffectsItemResource`
+///`PlanEffectResource`
 #[derive(
     ::serde::Deserialize,
     ::serde::Serialize,
@@ -1136,7 +1229,7 @@ impl ::std::convert::TryFrom<::std::string::String> for PlanEffectsItemChange {
     PartialEq,
     PartialOrd
 )]
-pub enum PlanEffectsItemResource {
+pub enum PlanEffectResource {
     #[serde(rename = "account")]
     Account,
     #[serde(rename = "bucket")]
@@ -1144,7 +1237,7 @@ pub enum PlanEffectsItemResource {
     #[serde(rename = "key")]
     Key,
 }
-impl ::std::fmt::Display for PlanEffectsItemResource {
+impl ::std::fmt::Display for PlanEffectResource {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
             Self::Account => f.write_str("account"),
@@ -1153,7 +1246,7 @@ impl ::std::fmt::Display for PlanEffectsItemResource {
         }
     }
 }
-impl ::std::str::FromStr for PlanEffectsItemResource {
+impl ::std::str::FromStr for PlanEffectResource {
     type Err = self::error::ConversionError;
     fn from_str(
         value: &str,
@@ -1166,7 +1259,7 @@ impl ::std::str::FromStr for PlanEffectsItemResource {
         }
     }
 }
-impl ::std::convert::TryFrom<&str> for PlanEffectsItemResource {
+impl ::std::convert::TryFrom<&str> for PlanEffectResource {
     type Error = self::error::ConversionError;
     fn try_from(
         value: &str,
@@ -1174,7 +1267,7 @@ impl ::std::convert::TryFrom<&str> for PlanEffectsItemResource {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<::std::string::String> for PlanEffectsItemResource {
+impl ::std::convert::TryFrom<::std::string::String> for PlanEffectResource {
     type Error = self::error::ConversionError;
     fn try_from(
         value: ::std::string::String,
@@ -1182,13 +1275,13 @@ impl ::std::convert::TryFrom<::std::string::String> for PlanEffectsItemResource 
         value.parse()
     }
 }
-///`PlanTotals`
+///What the planned change reaches, in total.
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 pub struct PlanTotals {
-    pub buckets: u64,
-    pub keys: u64,
-    pub objects: u64,
-    pub stored_bytes: u64,
+    pub buckets: i64,
+    pub keys: i64,
+    pub objects: i64,
+    pub stored_bytes: i64,
 }
 ///`PresignRequest`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
@@ -1379,7 +1472,7 @@ pub struct Problem {
     pub docs_url: ::std::string::String,
     ///Per-field problems, for `validation_failed`, `unknown_field` and similar codes.
     #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub errors: ::std::vec::Vec<ProblemErrorsItem>,
+    pub errors: ::std::vec::Vec<FieldError>,
     ///What to do next, in one sentence.
     pub hint: ::std::string::String,
     ///Same as the `Kofra-Request-Id` header. Quote it to support.
@@ -1448,14 +1541,6 @@ impl<'de> ::serde::Deserialize<'de> for ProblemCode {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
     }
-}
-///`ProblemErrorsItem`
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-pub struct ProblemErrorsItem {
-    pub code: ::std::string::String,
-    pub detail: ::std::string::String,
-    ///JSON pointer to the field (RFC 6901), or `#query/<name>` / `#path/<name>` for parameters.
-    pub pointer: ::std::string::String,
 }
 ///`Suspension`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
@@ -1615,31 +1700,40 @@ impl ::std::str::FromStr for Timestamp {
         Ok(Self(value.to_string()))
     }
 }
+///Uploads in the current 24-hour window.
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+pub struct Upload24h {
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub limit_bytes: ::std::option::Option<i64>,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub remaining_bytes: ::std::option::Option<i64>,
+    pub resets_at: Timestamp,
+    pub used_bytes: i64,
+}
 ///`Usage`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 pub struct Usage {
     pub as_of: Timestamp,
-    pub downloads: UsageDownloads,
-    pub object_count: u64,
-    pub open_uploads: UsageOpenUploads,
-    ///Set while stored bytes are above the storage limit.
+    pub downloads: Downloads,
+    pub object_count: i64,
+    pub open_uploads: OpenUploads,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
-    pub over_limit: ::std::option::Option<UsageOverLimit>,
+    pub over_limit: ::std::option::Option<OverLimit>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
-    pub storage_limit_bytes: ::std::option::Option<u64>,
-    pub stored_bytes: u64,
-    pub upload_24h: UsageUpload24h,
+    pub storage_limit_bytes: ::std::option::Option<i64>,
+    pub stored_bytes: i64,
+    pub upload_24h: Upload24h,
 }
 ///`UsageDay`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 pub struct UsageDay {
     pub day: ::std::string::String,
-    pub downloaded_bytes: u64,
-    pub peak_stored_bytes: u64,
+    pub downloaded_bytes: i64,
+    pub peak_stored_bytes: i64,
     ///Approximate number of S3 requests that day.
-    pub requests_approx: u64,
+    pub requests_approx: i64,
     pub status: UsageDayStatus,
-    pub uploaded_bytes: u64,
+    pub uploaded_bytes: i64,
 }
 ///`UsageDayList`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
@@ -1706,39 +1800,6 @@ impl ::std::convert::TryFrom<::std::string::String> for UsageDayStatus {
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
-}
-///`UsageDownloads`
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-pub struct UsageDownloads {
-    #[serde(deserialize_with = "::std::option::Option::deserialize")]
-    pub allowance_bytes: ::std::option::Option<u64>,
-    pub over_bytes: u64,
-    pub period_start: Timestamp,
-    pub used_bytes: u64,
-}
-///Multipart uploads started and not yet completed or aborted.
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-pub struct UsageOpenUploads {
-    pub count: u64,
-    pub limit: u64,
-}
-///`UsageOverLimit`
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-pub struct UsageOverLimit {
-    ///When writes stop unless usage is reduced or the limit raised. `null` if no deadline applies.
-    #[serde(deserialize_with = "::std::option::Option::deserialize")]
-    pub deadline_at: ::std::option::Option<Timestamp>,
-    pub since: Timestamp,
-}
-///`UsageUpload24h`
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-pub struct UsageUpload24h {
-    #[serde(deserialize_with = "::std::option::Option::deserialize")]
-    pub limit_bytes: ::std::option::Option<u64>,
-    #[serde(deserialize_with = "::std::option::Option::deserialize")]
-    pub remaining_bytes: ::std::option::Option<u64>,
-    pub resets_at: Timestamp,
-    pub used_bytes: u64,
 }
 /// Generation of default values for serde.
 pub mod defaults {
