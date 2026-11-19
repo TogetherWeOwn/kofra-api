@@ -237,5 +237,5 @@ test('a base URL with a long run of slashes before the end is handled in linear 
 	});
 	assert.ok(performance.now() - t < 1000);
 	await kofra.buckets.list();
-	assert.ok(seen[0].endsWith('/x/v1/buckets'));
+	assert.equal(seen[0], 'https://api.example.test' + '/'.repeat(100_000) + 'x/v1/buckets');
 });
