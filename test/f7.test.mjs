@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { scanText } from '../tools/f7/check.mjs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { scanText, scanFiles } from '../tools/f7/check.mjs';
 
 // The real terms are never written in this repository. Canary terms with the
 // same treatment prove each class works. They are assembled at run time so this
@@ -98,4 +101,51 @@ test('home paths of every platform are found', () => {
 test('the repository is clean', () => {
 	execFileSync('node', ['tools/f7/check.mjs'], { stdio: 'pipe' });
 	execFileSync('node', ['tools/f7/check.mjs', 'generated'], { stdio: 'pipe' });
+});
+
+test('prose words are found inside hyphenated and camelCase words', () => {
+	for (const t of [`A ${W}-based tool.`, `A non-${W} tool.`, `The ${W}Store page.`])
+		assert.deepEqual(classes('page.md', t), ['prose'], t);
+	assert.deepEqual(classes('code.ts', `// The ${W}Store helper.`), ['prose']);
+	assert.deepEqual(classes('page.md', 'Retries failed POSTs once.'), []);
+});
+
+test('HTML and extensionless files are prose', () => {
+	assert.deepEqual(classes('index.html', `<p>A ${W} here.</p>`), ['prose']);
+	assert.deepEqual(classes('LICENSE', `A ${W} here.`), ['prose']);
+	assert.deepEqual(classes('LICENSE', 'Permission is hereby granted.'), []);
+});
+
+test('home paths: the root home without a slash, tilde paths and doubled Windows separators', () => {
+	for (const t of [
+		'cd /ro' + 'ot',
+		'cd /ro' + 'ot && ls',
+		'cat ~' + '/notes.txt',
+		'"C:\\\\Us' + 'ers\\\\someone"',
+		'C:\\Us' + 'ers\\someone'
+	])
+		assert.deepEqual(classes('a.sh', t), ['path'], t);
+	for (const t of ['cd /rootfs/x', 'a ~ b', 'x/ro' + 'ot/y', "s.replace(/~/g, '~0')"])
+		assert.deepEqual(classes('a.sh', t), [], t);
+});
+
+test('file paths are scanned, and unreadable or binary-looking files fail closed', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'f7-test-'));
+	try {
+		mkdirSync(join(dir, `docs-${S}`));
+		writeFileSync(join(dir, `docs-${S}`, 'a.txt'), 'plain\n');
+		writeFileSync(join(dir, 'img.png'), Buffer.from([0x89, 0x50, 0x00, 0x01]));
+		writeFileSync(join(dir, 'data.txt'), Buffer.from('text\0more'));
+		writeFileSync(join(dir, `${['zq', 'xj'].join('')}.png`), Buffer.from([0x00]));
+		const files = [`docs-${S}/a.txt`, 'img.png', 'data.txt', 'zq' + 'xj.png', 'missing.md'];
+		const found = scanFiles(dir, files).map((h) => `${h.path}:${h.cls}`);
+		assert.deepEqual(found.sort(), [
+			'data.txt:binary',
+			`docs-${S}/a.txt:strict`,
+			'missing.md:unreadable',
+			'zq' + 'xj.png:short'
+		]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

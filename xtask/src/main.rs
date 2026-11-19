@@ -6,9 +6,10 @@
 //! differs from what the contract produces, so the Rust implementation can
 //! never drift from `generated/openapi.json`.
 //!
-//! Both also fail if a request-body integer with a `maximum` is not mapped to
-//! a hand-written bounded type ([`BOUNDED`]): typify does not enforce
-//! `maximum`, so an unmapped one would let out-of-range values through.
+//! Both also fail if a request-body schema uses a keyword typify does not
+//! enforce ([`UNENFORCED`], and `maximum` on integers) without being mapped to
+//! a hand-written type ([`BOUNDED`]): an unmapped one would let out-of-range
+//! values through.
 
 use std::{fs, path::PathBuf, process::ExitCode};
 
@@ -20,11 +21,28 @@ const METHODS: [&str; 5] = ["get", "put", "post", "delete", "patch"];
 /// Contract schemas replaced by hand-written types in
 /// `crates/kofra-api-types/src/bounded.rs`, which enforce the bounds on
 /// deserialization.
-const BOUNDED: &[(&str, &str)] = &[("PresignLifetime", "crate::bounded::PresignLifetime")];
+const BOUNDED: &[(&str, &str)] = &[
+    ("PresignLifetime", "crate::bounded::PresignLifetime"),
+    ("Grants", "crate::bounded::Grants"),
+    ("AccessKeyUpdate", "crate::bounded::AccessKeyUpdate"),
+];
 
-/// Every integer schema with a `maximum` reachable from a request body
-/// without passing through a [`BOUNDED`] schema, as JSON pointers.
-fn unbounded_maxima(spec: &Value) -> Vec<String> {
+/// Validation keywords that typify does not enforce on any type.
+const UNENFORCED: &[&str] = &[
+    "maxItems",
+    "minItems",
+    "minProperties",
+    "maxProperties",
+    "uniqueItems",
+    "exclusiveMaximum",
+    "exclusiveMinimum",
+    "multipleOf",
+];
+
+/// Every schema with an unenforced bound (an integer `maximum` or an
+/// [`UNENFORCED`] keyword) reachable from a request body without passing
+/// through a [`BOUNDED`] schema, as JSON pointers.
+fn unenforced_bounds(spec: &Value) -> Vec<String> {
     fn walk(spec: &Value, node: &Value, at: String, seen: &mut Vec<String>, out: &mut Vec<String>) {
         match node {
             Value::Object(map) => {
@@ -44,7 +62,9 @@ fn unbounded_maxima(spec: &Value) -> Vec<String> {
                     Some(Value::Array(ts)) => ts.iter().any(|t| t == "integer"),
                     _ => false,
                 };
-                if integer && map.contains_key("maximum") {
+                if (integer && map.contains_key("maximum"))
+                    || UNENFORCED.iter().any(|k| map.contains_key(*k))
+                {
                     out.push(at.clone());
                 }
                 for (key, value) in map {
@@ -221,10 +241,10 @@ fn gen_routes(spec: &Value) -> Result<String, String> {
 fn main() -> ExitCode {
     let mode = std::env::args().nth(1).unwrap_or_default();
     let result = load_spec().and_then(|spec| {
-        let unmapped = unbounded_maxima(&spec);
+        let unmapped = unenforced_bounds(&spec);
         if !unmapped.is_empty() {
             return Err(format!(
-                "request-body integers with a `maximum` must be a named schema mapped in BOUNDED \
+                "request-body schemas with a bound typify does not enforce must be a named schema mapped in BOUNDED \
                  to a type in kofra-api-types::bounded that enforces it:\n  {}",
                 unmapped.join("\n  ")
             ));
@@ -303,12 +323,31 @@ mod tests {
             } } }),
         );
         assert_eq!(
-            unbounded_maxima(&spec),
+            unenforced_bounds(&spec),
             [
                 "#/components/schemas/Req/properties/m",
                 "#/components/schemas/Req/properties/n"
             ]
         );
+    }
+
+    #[test]
+    fn every_unenforced_keyword_in_a_request_body_is_reported() {
+        for keyword in UNENFORCED {
+            let spec = spec_with_body(
+                json!({ "type": "object", "properties": {
+                    "x": { "type": "array", (*keyword): 2 }
+                } }),
+                json!({}),
+            );
+            assert_eq!(
+                unenforced_bounds(&spec),
+                ["#/paths/~1v1~1x/post/requestBody/content/application~1json/schema/properties/x"],
+                "{keyword}"
+            );
+        }
+        let spec = spec_with_body(json!({ "type": "object", "minProperties": 1 }), json!({}));
+        assert_eq!(unenforced_bounds(&spec).len(), 1);
     }
 
     #[test]
@@ -319,13 +358,13 @@ mod tests {
             } }),
             json!({ "PresignLifetime": { "type": "integer", "minimum": 1, "maximum": 900 } }),
         );
-        assert!(unbounded_maxima(&spec).is_empty());
+        assert!(unenforced_bounds(&spec).is_empty());
     }
 
     #[test]
     fn the_published_contract_has_no_unmapped_bounded_integer() {
         let spec = load_spec().expect("contract");
-        assert!(unbounded_maxima(&spec).is_empty());
+        assert!(unenforced_bounds(&spec).is_empty());
         for (name, _) in BOUNDED {
             assert!(
                 spec.pointer(&format!("/components/schemas/{name}"))

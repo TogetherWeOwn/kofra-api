@@ -13,6 +13,7 @@ mod generated;
 #[rustfmt::skip]
 pub mod routes;
 
+pub use bounded::AccessKeyUpdate;
 pub use generated::*;
 
 /// The published contract, to be served at `/openapi.json`.

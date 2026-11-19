@@ -151,7 +151,7 @@ function ajvToErrors(errors, prefix = '') {
 				};
 			}
 			return {
-				pointer: `${prefix}${e.instancePath}` || prefix || '/',
+				pointer: `${prefix}${e.instancePath}`,
 				code: 'invalid_value',
 				detail: `Value ${e.message}.`
 			};
@@ -190,8 +190,6 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 
 	async function handle(req) {
 		const requestId = 'req_' + randomBytes(12).toString('hex');
-		const url = new URL(req.url, 'http://mock');
-		const route = routes.find((r) => r.re.test(url.pathname));
 		const reply = (status, body, headers = {}) => ({ status, body, headers, requestId });
 		const fail = (code, extra, headers = {}) => {
 			const p = problem(code, requestId, extra);
@@ -200,6 +198,16 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 				headers['WWW-Authenticate'] = challenge(code);
 			return reply(p.status, p.body, headers);
 		};
+		// Only origin-form targets: one leading "/" (so "//host/..." never
+		// reaches URL parsing as an authority).
+		if (!req.url.startsWith('/') || req.url.startsWith('//')) return fail('not_found');
+		let url;
+		try {
+			url = new URL(req.url, 'http://mock');
+		} catch {
+			return fail('not_found');
+		}
+		const route = routes.find((r) => r.re.test(url.pathname));
 		if (!route) return fail('not_found');
 		const entry = route.ops[req.method];
 		if (!entry)
@@ -312,7 +320,7 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 			} catch {
 				return fail('validation_failed', {
 					detail: 'The body is not valid JSON.',
-					errors: [{ pointer: '/', code: 'invalid_json', detail: 'The body is not valid JSON.' }]
+					errors: [{ pointer: '', code: 'invalid_json', detail: 'The body is not valid JSON.' }]
 				});
 			}
 			if (!entry.body(body)) {
@@ -322,6 +330,18 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 					return fail('unknown_field', {
 						detail: `The field "${unknown[0].pointer}" is not accepted by this operation.`,
 						errors: unknown
+					});
+				// A bad bucket name has its own code where the operation declares it.
+				const names = new Set(
+					entry.body.errors
+						.filter((e) => e.schemaPath.startsWith('#/components/schemas/BucketName/'))
+						.map((e) => e.instancePath)
+				);
+				for (const e of errs) if (names.has(e.pointer)) e.code = 'invalid_bucket_name';
+				if (op['x-kofra-errors'].includes('invalid_bucket_name') && names.size)
+					return fail('invalid_bucket_name', {
+						detail: 'Bucket names are 3 to 63 lowercase letters, digits or hyphens.',
+						errors: errs
 					});
 				return fail('validation_failed', {
 					detail: `The request has ${errs.length} invalid field(s).`,
@@ -347,17 +367,26 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 		}
 
 		// Choose the answer.
-		const prefer = new Map(
-			(req.headers['prefer'] ?? '')
-				.split(/[,;]/)
-				.map((s) => s.trim().split('='))
-				.filter((kv) => kv.length === 2)
-		);
+		// Prefer parameters split on the first "=" only. The mock's own
+		// preferences, code and example, take one plain token; anything else
+		// there is refused. Other preferences are ignored.
 		const badPrefer = (detail) =>
 			fail('validation_failed', {
 				detail,
 				errors: [{ pointer: '#header/prefer', code: 'invalid_value', detail }]
 			});
+		const prefer = new Map();
+		for (const part of (req.headers['prefer'] ?? '').split(/[,;]/)) {
+			const item = part.trim();
+			if (!item) continue;
+			const i = item.indexOf('=');
+			const key = (i < 0 ? item : item.slice(0, i)).trim().toLowerCase();
+			if (key !== 'code' && key !== 'example') continue;
+			const value = i < 0 ? '' : item.slice(i + 1).trim();
+			if (!/^[A-Za-z0-9_]+$/.test(value) || prefer.has(key))
+				return badPrefer(`The Prefer preference "${key}" is not understood.`);
+			prefer.set(key, value);
+		}
 		let status = String(op['x-kofra-success']);
 		if (query.dry_run === true && op.responses['200'] && op['x-kofra-dry-run']) status = '200';
 		const preferCode = prefer.get('code');

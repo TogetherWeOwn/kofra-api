@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { staleFiles } from '../tools/build.mjs';
 import { execFileSync } from 'node:child_process';
 import { loadSpec, loadErrors, makeAjv, validatorAt } from '../tools/mock/server.mjs';
 
@@ -219,4 +222,72 @@ test('the presign lifetime is a named schema bounded 1 to 900', () => {
 		$ref: '#/components/schemas/PresignLifetime',
 		default: 900
 	});
+});
+
+test('a stale file anywhere under generated/ fails the drift check', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'build-test-'));
+	try {
+		for (const d of ['generated/docs/errors', 'generated/well-known/sub'])
+			mkdirSync(join(dir, d), { recursive: true });
+		for (const f of [
+			'generated/openapi.json',
+			'generated/old.txt',
+			'generated/docs/errors/gone.md',
+			'generated/well-known/sub/x'
+		])
+			writeFileSync(join(dir, f), '');
+		const files = new Map([['generated/openapi.json', '']]);
+		assert.deepEqual(staleFiles(dir, files), [
+			'generated/docs/errors/gone.md',
+			'generated/old.txt',
+			'generated/well-known/sub/x'
+		]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// The schema a body pointer names, or undefined; follows $ref, allOf and items.
+function schemaAt(schema, pointer) {
+	const deref = (s) => (s?.$ref ? spec.components.schemas[s.$ref.split('/').pop()] : s);
+	let node = deref(schema);
+	for (const raw of pointer.split('/').slice(1)) {
+		const key = raw.replace(/~1/g, '/').replace(/~0/g, '~');
+		const props = Object.assign(
+			{},
+			node?.properties,
+			...(node?.allOf ?? []).map((s) => deref(s).properties)
+		);
+		if (/^\d+$/.test(key) && node?.items) node = deref(node.items);
+		else if (Object.hasOwn(props, key)) node = deref(props[key]);
+		else return undefined;
+	}
+	return node;
+}
+
+test('every pointer in a 400 example names something the operation accepts', () => {
+	let checked = 0;
+	for (const { item, op } of operations()) {
+		const params = [...(item.parameters ?? []), ...(op.parameters ?? [])].map((p) =>
+			p.$ref ? spec.components.parameters[p.$ref.split('/').pop()] : p
+		);
+		const body = op.requestBody?.content['application/json'].schema;
+		for (const [name, ex] of Object.entries(
+			op.responses['400'].content['application/problem+json'].examples
+		)) {
+			for (const fe of ex.value.errors ?? []) {
+				const where = `${op.operationId} ${name} ${fe.pointer}`;
+				const param = /^#(query|path|header)\/(.+)$/.exec(fe.pointer);
+				const known = param
+					? params.some((p) => p.in === param[1] && p.name.toLowerCase() === param[2].toLowerCase())
+					: body !== undefined && schemaAt(body, fe.pointer) !== undefined;
+				if (fe.code === 'unknown_field') {
+					assert.ok(!known, `${where}: an unknown_field example must name an unknown field`);
+					if (!param) assert.ok(body, `${where}: no body`);
+				} else assert.ok(known, `${where}: does not resolve`);
+				checked++;
+			}
+		}
+	}
+	assert.ok(checked >= 16, `only ${checked} pointers checked`);
 });

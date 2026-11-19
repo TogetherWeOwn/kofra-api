@@ -18,67 +18,9 @@ pub struct AccessKey {
 #[serde(deny_unknown_fields)]
 pub struct AccessKeyCreate {
     ///The buckets the key can reach. Each bucket at most once.
-    pub grants: ::std::vec::Vec<GrantInput>,
+    pub grants: crate::bounded::Grants,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub name: ::std::option::Option<AccessKeyCreateName>,
-}
-///`AccessKeyCreateName`
-#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[serde(transparent)]
-pub struct AccessKeyCreateName(::std::string::String);
-impl ::std::ops::Deref for AccessKeyCreateName {
-    type Target = ::std::string::String;
-    fn deref(&self) -> &::std::string::String {
-        &self.0
-    }
-}
-impl ::std::convert::From<AccessKeyCreateName> for ::std::string::String {
-    fn from(value: AccessKeyCreateName) -> Self {
-        value.0
-    }
-}
-impl ::std::str::FromStr for AccessKeyCreateName {
-    type Err = self::error::ConversionError;
-    fn from_str(
-        value: &str,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        ::std::convert::TryFrom::try_from(value)
-    }
-}
-impl ::std::convert::TryFrom<&str> for AccessKeyCreateName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &str,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 64usize {
-            return Err("longer than 64 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccessKeyCreateName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        ::std::convert::TryFrom::try_from(value.as_str())
-    }
-}
-impl<'de> ::serde::Deserialize<'de> for AccessKeyCreateName {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        ::std::convert::TryFrom::try_from(
-                ::std::string::String::deserialize(deserializer)?,
-            )
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
-    }
+    pub name: ::std::option::Option<KeyName>,
 }
 ///An access key with its secret. The secret appears in this response only.
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
@@ -264,74 +206,6 @@ impl ::std::convert::TryFrom<::std::string::String> for AccessKeyName {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for AccessKeyName {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        ::std::convert::TryFrom::try_from(
-                ::std::string::String::deserialize(deserializer)?,
-            )
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
-    }
-}
-///`AccessKeyUpdate`
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
-#[serde(deny_unknown_fields)]
-pub struct AccessKeyUpdate {
-    ///Grants to add or widen. Grants not listed are kept. Each bucket at most once. A key holds at most 32 grants.
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub grants: ::std::vec::Vec<GrantInput>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub name: ::std::option::Option<AccessKeyUpdateName>,
-}
-///`AccessKeyUpdateName`
-#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[serde(transparent)]
-pub struct AccessKeyUpdateName(::std::string::String);
-impl ::std::ops::Deref for AccessKeyUpdateName {
-    type Target = ::std::string::String;
-    fn deref(&self) -> &::std::string::String {
-        &self.0
-    }
-}
-impl ::std::convert::From<AccessKeyUpdateName> for ::std::string::String {
-    fn from(value: AccessKeyUpdateName) -> Self {
-        value.0
-    }
-}
-impl ::std::str::FromStr for AccessKeyUpdateName {
-    type Err = self::error::ConversionError;
-    fn from_str(
-        value: &str,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        ::std::convert::TryFrom::try_from(value)
-    }
-}
-impl ::std::convert::TryFrom<&str> for AccessKeyUpdateName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: &str,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 64usize {
-            return Err("longer than 64 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for AccessKeyUpdateName {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        ::std::convert::TryFrom::try_from(value.as_str())
-    }
-}
-impl<'de> ::serde::Deserialize<'de> for AccessKeyUpdateName {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -1122,6 +996,64 @@ impl ::std::convert::TryFrom<::std::string::String> for GrantInputAccess {
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
+    }
+}
+///A label for people; not used for access.
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct KeyName(::std::string::String);
+impl ::std::ops::Deref for KeyName {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<KeyName> for ::std::string::String {
+    fn from(value: KeyName) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for KeyName {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for KeyName {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for KeyName {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value.as_str())
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for KeyName {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::convert::TryFrom::try_from(
+                ::std::string::String::deserialize(deserializer)?,
+            )
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
     }
 }
 ///Multipart uploads started and not yet completed or aborted.

@@ -160,14 +160,12 @@ function fieldErrorExample(code, op, item, doc) {
 				};
 	}
 	if (op.requestBody) {
+		// The first required field of this operation's own body (or its first field).
+		let schema = op.requestBody.content['application/json'].schema;
+		if (schema.$ref) schema = doc.components.schemas[schema.$ref.split('/').pop()];
+		const field = schema.required?.[0] ?? Object.keys(schema.properties ?? {})[0];
 		return {
-			errors: [
-				{
-					pointer: '/name',
-					code: 'invalid_bucket_name',
-					detail: 'Must be 3 to 63 lowercase letters, digits or hyphens.'
-				}
-			]
+			errors: [{ pointer: `/${field}`, code: 'invalid_value', detail: 'Not a valid value.' }]
 		};
 	}
 	const p = operationParams(op, item, doc).find((x) => x.in === 'query' || x.in === 'path');
@@ -385,15 +383,26 @@ export function artefacts() {
 	return files;
 }
 
+/** Files under `dir`/generated that the build does not produce, at any depth. */
+export function staleFiles(dir, files) {
+	const out = [];
+	const walk = (rel) => {
+		const abs = join(dir, rel);
+		if (!existsSync(abs)) return;
+		for (const e of readdirSync(abs, { withFileTypes: true })) {
+			const p = `${rel}/${e.name}`;
+			if (e.isDirectory()) walk(p);
+			else if (!files.has(p)) out.push(p);
+		}
+	};
+	walk('generated');
+	return out.sort();
+}
+
 function main() {
 	const check = process.argv.includes('--check');
 	const files = artefacts();
-	const errorsDir = join(root, 'generated/docs/errors');
-	const stale = existsSync(errorsDir)
-		? readdirSync(errorsDir)
-				.map((f) => `generated/docs/errors/${f}`)
-				.filter((f) => !files.has(f))
-		: [];
+	const stale = staleFiles(root, files);
 	if (check) {
 		const drift = [...files]
 			.filter(([p, c]) => !existsSync(join(root, p)) || readFileSync(join(root, p), 'utf8') !== c)

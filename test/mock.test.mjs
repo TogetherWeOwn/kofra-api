@@ -104,8 +104,11 @@ test('unknown fields, bad values, bad JSON and wrong media types are refused', a
 	assertProblem(unknown, 400, 'unknown_field');
 	assert.equal(unknown.json.errors[0].pointer, '/nmae');
 	const bad = await call('POST', '/v1/buckets', { body: { name: 'Bad_Name' } });
-	assertProblem(bad, 400, 'validation_failed');
-	assert.equal(bad.json.errors[0].pointer, '/name');
+	assertProblem(bad, 400, 'invalid_bucket_name');
+	assert.deepEqual(
+		bad.json.errors.map((e) => [e.pointer, e.code]),
+		[['/name', 'invalid_bucket_name']]
+	);
 	assertProblem(await call('POST', '/v1/buckets', { body: '{' }), 400, 'validation_failed');
 	assertProblem(
 		await call('POST', '/v1/buckets', { body: '{}', headers: { 'content-type': 'text/plain' } }),
@@ -315,4 +318,62 @@ test('undeclared, repeated or badly encoded parameters and bad Prefer values are
 	const enc = await call('GET', '/v1/buckets/%E0%A4%A');
 	assertProblem(enc, 400, 'validation_failed');
 	assert.equal(enc.json.errors[0].code, 'invalid_encoding');
+});
+
+function rawCall(path) {
+	return new Promise((resolveCall, rejectCall) => {
+		import('node:http').then(({ request }) => {
+			const req = request(
+				{
+					host: '127.0.0.1',
+					port: server.address().port,
+					path,
+					method: 'GET',
+					headers: { authorization: TOKEN }
+				},
+				(res) => {
+					let text = '';
+					res.on('data', (c) => (text += c));
+					res.on('end', () => resolveCall({ status: res.statusCode, json: JSON.parse(text) }));
+				}
+			);
+			req.on('error', rejectCall);
+			req.end();
+		});
+	});
+}
+
+test('request targets that are not a single-slash path answer 404, never 500', async () => {
+	for (const target of ['//x/v1/buckets', '//127.0.0.1/v1/buckets', 'http://x/v1/buckets']) {
+		const r = await rawCall(target);
+		assert.equal(r.status, 404, target);
+		assert.equal(r.json.code, 'not_found', target);
+	}
+	assert.equal((await rawCall('/v1/buckets')).status, 200);
+});
+
+test('a problem with the whole body points at the root, ""', async () => {
+	for (const body of ['{', '[]', '"x"']) {
+		const r = await call('POST', '/v1/buckets', { body });
+		assertProblem(r, 400, 'validation_failed');
+		assert.equal(r.json.errors[0].pointer, '', body);
+	}
+});
+
+test('Prefer values split on the first "=" and odd shapes are refused', async () => {
+	for (const prefer of ['example=a=b', 'code=409=1', 'code', 'code=409, code=429', 'example="x y"'])
+		assertProblem(
+			await call('GET', '/v1/usage', { headers: { prefer } }),
+			400,
+			'validation_failed'
+		);
+	assert.equal(
+		(await call('GET', '/v1/usage', { headers: { prefer: 'return=minimal, wait=5' } })).res.status,
+		200
+	);
+	assertProblem(
+		await call('GET', '/v1/usage', { headers: { prefer: 'return=minimal; code=503' } }),
+		503,
+		'service_unavailable'
+	);
 });

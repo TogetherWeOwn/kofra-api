@@ -45,6 +45,8 @@ fn schema_name(media: &Value) -> Option<&str> {
 fn every_contract_example_round_trips_through_the_rust_types() {
     let spec: Value = serde_json::from_str(OPENAPI_JSON).expect("contract is JSON");
     let mut checked = 0;
+    let mut with_examples = 0;
+    let mut checked_media = 0;
     for item in spec["paths"].as_object().expect("paths").values() {
         for op in item.as_object().expect("path item").values() {
             let Some(op) = op.as_object() else { continue };
@@ -59,23 +61,40 @@ fn every_contract_example_round_trips_through_the_rust_types() {
                 .flat_map(|r| r.values())
                 .filter_map(|r| r.get("content"));
             for content in bodies.chain(responses) {
-                for media in content.as_object().expect("content").values() {
-                    let Some(schema) = schema_name(media) else {
+                for (media_type, media) in content.as_object().expect("content") {
+                    let examples = media.get("examples").and_then(Value::as_object);
+                    let Some(examples) = examples.filter(|e| !e.is_empty()) else {
                         continue;
                     };
-                    for example in media["examples"]
-                        .as_object()
-                        .into_iter()
-                        .flat_map(|e| e.values())
-                    {
+                    // Every media type with examples is checked: an inline
+                    // (non-$ref) schema would otherwise be skipped silently.
+                    let schema = schema_name(media).unwrap_or_else(|| {
+                        panic!("{media_type}: examples under a schema without a $ref name")
+                    });
+                    with_examples += 1;
+                    for example in examples.values() {
                         check(schema, &example["value"]);
                         checked += 1;
                     }
+                    checked_media += 1;
                 }
             }
         }
     }
     assert!(checked > 100, "only {checked} examples checked");
+    assert_eq!(
+        checked_media, with_examples,
+        "a media type with examples was not checked"
+    );
+}
+
+#[test]
+fn a_media_type_with_examples_needs_a_named_schema() {
+    let inline =
+        serde_json::json!({ "schema": { "type": "object" }, "examples": { "a": { "value": {} } } });
+    assert_eq!(schema_name(&inline), None);
+    let named = serde_json::json!({ "schema": { "$ref": "#/components/schemas/Plan" } });
+    assert_eq!(schema_name(&named), Some("Plan"));
 }
 
 #[test]
