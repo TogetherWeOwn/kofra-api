@@ -122,8 +122,9 @@ const esc = (s) => s.replace(/~/g, '~0').replace(/\//g, '~1');
  * Name/value items of a Prefer header, split on "," and ";" outside quoted
  * strings; quoted values are unquoted. An item after ";" is a parameter of the
  * preference before it (RFC 7240 2), marked `param: true`; an item after ","
- * or at the start is a preference of its own. Null when a quoted string is not
- * closed.
+ * or at the start is a preference of its own. Null when the header is
+ * malformed: a quoted string is not closed, or a ";" parameter has no
+ * preference before it (at the start, or right after a ",").
  */
 export function splitPrefer(header) {
 	const items = [];
@@ -152,8 +153,10 @@ export function splitPrefer(header) {
 			quoted = true;
 			cur += c;
 		} else if (c === ',') flush(false);
-		else if (c === ';') flush(true);
-		else cur += c;
+		else if (c === ';') {
+			if (!param && !cur.trim()) return null;
+			flush(true);
+		} else cur += c;
 	}
 	if (quoted) return null;
 	flush(false);
@@ -420,13 +423,17 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 		// preferences, and parameters of any preference, are ignored.
 		// The selector is a mock-only control, not part of the API, so its
 		// refusal is not an API problem: a text/plain 400 marked with the
-		// Kofra-Mock-Error header, never a code from the error catalogue.
+		// Kofra-Mock-Error header, never a code from the error catalogue. It is
+		// the one mock answer that is not application/problem+json.
 		const badPrefer = (detail) => ({
 			...reply(400, null, { 'Kofra-Mock-Error': 'prefer' }),
 			text: `Mock: ${detail}\n`
 		});
 		const items = splitPrefer(req.headers['prefer'] ?? '');
-		if (!items) return badPrefer('The Prefer header has an unterminated quoted string.');
+		if (!items)
+			return badPrefer(
+				'The Prefer header is malformed: an unterminated quoted string, or a parameter with no preference before it.'
+			);
 		const prefer = new Map();
 		for (const { key, value, param } of items) {
 			if (param || (key !== 'code' && key !== 'example')) continue;

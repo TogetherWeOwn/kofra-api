@@ -371,7 +371,12 @@ test('Prefer values split on the first "=" and odd shapes are refused', async ()
 		'custom; example=rate_limited'
 	])
 		assert.equal((await call('GET', '/v1/usage', { headers: { prefer } })).res.status, 200, prefer);
-	for (const prefer of ['return=minimal, code=503', 'custom, code="503"', 'code=503; foo=bar'])
+	for (const prefer of [
+		'return=minimal, code=503',
+		'custom, code="503"',
+		'code=503; foo=bar',
+		'code=503;;foo'
+	])
 		assertProblem(
 			await call('GET', '/v1/usage', { headers: { prefer } }),
 			503,
@@ -381,7 +386,16 @@ test('Prefer values split on the first "=" and odd shapes are refused', async ()
 
 test('a refused Prefer selector is a mock-only answer on every operation, never a catalogue code', async () => {
 	for (const url of ['/v1/account', '/v1/usage', '/v1/buckets'])
-		for (const prefer of ['code=201', 'code=418', 'example=no_such_example', 'code="unterminated'])
+		for (const prefer of [
+			'code=201',
+			'code=418',
+			'example=no_such_example',
+			'code="unterminated',
+			'; code=418',
+			';code=503',
+			'return=minimal, ; code=418',
+			'return=minimal,;code=503'
+		])
 			assertMockRefusal(await call('GET', url, { headers: { prefer } }), `${url} ${prefer}`);
 });
 
