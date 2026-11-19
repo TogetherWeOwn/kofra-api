@@ -747,7 +747,7 @@ export interface operations {
                     "application/json": components["schemas"]["Account"];
                 };
             };
-            /** @description `unknown_field`, `validation_failed` */
+            /** @description `unknown_field` */
             400: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -2263,7 +2263,7 @@ export interface operations {
                     "application/json": components["schemas"]["Usage"];
                 };
             };
-            /** @description `unknown_field`, `validation_failed` */
+            /** @description `unknown_field` */
             400: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
