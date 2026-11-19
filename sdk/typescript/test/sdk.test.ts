@@ -86,7 +86,7 @@ test('errors become KofraError with the catalogue code and hint', async () => {
 	const { kofra } = spyClient();
 	await assert.rejects(kofra.buckets.create({ body: { name: 'Bad_Name' } }), (err: KofraError) => {
 		assert.ok(err instanceof KofraError);
-		assert.equal(err.code, 'validation_failed');
+		assert.equal(err.code, 'invalid_bucket_name');
 		assert.equal(err.status, 400);
 		assert.ok(err.hint.length > 0 && err.requestId.startsWith('req_'));
 		return true;
@@ -107,7 +107,11 @@ test('busy answers are retried with the same Idempotency-Key, then surface as re
 			seen.push({ headers: new Headers(init?.headers) });
 			const headers = new Headers(init?.headers);
 			headers.set('prefer', 'code=503');
-			return fetch(input, { ...init, headers });
+			const res = await fetch(input, { ...init, headers });
+			// The mock asks for Retry-After: 1; answer 0 to keep the test fast.
+			const out = new Headers(res.headers);
+			out.set('retry-after', '0');
+			return new Response(await res.text(), { status: res.status, headers: out });
 		}
 	});
 	await assert.rejects(busy.buckets.delete({ bucket: 'photos' }), {

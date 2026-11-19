@@ -44,9 +44,14 @@ export interface ClientOptions {
 	token?: string;
 	/** Defaults to `KOFRA_API_URL`, then `https://api.kofra.app`. */
 	baseUrl?: string;
-	/** Retries of 429 and 503 answers and network failures. Default 2. */
+	/**
+	 * Allow a plain-http base URL on a host other than localhost, 127.0.0.0/8
+	 * or ::1. Default false: the token would cross the network unencrypted.
+	 */
+	allowInsecureHttp?: boolean;
+	/** Retries of 429, 503 and 409 `idempotency_key_in_use` answers and network failures. Default 2. */
 	maxRetries?: number;
-	/** Longest wait between retries, in seconds. Default 30. */
+	/** Longest wait between retries, in seconds. Default 30. A Retry-After above it stops the retries. */
 	maxRetryWaitSeconds?: number;
 	/** A fetch implementation; defaults to the global one. */
 	fetch?: typeof fetch;
@@ -65,11 +70,16 @@ const env = (name: string): string | undefined =>
 
 const sleep = (ms: number, signal?: AbortSignal) =>
 	new Promise<void>((resolve, reject) => {
-		const t = setTimeout(resolve, ms);
-		signal?.addEventListener('abort', () => {
+		if (signal?.aborted) return reject(signal.reason);
+		const onAbort = () => {
 			clearTimeout(t);
-			reject(signal.reason);
-		});
+			reject(signal?.reason);
+		};
+		const t = setTimeout(() => {
+			signal?.removeEventListener('abort', onAbort);
+			resolve();
+		}, ms);
+		signal?.addEventListener('abort', onAbort, { once: true });
 	});
 
 export class Core {
@@ -87,6 +97,7 @@ export class Core {
 			/\/+$/,
 			''
 		);
+		checkBaseUrl(this.baseUrl, options.allowInsecureHttp ?? false);
 		this.#maxRetries = options.maxRetries ?? 2;
 		this.#maxWait = options.maxRetryWaitSeconds ?? 30;
 		this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
@@ -105,6 +116,8 @@ export class Core {
 		for (const name of pathNames) {
 			const value = args[name];
 			if (value === undefined || value === null) throw new Error(`Kofra: \`${name}\` is required.`);
+			if (['', '.', '..'].includes(String(value)))
+				throw new Error(`Kofra: ${JSON.stringify(String(value))} is not a valid path argument.`);
 			path = path.replace(`{${name}}`, encodeURIComponent(String(value)));
 		}
 		const url = new URL(this.baseUrl + path);
@@ -127,28 +140,78 @@ export class Core {
 		for (let attempt = 0; ; attempt++) {
 			let res: Response;
 			try {
-				res = await this.#fetch(url, { method, headers, body, signal: options.signal });
+				// Redirects are not followed: fetch would turn a redirected write
+				// into a GET whose 200 could pass as the write's result.
+				res = await this.#fetch(url, {
+					method,
+					headers,
+					body,
+					signal: options.signal,
+					redirect: 'manual'
+				});
 			} catch (err) {
 				if (attempt >= this.#maxRetries || options.signal?.aborted) throw err;
-				await sleep(this.#backoff(attempt, null), options.signal);
-				continue;
-			}
-			if ((res.status === 429 || res.status === 503) && attempt < this.#maxRetries) {
-				await res.body?.cancel();
-				await sleep(this.#backoff(attempt, res.headers.get('retry-after')), options.signal);
+				await sleep(Math.min(0.5 * 2 ** attempt, this.#maxWait) * 1000, options.signal);
 				continue;
 			}
 			const text = await res.text();
 			if (res.ok) return text ? JSON.parse(text) : undefined;
-			throw new KofraError(toProblem(res, text));
+			const problem = toProblem(res, text);
+			if (attempt < this.#maxRetries && isRetryable(res.status, problem)) {
+				const wait = this.#backoff(attempt, res.headers.get('retry-after'));
+				if (wait !== null) {
+					await sleep(wait, options.signal);
+					continue;
+				}
+			}
+			throw new KofraError(problem);
 		}
 	}
 
-	#backoff(attempt: number, retryAfter: string | null): number {
-		const seconds =
-			retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) : 0.5 * 2 ** attempt;
-		return Math.min(seconds, this.#maxWait) * 1000;
+	/** Milliseconds before the next attempt, or null when the server asks for longer than the max wait. */
+	#backoff(attempt: number, retryAfter: string | null): number | null {
+		const asked = retryAfterSeconds(retryAfter);
+		if (asked !== null) return asked <= this.#maxWait ? asked * 1000 : null;
+		return Math.min(0.5 * 2 ** attempt, this.#maxWait) * 1000;
 	}
+}
+
+/** Seconds from a Retry-After header: delta-seconds or an HTTP date. */
+function retryAfterSeconds(value: string | null): number | null {
+	if (!value) return null;
+	const v = value.trim();
+	if (/^\d+$/.test(v)) return Number(v);
+	const when = Date.parse(v);
+	if (Number.isNaN(when)) return null;
+	return Math.max((when - Date.now()) / 1000, 0);
+}
+
+function isRetryable(status: number, problem: Problem): boolean {
+	return (
+		status === 429 ||
+		status === 503 ||
+		(status === 409 && problem.code === 'idempotency_key_in_use')
+	);
+}
+
+function checkBaseUrl(baseUrl: string, allowInsecureHttp: boolean): void {
+	let url: URL | undefined;
+	try {
+		url = new URL(baseUrl);
+	} catch {
+		// Reported below.
+	}
+	if (url?.protocol === 'https:' && url.hostname) return;
+	if (url?.protocol === 'http:' && url.hostname && (allowInsecureHttp || isLoopback(url.hostname)))
+		return;
+	throw new Error(
+		`Kofra: the base URL ${JSON.stringify(baseUrl)} must use https (plain http only for localhost, 127.0.0.0/8 or ::1, or with allowInsecureHttp).`
+	);
+}
+
+function isLoopback(hostname: string): boolean {
+	const host = hostname.replace(/^\[|\]$/g, '');
+	return host === 'localhost' || host === '::1' || /^127(\.\d{1,3}){3}$/.test(host);
 }
 
 function toProblem(res: Response, text: string): Problem {

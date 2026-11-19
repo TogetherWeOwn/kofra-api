@@ -24,11 +24,13 @@ T = TypeVar("T", bound="AccessKeyUpdate")
 
 @_attrs_define
 class AccessKeyUpdate:
-    """ 
+    """ At least one of `name` and `grants`. An empty `grants` list is refused; leave `grants` out to keep the grants as
+    they are.
+
         Attributes:
-            name (str | Unset):
-            grants (list[GrantInput] | Unset): Grants to add or widen. Grants not listed are kept. Each bucket at most once.
-                A key holds at most 32 grants.
+            name (str | Unset): A label for people; not used for access.
+            grants (list[GrantInput] | Unset): 1 to 32 grants, each bucket at most once; a bucket listed twice is refused
+                with `validation_failed`.
      """
 
     name: str | Unset = UNSET
@@ -45,9 +47,9 @@ class AccessKeyUpdate:
         grants: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.grants, Unset):
             grants = []
-            for grants_item_data in self.grants:
-                grants_item = grants_item_data.to_dict()
-                grants.append(grants_item)
+            for componentsschemas_grants_item_data in self.grants:
+                componentsschemas_grants_item = componentsschemas_grants_item_data.to_dict()
+                grants.append(componentsschemas_grants_item)
 
 
 
@@ -75,12 +77,12 @@ class AccessKeyUpdate:
         grants: list[GrantInput] | Unset = UNSET
         if _grants is not UNSET:
             grants = []
-            for grants_item_data in _grants:
-                grants_item = GrantInput.from_dict(grants_item_data)
+            for componentsschemas_grants_item_data in _grants:
+                componentsschemas_grants_item = GrantInput.from_dict(componentsschemas_grants_item_data)
 
 
 
-                grants.append(grants_item)
+                grants.append(componentsschemas_grants_item)
 
 
         access_key_update = cls(

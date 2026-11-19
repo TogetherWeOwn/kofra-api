@@ -26,8 +26,9 @@ T = TypeVar("T", bound="AccessKeyCreate")
 class AccessKeyCreate:
     """ 
         Attributes:
-            grants (list[GrantInput]): The buckets the key can reach. Each bucket at most once.
-            name (str | Unset):
+            grants (list[GrantInput]): 1 to 32 grants, each bucket at most once; a bucket listed twice is refused with
+                `validation_failed`.
+            name (str | Unset): A label for people; not used for access.
      """
 
     grants: list[GrantInput]
@@ -40,9 +41,9 @@ class AccessKeyCreate:
     def to_dict(self) -> dict[str, Any]:
         from ..models.grant_input import GrantInput # noqa: PLC0415
         grants = []
-        for grants_item_data in self.grants:
-            grants_item = grants_item_data.to_dict()
-            grants.append(grants_item)
+        for componentsschemas_grants_item_data in self.grants:
+            componentsschemas_grants_item = componentsschemas_grants_item_data.to_dict()
+            grants.append(componentsschemas_grants_item)
 
 
 
@@ -67,12 +68,12 @@ class AccessKeyCreate:
         d = dict(src_dict)
         grants = []
         _grants = d.pop("grants")
-        for grants_item_data in (_grants):
-            grants_item = GrantInput.from_dict(grants_item_data)
+        for componentsschemas_grants_item_data in (_grants):
+            componentsschemas_grants_item = GrantInput.from_dict(componentsschemas_grants_item_data)
 
 
 
-            grants.append(grants_item)
+            grants.append(componentsschemas_grants_item)
 
 
         name = d.pop("name", UNSET)

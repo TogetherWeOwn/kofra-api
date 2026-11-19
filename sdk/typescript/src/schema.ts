@@ -496,15 +496,20 @@ export interface components {
             s3_endpoint: string;
         };
         AccessKeyCreate: {
-            name?: string;
+            name?: components["schemas"]["KeyName"];
             /** @description The buckets the key can reach. Each bucket at most once. */
-            grants: components["schemas"]["GrantInput"][];
+            grants: components["schemas"]["Grants"];
         };
+        /** @description At least one of `name` and `grants`. An empty `grants` list is refused; leave `grants` out to keep the grants as they are. */
         AccessKeyUpdate: {
-            name?: string;
+            name?: components["schemas"]["KeyName"];
             /** @description Grants to add or widen. Grants not listed are kept. Each bucket at most once. A key holds at most 32 grants. */
-            grants?: components["schemas"]["GrantInput"][];
+            grants?: components["schemas"]["Grants"];
         };
+        /** @description A label for people; not used for access. */
+        KeyName: string;
+        /** @description 1 to 32 grants, each bucket at most once; a bucket listed twice is refused with `validation_failed`. */
+        Grants: components["schemas"]["GrantInput"][];
         AccessKeyList: {
             data: components["schemas"]["AccessKey"][];
             next_cursor: components["schemas"]["Cursor"] | null;

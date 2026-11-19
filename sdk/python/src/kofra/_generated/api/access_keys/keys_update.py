@@ -166,7 +166,8 @@ def sync_detailed(
     Args:
         key_id (str): The S3 access key ID.
         idempotency_key (str | Unset):
-        body (AccessKeyUpdate):
+        body (AccessKeyUpdate): At least one of `name` and `grants`. An empty `grants` list is
+            refused; leave `grants` out to keep the grants as they are.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -209,7 +210,8 @@ def sync(
     Args:
         key_id (str): The S3 access key ID.
         idempotency_key (str | Unset):
-        body (AccessKeyUpdate):
+        body (AccessKeyUpdate): At least one of `name` and `grants`. An empty `grants` list is
+            refused; leave `grants` out to keep the grants as they are.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -247,7 +249,8 @@ async def asyncio_detailed(
     Args:
         key_id (str): The S3 access key ID.
         idempotency_key (str | Unset):
-        body (AccessKeyUpdate):
+        body (AccessKeyUpdate): At least one of `name` and `grants`. An empty `grants` list is
+            refused; leave `grants` out to keep the grants as they are.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -290,7 +293,8 @@ async def asyncio(
     Args:
         key_id (str): The S3 access key ID.
         idempotency_key (str | Unset):
-        body (AccessKeyUpdate):
+        body (AccessKeyUpdate): At least one of `name` and `grants`. An empty `grants` list is
+            refused; leave `grants` out to keep the grants as they are.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

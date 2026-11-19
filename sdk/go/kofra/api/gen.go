@@ -295,8 +295,10 @@ type AccessKey struct {
 // AccessKeyCreate defines model for AccessKeyCreate.
 type AccessKeyCreate struct {
 	// Grants The buckets the key can reach. Each bucket at most once.
-	Grants []GrantInput `json:"grants"`
-	Name   *string      `json:"name,omitempty"`
+	Grants Grants `json:"grants"`
+
+	// Name A label for people; not used for access.
+	Name *KeyName `json:"name,omitempty"`
 }
 
 // AccessKeyCreated An access key with its secret. The secret appears in this response only.
@@ -330,11 +332,13 @@ type AccessKeyList struct {
 	NextCursor *Cursor     `json:"next_cursor"`
 }
 
-// AccessKeyUpdate defines model for AccessKeyUpdate.
+// AccessKeyUpdate At least one of `name` and `grants`. An empty `grants` list is refused; leave `grants` out to keep the grants as they are.
 type AccessKeyUpdate struct {
 	// Grants Grants to add or widen. Grants not listed are kept. Each bucket at most once. A key holds at most 32 grants.
-	Grants *[]GrantInput `json:"grants,omitempty"`
-	Name   *string       `json:"name,omitempty"`
+	Grants *Grants `json:"grants,omitempty"`
+
+	// Name A label for people; not used for access.
+	Name *KeyName `json:"name,omitempty"`
 }
 
 // Account defines model for Account.
@@ -530,6 +534,12 @@ type GrantInput struct {
 
 // GrantInputAccess `read`: list and read objects. `read_write`: also write and delete objects.
 type GrantInputAccess string
+
+// Grants 1 to 32 grants, each bucket at most once; a bucket listed twice is refused with `validation_failed`.
+type Grants = []GrantInput
+
+// KeyName A label for people; not used for access.
+type KeyName = string
 
 // OpenUploads Multipart uploads started and not yet completed or aborted.
 type OpenUploads struct {

@@ -101,7 +101,11 @@ func run(ctx context.Context, argv []string, stdin io.Reader, stdout, stderr io.
 
 	var body any
 	if inv.cmd.body {
-		raw, err := readBody(inv.body, stdin)
+		raw, err := readBodyCtx(ctx, inv.body, stdin)
+		if errors.Is(err, context.Canceled) {
+			fmt.Fprintln(stderr, "kofra: interrupted")
+			return exitAPI
+		}
 		if err != nil {
 			fmt.Fprintf(stderr, "kofra: %s\n", err)
 			return exitUsage
@@ -150,8 +154,8 @@ func parse(argv []string) (*invocation, error) {
 			if hasValue {
 				return value, nil
 			}
-			if i+1 >= len(argv) {
-				return "", usagef("--%s needs a value", name)
+			if i+1 >= len(argv) || strings.HasPrefix(argv[i+1], "--") {
+				return "", usagef("--%s needs a value (or use --%s=<value>)", name, name)
 			}
 			i++
 			return argv[i], nil
@@ -214,6 +218,11 @@ func (inv *invocation) check() error {
 	if len(inv.args) != len(c.args) {
 		return usagef("%s takes %d argument(s) (%s), got %d", cliName(c), len(c.args), argList(c), len(inv.args))
 	}
+	for i, a := range inv.args {
+		if a == "" || a == "." || a == ".." {
+			return usagef("%q is not a valid path argument for <%s>", a, c.args[i])
+		}
+	}
 	for name := range inv.query {
 		known := false
 		for _, q := range c.query {
@@ -236,6 +245,26 @@ func (inv *invocation) check() error {
 		return usagef("%s cannot be undone; pass --yes to run it, or --dry-run to preview it", cliName(c))
 	}
 	return nil
+}
+
+// readBodyCtx is readBody that gives up when ctx ends (Ctrl+C while the CLI
+// waits for --body - on a terminal).
+func readBodyCtx(ctx context.Context, spec string, stdin io.Reader) (json.RawMessage, error) {
+	type result struct {
+		body json.RawMessage
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		body, err := readBody(spec, stdin)
+		done <- result{body, err}
+	}()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case r := <-done:
+		return r.body, r.err
+	}
 }
 
 func readBody(spec string, stdin io.Reader) (json.RawMessage, error) {
@@ -262,7 +291,11 @@ func readBody(spec string, stdin io.Reader) (json.RawMessage, error) {
 func reportError(err error, asJSON bool, stdout, stderr io.Writer) int {
 	var kerr *kofra.Error
 	if !errors.As(err, &kerr) {
-		fmt.Fprintf(stderr, "kofra: %s\n", err)
+		msg := err.Error()
+		if !strings.HasPrefix(msg, "kofra: ") {
+			msg = "kofra: " + msg
+		}
+		fmt.Fprintln(stderr, msg)
 		return exitAPI
 	}
 	p := kerr.Problem
@@ -283,7 +316,33 @@ func reportError(err error, asJSON bool, stdout, stderr io.Writer) int {
 }
 
 // render prints the answer: JSON with --json, otherwise a short text form.
-func render(w io.Writer, inv *invocation, body []byte) error {
+func render(out io.Writer, inv *invocation, body []byte) error {
+	w := &errWriter{w: out}
+	if err := renderTo(w, inv, body); err != nil {
+		return err
+	}
+	return w.err
+}
+
+// errWriter keeps the first write error, so a failed write to stdout (a
+// full disk, a closed pipe) ends the command with exit 1.
+type errWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (e *errWriter) Write(p []byte) (int, error) {
+	if e.err != nil {
+		return 0, e.err
+	}
+	n, err := e.w.Write(p)
+	if err != nil {
+		e.err = err
+	}
+	return n, err
+}
+
+func renderTo(w io.Writer, inv *invocation, body []byte) error {
 	if body == nil {
 		if !inv.json {
 			fmt.Fprintf(w, "Done: %s.\n", inv.cmd.summary)
@@ -310,7 +369,9 @@ func render(w io.Writer, inv *invocation, body []byte) error {
 	}
 	if data, ok := obj.get("data"); ok {
 		if items, ok := data.([]any); ok {
-			table(w, items)
+			if err := table(w, items); err != nil {
+				return err
+			}
 			if next, ok := obj.get("next_cursor"); ok && next != nil {
 				fmt.Fprintf(w, "next_cursor: %v\n", scalar(next))
 			}
@@ -323,17 +384,19 @@ func render(w io.Writer, inv *invocation, body []byte) error {
 }
 
 // table prints a list with one row per item and a column per scalar field.
-func table(w io.Writer, items []any) {
+func table(w io.Writer, items []any) error {
 	if len(items) == 0 {
-		fmt.Fprintln(w, "(none)")
-		return
+		_, err := fmt.Fprintln(w, "(none)")
+		return err
 	}
 	first, ok := items[0].(*object)
 	if !ok {
 		for _, it := range items {
-			fmt.Fprintln(w, scalar(it))
+			if _, err := fmt.Fprintln(w, scalar(it)); err != nil {
+				return err
+			}
 		}
-		return
+		return nil
 	}
 	var cols []string
 	for i, k := range first.keys {
@@ -353,7 +416,7 @@ func table(w io.Writer, items []any) {
 		}
 		fmt.Fprintln(tw, strings.Join(row, "\t"))
 	}
-	_ = tw.Flush()
+	return tw.Flush()
 }
 
 func flatten(w io.Writer, prefix string, v any) {

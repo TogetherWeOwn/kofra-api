@@ -37,7 +37,7 @@ updates:
         update-types: [minor, patch]
 
   - package-ecosystem: uv
-    directory: /sdk/python
+    directories: [/sdk/python, /tools/sdk/python]
     schedule:
       interval: weekly
     open-pull-requests-limit: 5

@@ -119,7 +119,8 @@ jobs:
           chmod 0755 "$bin"
           # osv-scanner reads Go modules from go.mod (go.sum holds only hashes).
           "$bin" scan source --lockfile pnpm-lock.yaml --lockfile Cargo.lock \
-            --lockfile sdk/go/go.mod --lockfile sdk/python/uv.lock
+            --lockfile sdk/go/go.mod --lockfile sdk/python/uv.lock \
+            --lockfile tools/sdk/python/uv.lock
 
   contract:
     name: contract (build check, lint, tests, F7 deny-list)

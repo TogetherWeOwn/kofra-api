@@ -43,10 +43,15 @@ class Kofra:
         max_retries: int = 2,
         max_retry_wait: float = 30.0,
         timeout: float = 30.0,
+        allow_insecure_http: bool = False,
+        transport: Any = None,
     ) -> None:
-        self._core = Core(token, base_url, max_retries, max_retry_wait, timeout)
+        self._core = Core(token, base_url, max_retries, max_retry_wait, timeout, allow_insecure_http, transport)
         for name, api in RESOURCES.items():
             setattr(self, name, api(self._core))
+
+    def __repr__(self) -> str:
+        return f"Kofra(base_url={self._core.base_url!r}, token=<redacted>)"
 
 
 def paginate(list_fn: Callable[..., Any], **kwargs: Any) -> Iterator[Any]:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +17,7 @@ import (
 
 // recorder sends requests on to the mock, records their headers and, for the
 // first `prefer` attempts, asks the mock for a given answer (e.g. code=429).
+// It shortens the mock's Retry-After to 0.
 type recorder struct {
 	mu      sync.Mutex
 	prefer  []string
@@ -33,7 +35,12 @@ func (r *recorder) RoundTrip(req *http.Request) (*http.Response, error) {
 	r.headers = append(r.headers, req.Header.Clone())
 	r.methods = append(r.methods, req.Method)
 	r.mu.Unlock()
-	return http.DefaultTransport.RoundTrip(req)
+	resp, err := http.DefaultTransport.RoundTrip(req)
+	if err == nil && resp.Header.Get("Retry-After") != "" {
+		// The mock asks for Retry-After: 1; answer 0 to keep the tests fast.
+		resp.Header.Set("Retry-After", "0")
+	}
+	return resp, err
 }
 
 func newClient(t *testing.T, base string, rec *recorder, opts ...kofra.Option) *kofra.Client {
@@ -241,5 +248,74 @@ func TestEnvironmentAndMissingToken(t *testing.T) {
 	}
 	if _, err := kofra.New(kofra.WithBaseURL("ftp://x")); err == nil {
 		t.Fatal("a non-http base URL was accepted")
+	}
+}
+
+func TestEveryServiceDecodesTheContractExample(t *testing.T) {
+	ctx := context.Background()
+	c := newClient(t, mocktest.Start(t), nil)
+	acct, err := c.Account.Get(ctx)
+	if err != nil || acct.JSON200 == nil || acct.JSON200.State != api.Active {
+		t.Fatalf("account.get: %v", err)
+	}
+	del, err := c.Account.Delete(ctx, nil)
+	if err != nil || del.StatusCode() != http.StatusAccepted {
+		t.Fatalf("account.delete: %v (HTTP %d)", err, del.StatusCode())
+	}
+	if _, err := c.Account.CancelDeletion(ctx, nil); err != nil {
+		t.Fatalf("account.cancel_deletion: %v", err)
+	}
+	keys, err := c.Keys.List(ctx, nil)
+	if err != nil || len(keys.JSON200.Data) == 0 {
+		t.Fatalf("keys.list: %v", err)
+	}
+	if _, err := c.Keys.Revoke(ctx, keys.JSON200.Data[0].Id, nil); err != nil {
+		t.Fatalf("keys.revoke: %v", err)
+	}
+	usage, err := c.Usage.Get(ctx)
+	if err != nil || usage.JSON200.ObjectCount != 18342 {
+		t.Fatalf("usage.get: %v", err)
+	}
+	days, err := c.Usage.Days(ctx, nil)
+	if err != nil || len(days.JSON200.Data) != 2 {
+		t.Fatalf("usage.days: %v", err)
+	}
+	perBucket, err := c.Usage.Buckets(ctx, nil)
+	if err != nil || len(perBucket.JSON200.Data) != 2 {
+		t.Fatalf("usage.buckets: %v", err)
+	}
+	events, err := c.Events.List(ctx, nil)
+	if err != nil || len(events.JSON200.Data) == 0 {
+		t.Fatalf("events.list: %v", err)
+	}
+	url, err := c.Objects.Presign(ctx, nil, api.PresignRequest{Bucket: "backups", Key: "a.txt", Method: api.PresignRequestMethodGET})
+	if err != nil || url.JSON200 == nil || url.JSON200.Url == "" {
+		t.Fatalf("objects.presign: %v", err)
+	}
+}
+
+func TestRedirectsAreNotFollowed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Redirect(w, r, "/v1/buckets", http.StatusMovedPermanently)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[],"next_cursor":null}`))
+	}))
+	defer srv.Close()
+	c := newClient(t, srv.URL, nil)
+	if _, err := c.Do(context.Background(), http.MethodDelete, "/v1/buckets/old-logs", nil, nil); err == nil {
+		t.Fatal("Do: a redirected DELETE passed as success")
+	}
+	_, err := c.Buckets.Delete(context.Background(), "old-logs", nil)
+	var kerr *kofra.Error
+	if !errors.As(err, &kerr) || kerr.Status != http.StatusMovedPermanently {
+		t.Fatalf("Buckets.Delete: want a 301 error, got %v", err)
+	}
+	// A caller-supplied client that follows redirects is caught too.
+	following := newClient(t, srv.URL, &recorder{})
+	if _, err := following.Do(context.Background(), http.MethodDelete, "/v1/buckets/old-logs", nil, nil); err == nil || !strings.Contains(err.Error(), "redirect") {
+		t.Fatalf("following client: want a redirect error, got %v", err)
 	}
 }

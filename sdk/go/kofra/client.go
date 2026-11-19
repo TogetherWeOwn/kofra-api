@@ -17,6 +17,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -43,6 +45,7 @@ type Client struct {
 	httpClient   api.HttpRequestDoer
 	maxRetries   int
 	maxRetryWait time.Duration
+	insecureHTTP bool
 }
 
 // Option configures a Client.
@@ -55,12 +58,20 @@ func WithToken(token string) Option { return func(c *Client) { c.token = token }
 func WithBaseURL(u string) Option { return func(c *Client) { c.baseURL = u } }
 
 // WithHTTPClient sets the HTTP client (or any doer) that sends the requests.
+// An answer that arrives after a followed redirect is refused; give the
+// client a CheckRedirect returning http.ErrUseLastResponse to see the 3xx.
 func WithHTTPClient(doer api.HttpRequestDoer) Option {
 	return func(c *Client) { c.httpClient = doer }
 }
 
-// WithMaxRetries sets how often an answer of 429 or 503, or a network error,
-// is retried. The default is 2; 0 turns retries off.
+// WithInsecureHTTP allows a plain-http base URL on a host other than
+// localhost, 127.0.0.0/8 or ::1. Off by default: the token would cross the
+// network unencrypted.
+func WithInsecureHTTP() Option { return func(c *Client) { c.insecureHTTP = true } }
+
+// WithMaxRetries sets how often an answer of 429, 503 or 409
+// idempotency_key_in_use, or a network error, is retried. The default is 2;
+// 0 turns retries off.
 func WithMaxRetries(n int) Option {
 	return func(c *Client) {
 		if n >= 0 {
@@ -69,8 +80,9 @@ func WithMaxRetries(n int) Option {
 	}
 }
 
-// WithMaxRetryWait caps the wait between two attempts, including a
-// Retry-After the server asks for. The default is 30 seconds.
+// WithMaxRetryWait caps the wait between two attempts. When the server's
+// Retry-After asks for longer, the client stops retrying and returns the
+// error. The default is 30 seconds.
 func WithMaxRetryWait(d time.Duration) Option {
 	return func(c *Client) {
 		if d >= 0 {
@@ -98,11 +110,16 @@ func New(opts ...Option) (*Client, error) {
 		c.baseURL = DefaultBaseURL
 	}
 	c.baseURL = strings.TrimRight(c.baseURL, "/")
-	if u, err := url.Parse(c.baseURL); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-		return nil, fmt.Errorf("kofra: the base URL %q is not an http(s) URL", c.baseURL)
+	if err := checkBaseURL(c.baseURL, c.insecureHTTP); err != nil {
+		return nil, err
 	}
 	if c.httpClient == nil {
-		c.httpClient = &http.Client{Timeout: 60 * time.Second}
+		c.httpClient = &http.Client{
+			Timeout: 60 * time.Second,
+			// A followed redirect turns a write into a GET whose 200 could
+			// pass as the write's result; a 3xx is returned as an *Error.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		}
 	}
 	raw, err := api.NewClientWithResponses(c.baseURL,
 		api.WithHTTPClient(&retryingDoer{next: c.httpClient, maxRetries: c.maxRetries, maxWait: c.maxRetryWait}),
@@ -123,6 +140,9 @@ func (c *Client) BaseURL() string { return c.baseURL }
 // Idempotency-Key unless the caller set one. It runs once per call, before
 // any retry, so every attempt carries the same key.
 func (c *Client) editRequest(_ context.Context, req *http.Request) error {
+	if err := checkPath(req.URL.Path); err != nil {
+		return err
+	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("User-Agent", "kofra-go/"+Version)
 	switch req.Method {
@@ -139,7 +159,7 @@ func (c *Client) editRequest(_ context.Context, req *http.Request) error {
 }
 
 // Do sends one request to an API path such as "/v1/buckets" and returns the
-// raw JSON answer (nil for 204). body is sent as JSON unless it is nil; a
+// raw JSON answer (nil when the answer has no body, such as 204 or 202). body is sent as JSON unless it is nil; a
 // json.RawMessage or []byte is sent as is. Any non-2xx answer is an *Error.
 func (c *Client) Do(ctx context.Context, method, path string, query url.Values, body any) ([]byte, error) {
 	if !strings.HasPrefix(path, "/") {
@@ -188,7 +208,7 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 	if err := checkResponse(resp, data); err != nil {
 		return nil, err
 	}
-	if resp.StatusCode == http.StatusNoContent {
+	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, nil
 	}
 	return data, nil
@@ -262,37 +282,103 @@ func (d *retryingDoer) Do(req *http.Request) (*http.Response, error) {
 			}
 		}
 		resp, err := d.next.Do(try)
+		if err == nil && resp.Request != nil && resp.Request.URL.String() != try.URL.String() {
+			// A caller-supplied HTTP client followed a redirect.
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("kofra: the API redirected %s %s; redirects are not followed", try.Method, try.URL.Path)
+		}
+		if err == nil {
+			normalizeRetryAfter(resp)
+		}
 		last := attempt >= d.maxRetries
 		if err != nil {
 			if last || ctx.Err() != nil {
 				return nil, err
 			}
-			if werr := d.wait(ctx, attempt, ""); werr != nil {
+			delay, _ := d.delay(attempt, "")
+			if werr := sleep(ctx, delay); werr != nil {
 				return nil, err
 			}
 			continue
 		}
-		if last || (resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode != http.StatusServiceUnavailable) {
+		if last {
 			return resp, nil
 		}
-		retryAfter := resp.Header.Get("Retry-After")
+		retry, err := retryable(resp)
+		if err != nil || !retry {
+			return resp, err
+		}
+		delay, ok := d.delay(attempt, resp.Header.Get("Retry-After"))
+		if !ok {
+			// The server asks for longer than the caller is willing to wait.
+			return resp, nil
+		}
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 		_ = resp.Body.Close()
-		if err := d.wait(ctx, attempt, retryAfter); err != nil {
+		if err := sleep(ctx, delay); err != nil {
 			return nil, err
 		}
 	}
 }
 
-func (d *retryingDoer) wait(ctx context.Context, attempt int, retryAfter string) error {
-	delay := time.Duration(500*(1<<min(attempt, 10))) * time.Millisecond
-	if s, err := strconv.Atoi(strings.TrimSpace(retryAfter)); err == nil && s >= 0 {
-		delay = time.Duration(s) * time.Second
-	} else if t, err := http.ParseTime(retryAfter); err == nil {
-		delay = time.Until(t)
+// retryable reports whether an answer may succeed when sent again: 429, 503,
+// and 409 with the problem code idempotency_key_in_use. A 409 body is read to
+// decide and then put back, so the caller still sees it.
+func retryable(resp *http.Response) (bool, error) {
+	switch resp.StatusCode {
+	case http.StatusTooManyRequests, http.StatusServiceUnavailable:
+		return true, nil
+	case http.StatusConflict:
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		_ = resp.Body.Close()
+		resp.Body = io.NopCloser(bytes.NewReader(body))
+		if err != nil {
+			return false, err
+		}
+		var p struct {
+			Code string `json:"code"`
+		}
+		return json.Unmarshal(body, &p) == nil && p.Code == "idempotency_key_in_use", nil
 	}
-	delay = max(min(delay, d.maxWait), 0)
-	timer := time.NewTimer(delay)
+	return false, nil
+}
+
+// delay is the wait before the next attempt. ok is false when Retry-After
+// asks for longer than maxWait: then the client stops retrying.
+func (d *retryingDoer) delay(attempt int, retryAfter string) (time.Duration, bool) {
+	retryAfter = strings.TrimSpace(retryAfter)
+	if s, err := strconv.Atoi(retryAfter); err == nil && s >= 0 {
+		asked := time.Duration(s) * time.Second
+		return asked, asked <= d.maxWait
+	}
+	if t, err := http.ParseTime(retryAfter); err == nil {
+		asked := max(time.Until(t), 0)
+		return asked, asked <= d.maxWait
+	}
+	return min(time.Duration(500*(1<<min(attempt, 10)))*time.Millisecond, d.maxWait), true
+}
+
+// normalizeRetryAfter rewrites an HTTP-date Retry-After as delta-seconds:
+// the contract declares the header as an integer, and the generated
+// response parser would fail on a date.
+func normalizeRetryAfter(resp *http.Response) {
+	v := strings.TrimSpace(resp.Header.Get("Retry-After"))
+	if v == "" {
+		return
+	}
+	if _, err := strconv.Atoi(v); err == nil {
+		return
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		secs := int(math.Ceil(max(time.Until(t), 0).Seconds()))
+		resp.Header.Set("Retry-After", strconv.Itoa(secs))
+		return
+	}
+	resp.Header.Del("Retry-After")
+}
+
+func sleep(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
@@ -300,6 +386,40 @@ func (d *retryingDoer) wait(ctx context.Context, attempt int, retryAfter string)
 	case <-timer.C:
 		return nil
 	}
+}
+
+// checkBaseURL allows https, and plain http only on a loopback host (a local
+// mock or proxy) unless the caller opted in with WithInsecureHTTP.
+func checkBaseURL(raw string, insecureHTTP bool) error {
+	u, err := url.Parse(raw)
+	if err == nil && u.Hostname() != "" {
+		if u.Scheme == "https" {
+			return nil
+		}
+		if u.Scheme == "http" && (insecureHTTP || isLoopback(u.Hostname())) {
+			return nil
+		}
+	}
+	return fmt.Errorf("kofra: the base URL %q must use https (plain http only for localhost, 127.0.0.0/8 or ::1, or with WithInsecureHTTP)", raw)
+}
+
+func isLoopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// checkPath refuses an API path with an empty, "." or ".." part: such a
+// path argument would address another resource than the caller meant.
+func checkPath(path string) error {
+	for _, part := range strings.Split(strings.TrimPrefix(path, "/"), "/") {
+		if part == "" || part == "." || part == ".." {
+			return fmt.Errorf("kofra: the path %q has an empty, \".\" or \"..\" path argument", path)
+		}
+	}
+	return nil
 }
 
 // newUUID returns a random (version 4) UUID.
