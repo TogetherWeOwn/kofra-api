@@ -1,0 +1,23 @@
+{
+  "linkset": [
+    {
+      "anchor": "https://api.kofra.app/v1",
+      "service-desc": [
+        {
+          "href": "https://api.kofra.app/openapi.json",
+          "type": "application/openapi+json"
+        },
+        {
+          "href": "https://api.kofra.app/openapi.yaml",
+          "type": "application/openapi+yaml"
+        }
+      ],
+      "service-doc": [
+        {
+          "href": "https://kofra.app/docs/api",
+          "type": "text/html"
+        }
+      ]
+    }
+  ]
+}

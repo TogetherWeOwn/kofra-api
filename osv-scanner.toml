@@ -1,0 +1,8 @@
+# chrono is reported unmaintained (an informational advisory with no known
+# vulnerability). It reaches Cargo.lock only through the workers-rs `worker`
+# crate, which requires it; this repository's own code does not use chrono.
+# The organisation's central cargo-deny policy carries the same exception.
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0543"
+ignoreUntil = 2027-02-17T00:00:00Z
+reason = "chrono unmaintained, required only by the workers-rs worker crate; review by 2027-02-17"

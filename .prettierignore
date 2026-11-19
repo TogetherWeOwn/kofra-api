@@ -1,0 +1,10 @@
+generated/
+pnpm-lock.yaml
+target/
+node_modules/
+crates/
+xtask/
+# Hand-wrapped prose and long examples read better unwrapped.
+openapi/openapi.src.yaml
+errors/catalogue.yaml
+registry/operations.yaml

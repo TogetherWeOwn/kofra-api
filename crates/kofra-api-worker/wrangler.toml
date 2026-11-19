@@ -1,0 +1,10 @@
+# Not deployed yet. Production names, routes and bindings come from the
+# deployment environment, never from this repository.
+name = "kofra-api"
+main = "build/worker/shim.mjs"
+compatibility_date = "2026-11-01"
+workers_dev = false
+preview_urls = false
+
+[build]
+command = "worker-build --release"

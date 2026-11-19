@@ -1,0 +1,9 @@
+extends:
+  - recommended-strict
+rules:
+  # Operation IDs are dotted (`buckets.list`) on purpose: the same name is used by
+  # the SDKs, the CLI and the MCP tools (see registry/operations.yaml).
+  operation-operationId-url-safe: off
+  # The 4xx/5xx responses are generated from the error catalogue for every operation.
+  operation-4xx-response: error
+  info-license-strict: error

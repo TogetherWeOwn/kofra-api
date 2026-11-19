@@ -1,0 +1,2 @@
+# No dependency install scripts run (pnpm 10 blocks them unless listed here).
+onlyBuiltDependencies: []
