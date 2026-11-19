@@ -156,4 +156,9 @@ test('the root home matches only as a whole path segment', () => {
 		assert.deepEqual(classes('a.sh', t), ['path'], t);
 	for (const t of [`${r}-ca.pem`, `${r}fs`, `${r}.txt`, `cp ${r}_old y`])
 		assert.deepEqual(classes('a.sh', t), [], t);
+	// A sentence-ending period is a boundary in prose; a dotted filename is not.
+	for (const t of [`The working directory is ${r}.`, `It is ${r}. Then more.`, `(${r}.)`])
+		assert.deepEqual(classes('guide.md', t), ['path'], t);
+	for (const t of [`See ${r}.md for details.`, `Open ${r}.txt.`])
+		assert.deepEqual(classes('guide.md', t), [], t);
 });

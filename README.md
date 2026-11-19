@@ -56,6 +56,9 @@ cargo test --workspace
 The mock accepts any `Authorization: Bearer kofra_tok_<...>` token (a token ending in `_readonly` has only
 read scopes), validates requests against the contract, and answers with the contract's examples. Pick another
 answer with `Prefer: code=409` or `Prefer: example=bucket_not_empty`; `?dry_run=true` returns the plan.
+The selector is a mock-only control: only top-level `code` and `example` preferences count (a `;` parameter of
+another preference does not), and a selector the mock cannot honour gets a `text/plain` 400 with
+`Kofra-Mock-Error: prefer`, not an API problem.
 
 ## The contract and the Rust implementation
 

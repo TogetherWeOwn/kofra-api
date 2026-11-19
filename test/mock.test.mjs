@@ -43,7 +43,8 @@ async function call(method, url, { body, headers = {}, token = TOKEN } = {}) {
 		body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body)
 	});
 	const text = await res.text();
-	return { res, json: text ? JSON.parse(text) : null };
+	const isJson = /json/.test(res.headers.get('content-type') ?? '');
+	return { res, text, json: text && isJson ? JSON.parse(text) : null };
 }
 
 function assertProblem(r, status, code) {
@@ -52,6 +53,15 @@ function assertProblem(r, status, code) {
 	assert.equal(r.json.code, code);
 	assert.equal(r.json.request_id, r.res.headers.get('kofra-request-id'));
 	assert.ok(validatorAt(ajv, '/components/schemas/Problem')(r.json));
+}
+
+// A refused Prefer selector is a mock-only answer, not an API problem.
+function assertMockRefusal(r, label) {
+	assert.equal(r.res.status, 400, label);
+	assert.equal(r.res.headers.get('kofra-mock-error'), 'prefer', label);
+	assert.equal(r.res.headers.get('content-type'), 'text/plain; charset=utf-8', label);
+	assert.equal(r.json, null, label);
+	assert.match(r.text, /^Mock: /, label);
 }
 
 test('every operation answers its contract success, valid against the schema', async () => {
@@ -142,11 +152,7 @@ test('Prefer selects any answer in the contract', async () => {
 	const busy = await call('GET', '/v1/usage', { headers: { prefer: 'code=503' } });
 	assertProblem(busy, 503, 'service_unavailable');
 	assert.equal(busy.res.headers.get('retry-after'), '1');
-	assertProblem(
-		await call('GET', '/v1/usage', { headers: { prefer: 'code=418' } }),
-		400,
-		'validation_failed'
-	);
+	assertMockRefusal(await call('GET', '/v1/usage', { headers: { prefer: 'code=418' } }));
 });
 
 test('dry_run answers the plan and nothing else', async () => {
@@ -300,21 +306,11 @@ test('undeclared, repeated or badly encoded parameters and bad Prefer values are
 	const repeated = await call('GET', '/v1/buckets?limit=5&limit=6');
 	assertProblem(repeated, 400, 'validation_failed');
 	assert.equal(repeated.json.errors[0].pointer, '#query/limit');
-	assertProblem(
-		await call('GET', '/v1/usage', { headers: { prefer: 'code=constructor' } }),
-		400,
-		'validation_failed'
+	assertMockRefusal(await call('GET', '/v1/usage', { headers: { prefer: 'code=constructor' } }));
+	assertMockRefusal(
+		await call('GET', '/v1/usage', { headers: { prefer: 'example=no_such_example' } })
 	);
-	assertProblem(
-		await call('GET', '/v1/usage', { headers: { prefer: 'example=no_such_example' } }),
-		400,
-		'validation_failed'
-	);
-	assertProblem(
-		await call('GET', '/v1/usage', { headers: { prefer: 'example=__proto__' } }),
-		400,
-		'validation_failed'
-	);
+	assertMockRefusal(await call('GET', '/v1/usage', { headers: { prefer: 'example=__proto__' } }));
 	const enc = await call('GET', '/v1/buckets/%E0%A4%A');
 	assertProblem(enc, 400, 'validation_failed');
 	assert.equal(enc.json.errors[0].code, 'invalid_encoding');
@@ -362,20 +358,31 @@ test('a problem with the whole body points at the root, ""', async () => {
 
 test('Prefer values split on the first "=" and odd shapes are refused', async () => {
 	for (const prefer of ['example=a=b', 'code=409=1', 'code', 'code=409, code=429', 'example="x y"'])
-		assertProblem(
-			await call('GET', '/v1/usage', { headers: { prefer } }),
-			400,
-			'validation_failed'
-		);
+		assertMockRefusal(await call('GET', '/v1/usage', { headers: { prefer } }), prefer);
 	assert.equal(
 		(await call('GET', '/v1/usage', { headers: { prefer: 'return=minimal, wait=5' } })).res.status,
 		200
 	);
-	assertProblem(
-		await call('GET', '/v1/usage', { headers: { prefer: 'return=minimal; code=503' } }),
-		503,
-		'service_unavailable'
-	);
+	// After ";" a name is a parameter of the preference before it, not a
+	// preference: it selects nothing. After "," it is a preference of its own.
+	for (const prefer of [
+		'return=minimal; code=503',
+		'custom;code="503"',
+		'custom; example=rate_limited'
+	])
+		assert.equal((await call('GET', '/v1/usage', { headers: { prefer } })).res.status, 200, prefer);
+	for (const prefer of ['return=minimal, code=503', 'custom, code="503"', 'code=503; foo=bar'])
+		assertProblem(
+			await call('GET', '/v1/usage', { headers: { prefer } }),
+			503,
+			'service_unavailable'
+		);
+});
+
+test('a refused Prefer selector is a mock-only answer on every operation, never a catalogue code', async () => {
+	for (const url of ['/v1/account', '/v1/usage', '/v1/buckets'])
+		for (const prefer of ['code=201', 'code=418', 'example=no_such_example', 'code="unterminated'])
+			assertMockRefusal(await call('GET', url, { headers: { prefer } }), `${url} ${prefer}`);
 });
 
 test('a scheme other than Bearer gets the plain challenge; a bad Bearer token gets invalid_token', async () => {
@@ -403,9 +410,7 @@ test('Prefer quoted-string values are read whole, so separators inside quotes do
 		503,
 		'service_unavailable'
 	);
-	assertProblem(
-		await call('GET', '/v1/usage', { headers: { prefer: 'custom="unterminated; code=503' } }),
-		400,
-		'validation_failed'
+	assertMockRefusal(
+		await call('GET', '/v1/usage', { headers: { prefer: 'custom="unterminated; code=503' } })
 	);
 });

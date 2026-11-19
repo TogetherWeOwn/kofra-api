@@ -120,21 +120,27 @@ const esc = (s) => s.replace(/~/g, '~0').replace(/\//g, '~1');
 
 /**
  * Name/value items of a Prefer header, split on "," and ";" outside quoted
- * strings; quoted values are unquoted. Null when a quoted string is not closed.
+ * strings; quoted values are unquoted. An item after ";" is a parameter of the
+ * preference before it (RFC 7240 2), marked `param: true`; an item after ","
+ * or at the start is a preference of its own. Null when a quoted string is not
+ * closed.
  */
 export function splitPrefer(header) {
 	const items = [];
 	let cur = '';
 	let quoted = false;
-	const flush = () => {
+	let param = false;
+	const flush = (nextIsParam) => {
 		const item = cur.trim();
 		cur = '';
+		const isParam = param;
+		param = nextIsParam;
 		if (!item) return;
 		const i = item.indexOf('=');
 		const key = (i < 0 ? item : item.slice(0, i)).trim().toLowerCase();
 		let value = i < 0 ? '' : item.slice(i + 1).trim();
 		if (value.startsWith('"')) value = value.slice(1, -1).replace(/\\(.)/g, '$1');
-		items.push({ key, value });
+		items.push({ key, value, param: isParam });
 	};
 	for (let i = 0; i < header.length; i++) {
 		const c = header[i];
@@ -145,11 +151,12 @@ export function splitPrefer(header) {
 		} else if (c === '"') {
 			quoted = true;
 			cur += c;
-		} else if (c === ',' || c === ';') flush();
+		} else if (c === ',') flush(false);
+		else if (c === ';') flush(true);
 		else cur += c;
 	}
 	if (quoted) return null;
-	flush();
+	flush(false);
 	return items;
 }
 
@@ -405,21 +412,24 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 		}
 
 		// Choose the answer.
-		// Prefer (RFC 7240, RFC 9110 5.6): preferences and their parameters are
-		// separated by "," and ";" outside quoted strings, and a value splits from
-		// its name on the first "=". The mock's own preferences, code and example,
-		// take one plain token; anything else there, or a malformed header, is
-		// refused. Other preferences are ignored.
-		const badPrefer = (detail) =>
-			fail('validation_failed', {
-				detail,
-				errors: [{ pointer: '#header/prefer', code: 'invalid_value', detail }]
-			});
+		// Prefer (RFC 7240, RFC 9110 5.6): preferences are separated by ",", a
+		// preference's parameters by ";", both outside quoted strings, and a value
+		// splits from its name on the first "=". Only top-level preferences named
+		// code or example select an answer; they take one plain token, and
+		// anything else there, or a malformed header, is refused. Other
+		// preferences, and parameters of any preference, are ignored.
+		// The selector is a mock-only control, not part of the API, so its
+		// refusal is not an API problem: a text/plain 400 marked with the
+		// Kofra-Mock-Error header, never a code from the error catalogue.
+		const badPrefer = (detail) => ({
+			...reply(400, null, { 'Kofra-Mock-Error': 'prefer' }),
+			text: `Mock: ${detail}\n`
+		});
 		const items = splitPrefer(req.headers['prefer'] ?? '');
 		if (!items) return badPrefer('The Prefer header has an unterminated quoted string.');
 		const prefer = new Map();
-		for (const { key, value } of items) {
-			if (key !== 'code' && key !== 'example') continue;
+		for (const { key, value, param } of items) {
+			if (param || (key !== 'code' && key !== 'example')) continue;
 			if (!/^[A-Za-z0-9_]+$/.test(value) || prefer.has(key))
 				return badPrefer(`The Prefer preference "${key}" is not understood.`);
 			prefer.set(key, value);
@@ -519,9 +529,18 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 		};
 		if (out.allow) headers['Allow'] = out.allow;
 		if (!Number.isInteger(out.status) || out.status < 200 || out.status > 599) {
-			out = { ...out, status: 500, body: problem('internal_error', out.requestId).body };
+			out = {
+				...out,
+				text: undefined,
+				status: 500,
+				body: problem('internal_error', out.requestId).body
+			};
 		}
-		if (out.body !== null && out.body !== undefined) {
+		if (out.text !== undefined) {
+			headers['Content-Type'] = 'text/plain; charset=utf-8';
+			res.writeHead(out.status, headers);
+			res.end(out.text);
+		} else if (out.body !== null && out.body !== undefined) {
 			headers['Content-Type'] = out.status >= 400 ? 'application/problem+json' : 'application/json';
 			res.writeHead(out.status, headers);
 			res.end(JSON.stringify(out.body));
