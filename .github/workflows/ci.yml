@@ -43,7 +43,7 @@ jobs:
   # changed, and always on every other event.
   changes:
     name: changes
-    uses: TogetherWeOwn/.github/.github/workflows/changes.yml@c05610872587137c3c492b7025f02585a1b8ba7d # v0.11.0
+    uses: TogetherWeOwn/.github/.github/workflows/changes.yml@c1e39ff4aa3369b53cc28de36fcd43aef2640b52 # v0.12.0
     with:
       areas-json: '{"docs":["**.md","docs/**"],"contract":["openapi/**","errors/**","registry/**","generated/**","tools/**","test/**","eslint.config.js","prettier.config.js","redocly.yaml",".prettierignore",".node-version"],"rust":["crates/**","xtask/**","Cargo.toml","Cargo.lock","rust-toolchain.toml","openapi/**","errors/**","registry/**","tools/build.mjs","generated/**"]}'
       full-run-globs-json: '["package.json","**/package.json","pnpm-lock.yaml","**/pnpm-lock.yaml","pnpm-workspace.yaml","**/pnpm-workspace.yaml",".npmrc","**/.npmrc","Cargo.toml","**/Cargo.toml","Cargo.lock","**/Cargo.lock",".cargo/**","**/.cargo/**","rust-toolchain*","**/rust-toolchain*","osv-scanner.toml",".gitleaks.toml",".github/**"]'
@@ -58,7 +58,7 @@ jobs:
       actions: read # Nested OSV reads same-run comparison artifacts.
       contents: read
       security-events: write # Nested OSV uploads comparison SARIF.
-    uses: TogetherWeOwn/.github/.github/workflows/public-pr-security.yml@c05610872587137c3c492b7025f02585a1b8ba7d # v0.11.0
+    uses: TogetherWeOwn/.github/.github/workflows/public-pr-security.yml@c1e39ff4aa3369b53cc28de36fcd43aef2640b52 # v0.12.0
 
   workflow-lint:
     name: workflow lint (actionlint, zizmor)
