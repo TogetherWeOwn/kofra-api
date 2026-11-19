@@ -424,7 +424,7 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 		// The selector is a mock-only control, not part of the API, so its
 		// refusal is not an API problem: a text/plain 400 marked with the
 		// Kofra-Mock-Error header, never a code from the error catalogue. It is
-		// the one mock answer that is not application/problem+json.
+		// the one 4xx the mock generates that is not application/problem+json.
 		const badPrefer = (detail) => ({
 			...reply(400, null, { 'Kofra-Mock-Error': 'prefer' }),
 			text: `Mock: ${detail}\n`

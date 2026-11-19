@@ -58,7 +58,7 @@ read scopes), validates requests against the contract, and answers with the cont
 answer with `Prefer: code=409` or `Prefer: example=bucket_not_empty`; `?dry_run=true` returns the plan.
 The selector is a mock-only control: only top-level `code` and `example` preferences count (a `;` parameter of
 another preference does not), and a selector the mock cannot honour gets a `text/plain` 400 with
-`Kofra-Mock-Error: prefer`, not an API problem. That is the one mock answer that is not
+`Kofra-Mock-Error: prefer`, not an API problem. That is the one 4xx the mock generates that is not
 `application/problem+json`, so SDK tests that decode every 4xx as a problem must not send a bad selector.
 
 ## The contract and the Rust implementation
