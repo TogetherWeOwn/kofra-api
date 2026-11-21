@@ -48,8 +48,14 @@ CREATE TABLE api_tokens (
   expires_at   INTEGER NOT NULL CHECK (expires_at > created_at),
   last_used_at INTEGER,
   revoked_at   INTEGER,
+  -- The Idempotency-Key of the creating request: a retry after a lost
+  -- idempotency record finds this token instead of making a second one.
+  idempotency_key TEXT CHECK (idempotency_key IS NULL OR length(idempotency_key) BETWEEN 1 AND 255),
   FOREIGN KEY (workspace_id, user_id) REFERENCES api_members (workspace_id, user_id)
 ) STRICT;
+
+CREATE UNIQUE INDEX api_tokens_by_idempotency_key ON api_tokens (workspace_id, idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
 
 -- tokens.list: a workspace's (or a member's) unrevoked tokens, newest first.
 CREATE INDEX api_tokens_by_workspace ON api_tokens (workspace_id, created_at DESC, id DESC)

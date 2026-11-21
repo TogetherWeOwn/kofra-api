@@ -2,11 +2,14 @@
 //!
 //! A cursor carries a position (the storage's own position, or the last row
 //! of a newest-first page) and is bound to the workspace, the operation and
-//! the list's filters by an HMAC-SHA256 under the API's cursor key. A cursor
-//! from another workspace, another list, other filters, or one that was
-//! changed answers `invalid_cursor`; the position inside it is never trusted
-//! without the MAC. Cursors are URL-safe base64 (`[A-Za-z0-9_-]`, as the
-//! contract's mock checks) and at most 512 characters.
+//! the list's filters. It is sealed SIV-style with two keys derived from the
+//! API's cursor key: a 128-bit HMAC-SHA256 tag over the binding and the
+//! position, and the position encrypted with an HMAC-SHA256 keystream seeded
+//! by that tag. So a cursor cannot be forged or moved to another workspace,
+//! list or filter set (`invalid_cursor`), and it does not show its position:
+//! a storage position can name a bucket that a bucket-limited token must not
+//! see. Cursors are URL-safe base64 (`[A-Za-z0-9_-]`) of at most 512
+//! characters.
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, Mac};
@@ -17,7 +20,7 @@ use crate::problem::Problem;
 
 type HmacSha256 = Hmac<Sha256>;
 
-/// Bytes of the MAC kept in a cursor.
+/// Bytes of the tag kept in a cursor.
 const TAG_LEN: usize = 16;
 /// Longest cursor, in characters (contract schema `Cursor`).
 pub const MAX_LEN: usize = 512;
@@ -35,31 +38,53 @@ pub struct Binding<'a> {
     pub filters: &'a str,
 }
 
-fn tag(key: &[u8; 32], binding: &Binding<'_>, position: &[u8]) -> [u8; TAG_LEN] {
+fn hmac(key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
     let Ok(mut mac) = HmacSha256::new_from_slice(key) else {
-        return [0; TAG_LEN];
+        return [0; 32];
     };
-    for part in [
-        binding.workspace.as_bytes(),
-        binding.operation.as_bytes(),
-        binding.filters.as_bytes(),
-        position,
-    ] {
+    for part in parts {
         mac.update(&(part.len() as u64).to_be_bytes());
         mac.update(part);
     }
-    let full = mac.finalize().into_bytes();
+    mac.finalize().into_bytes().into()
+}
+
+fn tag(key: &[u8; 32], binding: &Binding<'_>, position: &[u8]) -> [u8; TAG_LEN] {
+    let mac_key = hmac(key, &[b"kofra-cursor-mac"]);
+    let full = hmac(
+        &mac_key,
+        &[
+            binding.workspace.as_bytes(),
+            binding.operation.as_bytes(),
+            binding.filters.as_bytes(),
+            position,
+        ],
+    );
     let mut out = [0; TAG_LEN];
     out.copy_from_slice(&full[..TAG_LEN]);
     out
 }
 
+/// XORs `data` with the keystream of `tag`.
+fn crypt(key: &[u8; 32], tag: &[u8; TAG_LEN], data: &mut [u8]) {
+    let enc_key = hmac(key, &[b"kofra-cursor-enc"]);
+    for (i, chunk) in data.chunks_mut(32).enumerate() {
+        let block = hmac(&enc_key, &[tag, &(i as u64).to_be_bytes()]);
+        for (b, k) in chunk.iter_mut().zip(block) {
+            *b ^= k;
+        }
+    }
+}
+
 /// A cursor for `position`, or `None` when the position is too long to fit.
 pub fn seal(key: &[u8; 32], binding: &Binding<'_>, position: &str) -> Option<String> {
-    let mut raw = Vec::with_capacity(1 + position.len() + TAG_LEN);
+    let t = tag(key, binding, position.as_bytes());
+    let mut body = position.as_bytes().to_vec();
+    crypt(key, &t, &mut body);
+    let mut raw = Vec::with_capacity(1 + TAG_LEN + body.len());
     raw.push(VERSION);
-    raw.extend_from_slice(position.as_bytes());
-    raw.extend_from_slice(&tag(key, binding, position.as_bytes()));
+    raw.extend_from_slice(&t);
+    raw.extend_from_slice(&body);
     let s = URL_SAFE_NO_PAD.encode(raw);
     (s.len() <= MAX_LEN).then_some(s)
 }
@@ -74,12 +99,14 @@ pub fn open(key: &[u8; 32], binding: &Binding<'_>, cursor: &str) -> Result<Strin
     if raw.len() < 1 + TAG_LEN || raw[0] != VERSION {
         return Err(invalid());
     }
-    let (body, got) = raw.split_at(raw.len() - TAG_LEN);
-    let position = &body[1..];
-    if tag(key, binding, position).ct_eq(got).unwrap_u8() != 1 {
+    let mut got = [0u8; TAG_LEN];
+    got.copy_from_slice(&raw[1..=TAG_LEN]);
+    let mut position = raw[1 + TAG_LEN..].to_vec();
+    crypt(key, &got, &mut position);
+    if tag(key, binding, &position).ct_eq(&got).unwrap_u8() != 1 {
         return Err(invalid());
     }
-    String::from_utf8(position.to_vec()).map_err(|_| invalid())
+    String::from_utf8(position).map_err(|_| invalid())
 }
 
 /// A newest-first position: `<time ms>.<id>`.
@@ -129,6 +156,9 @@ mod tests {
             );
         }
         assert!(open(&[8; 32], &b("ws_a", "buckets.list", ""), &c).is_err());
+        // The position is not readable from the cursor.
+        let raw = URL_SAFE_NO_PAD.decode(&c).expect("base64");
+        assert!(!raw.windows(6).any(|w| w == b"photos"));
     }
 
     #[test]

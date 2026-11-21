@@ -28,6 +28,17 @@ impl IpRange {
         if prefix > max {
             return None;
         }
+        // An IPv4-mapped IPv6 block is stored as the IPv4 block it is, so it
+        // matches the client addresses it names (clients are compared as
+        // IPv4 too). A block wider than the mapped range is refused.
+        let (addr, prefix) = match addr {
+            IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+                Some(v4) if prefix >= 96 => (IpAddr::V4(v4), prefix - 96),
+                Some(_) => return None,
+                None => (addr, prefix),
+            },
+            v4 => (v4, prefix),
+        };
         let range = Self { addr, prefix };
         if range.network() != bits(addr) {
             return None;
@@ -140,6 +151,16 @@ mod tests {
                 .expect("all v6")
                 .contains(ip("2001:db8::1"))
         );
+        let mapped = IpRange::parse("::ffff:203.0.113.0/120").expect("mapped");
+        assert_eq!(mapped.to_string(), "203.0.113.0/24");
+        assert!(mapped.contains(ip("203.0.113.9")));
+        assert!(mapped.contains(ip("::ffff:203.0.113.9")));
+        assert!(
+            IpRange::parse("::ffff:203.0.113.7")
+                .expect("one")
+                .contains(ip("203.0.113.7"))
+        );
+        assert!(IpRange::parse("::ffff:0:0/95").is_none());
     }
 
     #[test]

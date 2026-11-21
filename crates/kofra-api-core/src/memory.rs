@@ -196,12 +196,18 @@ impl Directory for MemoryDirectory {
             .cloned())
     }
 
-    async fn insert_token(&self, token: &TokenRecord) -> Result<(), PortError> {
+    async fn insert_token(&self, token: &TokenRecord) -> Result<Option<TokenRecord>, PortError> {
         check_failure(&self.fail)?;
-        self.tokens
-            .borrow_mut()
-            .insert(token.id.clone(), token.clone());
-        Ok(())
+        let mut tokens = self.tokens.borrow_mut();
+        if let Some(key) = &token.idempotency_key
+            && let Some(existing) = tokens.values().find(|t| {
+                t.workspace_id == token.workspace_id && t.idempotency_key.as_ref() == Some(key)
+            })
+        {
+            return Ok(Some(existing.clone()));
+        }
+        tokens.insert(token.id.clone(), token.clone());
+        Ok(None)
     }
 
     async fn list_tokens(
@@ -274,9 +280,17 @@ impl Directory for MemoryDirectory {
         Ok(true)
     }
 
-    async fn drop_deletion_request(&self, workspace: &str) -> Result<bool, PortError> {
+    async fn drop_deletion_request(&self, workspace: &str, now_ms: u64) -> Result<bool, PortError> {
         check_failure(&self.fail)?;
-        Ok(self.deletions.borrow_mut().remove(workspace).is_some())
+        let mut deletions = self.deletions.borrow_mut();
+        if deletions
+            .get(workspace)
+            .is_some_and(|row| now_ms < row.confirm_by_ms)
+        {
+            deletions.remove(workspace);
+            return Ok(true);
+        }
+        Ok(false)
     }
 }
 
@@ -506,7 +520,17 @@ struct TenantData {
     events: Vec<t::Event>,
     usage: t::Usage,
     days: Vec<t::UsageDay>,
-    created: BTreeMap<String, Created>,
+    /// Storage-side idempotency: (principal, key) to the request it was
+    /// first used for and its answer. Another principal or another request
+    /// with the same key never gets that answer.
+    created: BTreeMap<StringPair, (String, Created)>,
+}
+
+/// The storage idempotency slot of a call, if it carries a key.
+fn slot(acting: &Acting<'_>) -> Option<StringPair> {
+    acting
+        .idempotency_key
+        .map(|k| (acting.principal.to_owned(), k.to_owned()))
 }
 
 impl TenantData {
@@ -834,10 +858,11 @@ impl Storage for MemoryStorage {
         name: &str,
     ) -> Result<t::Bucket, StorageError> {
         let mut data = self.write(acting.tenant)?;
-        if let Some(created) = acting.idempotency_key.and_then(|key| data.created.get(key)) {
+        let request = format!("bucket\n{name}");
+        if let Some((first, created)) = slot(&acting).and_then(|s| data.created.get(&s)) {
             return match created {
-                Created::Bucket(bucket) => Ok(bucket.clone()),
-                Created::Key(_) => Err(StorageError::Upstream),
+                Created::Bucket(bucket) if *first == request => Ok(bucket.clone()),
+                _ => Err(StorageError::Upstream),
             };
         }
         if data.buckets.contains_key(name) {
@@ -852,9 +877,9 @@ impl Storage for MemoryStorage {
         let event = self.event("bucket.created", "bucket", name)?;
         data.buckets.insert(name.to_owned(), bucket.clone());
         data.events.push(event);
-        if let Some(key) = acting.idempotency_key {
+        if let Some(s) = slot(&acting) {
             data.created
-                .insert(key.to_owned(), Created::Bucket(bucket.clone()));
+                .insert(s, (request, Created::Bucket(bucket.clone())));
         }
         Ok(bucket)
     }
@@ -905,10 +930,15 @@ impl Storage for MemoryStorage {
         grants: &[t::GrantInput],
     ) -> Result<t::AccessKeyCreated, StorageError> {
         let mut data = self.write(acting.tenant)?;
-        if let Some(created) = acting.idempotency_key.and_then(|key| data.created.get(key)) {
+        let request = format!(
+            "key\n{}\n{}",
+            name.unwrap_or_default(),
+            serde_json::to_string(grants).unwrap_or_default()
+        );
+        if let Some((first, created)) = slot(&acting).and_then(|s| data.created.get(&s)) {
             return match created {
-                Created::Key(key) => Ok(key.clone()),
-                Created::Bucket(_) => Err(StorageError::Upstream),
+                Created::Key(key) if *first == request => Ok(key.clone()),
+                _ => Err(StorageError::Upstream),
             };
         }
         if data.active_key_count()
@@ -961,9 +991,9 @@ impl Storage for MemoryStorage {
         let event = self.event("key.created", "key_id", &id)?;
         data.keys.push(key);
         data.events.push(event);
-        if let Some(key) = acting.idempotency_key {
+        if let Some(s) = slot(&acting) {
             data.created
-                .insert(key.to_owned(), Created::Key(created.clone()));
+                .insert(s, (request, Created::Key(created.clone())));
         }
         Ok(created)
     }
@@ -1098,7 +1128,13 @@ impl Storage for MemoryStorage {
         if !data.buckets.contains_key(bucket) {
             return Err(StorageError::BucketNotFound);
         }
-        let key = request.key.as_str();
+        let key: String = request
+            .key
+            .as_str()
+            .split('/')
+            .map(crate::validate::encode)
+            .collect::<Vec<_>>()
+            .join("/");
         let secs = u64::from(request.expires_in_seconds);
         let expires_at = self.env.now_ms().saturating_add(secs * 1000);
         Ok(t::PresignedUrl {
@@ -1195,6 +1231,7 @@ mod tests {
                         expires_at_ms: 10,
                         last_used_at_ms: None,
                         revoked_at_ms: None,
+                        idempotency_key: None,
                     })
                     .await
                     .unwrap();
@@ -1467,8 +1504,22 @@ mod tests {
                 ..ACT
             };
             store.create_bucket(bucket_act, "first").await.unwrap();
-            let bucket = store.create_bucket(bucket_act, "second").await.unwrap();
+            let bucket = store.create_bucket(bucket_act, "first").await.unwrap();
             assert_eq!(bucket.name.as_str(), "first");
+            // The same key for another request, or from another principal,
+            // never gets the first answer.
+            assert_eq!(
+                store.create_bucket(bucket_act, "second").await.unwrap_err(),
+                StorageError::Upstream
+            );
+            let stranger = Acting {
+                principal: "usr_stranger",
+                ..bucket_act
+            };
+            assert_eq!(
+                store.create_bucket(stranger, "first").await.unwrap_err(),
+                StorageError::BucketAlreadyExists
+            );
             let acting = Acting {
                 idempotency_key: Some("key"),
                 ..ACT
@@ -1487,11 +1538,22 @@ mod tests {
             let replay = store
                 .create_key(
                     acting,
-                    Some("second"),
+                    Some("first"),
                     &[input("first", t::GrantInputAccess::Read)],
                 )
                 .await
                 .unwrap();
+            assert_eq!(
+                store
+                    .create_key(
+                        acting,
+                        Some("second"),
+                        &[input("first", t::GrantInputAccess::Read)],
+                    )
+                    .await
+                    .unwrap_err(),
+                StorageError::Upstream
+            );
             assert_eq!(
                 serde_json::to_value(key).unwrap(),
                 serde_json::to_value(replay).unwrap()

@@ -35,11 +35,15 @@ fn key_allowed(p: &Principal, k: &t::AccessKey) -> bool {
     k.grants.iter().all(|g| p.bucket_allowed(g.bucket.as_str()))
 }
 
+/// A key that reaches a bucket outside the token's bucket list is answered
+/// as if it did not exist, like another member's API token: the answer must
+/// not name a bucket the token cannot see.
 fn check_key(p: &Principal, k: &t::AccessKey) -> Result<(), Problem> {
-    for g in &k.grants {
-        p.check_bucket(g.bucket.as_str())?;
+    if key_allowed(p, k) {
+        Ok(())
+    } else {
+        Err(Problem::new("key_not_found"))
     }
-    Ok(())
 }
 
 pub(super) async fn list<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Problem> {

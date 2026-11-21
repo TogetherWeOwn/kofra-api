@@ -36,6 +36,10 @@ use crate::{
     token,
 };
 
+/// Scopes a token limited to some buckets never uses: they reach the whole
+/// workspace (the audit log names every bucket; deletion takes them all).
+pub const BUCKET_LIMITED_NEVER: [Scope; 2] = [Scope::AuditRead, Scope::AccountDelete];
+
 /// Prefix of a console session assertion.
 pub const ASSERTION_PREFIX: &str = "kofra_cs_";
 
@@ -173,6 +177,11 @@ impl Principal {
             if !self.granted.has(scope) {
                 return Err(Problem::new("insufficient_scope")
                     .detail(format!("This operation needs the scope \"{name}\".")));
+            }
+            if self.buckets.is_some() && BUCKET_LIMITED_NEVER.contains(&scope) {
+                return Err(Problem::new("insufficient_scope").detail(format!(
+                    "A token limited to some buckets cannot use \"{name}\"."
+                )));
             }
             if self.is_agent() && scope == Scope::TokensWrite {
                 return Err(Problem::new("insufficient_scope")

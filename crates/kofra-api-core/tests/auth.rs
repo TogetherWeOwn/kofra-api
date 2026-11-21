@@ -269,6 +269,33 @@ fn a_bucket_limit_hides_and_refuses_other_buckets() {
         Some(json!({ "name": "elsewhere" })),
     );
     assert_eq!(code(&r), "bucket_not_allowed");
+    // A key reaching another bucket is answered as if it did not exist.
+    let owner = h.owner();
+    let k = h.call(
+        "POST",
+        "/v1/keys",
+        &owner,
+        Some(json!({ "grants": [{ "bucket": "backups", "access": "read" }] })),
+    );
+    let id = k.json_body()["id"].as_str().expect("id").to_owned();
+    for (m, q, body) in [
+        ("DELETE", "", None),
+        ("DELETE", "?dry_run=true", None),
+        ("PATCH", "", Some(json!({ "name": "x" }))),
+    ] {
+        let r = h.call(m, &format!("/v1/keys/{id}{q}"), &tok, body);
+        assert_eq!(code(&r), "key_not_found", "{m}{q}");
+        assert!(!String::from_utf8_lossy(&r.body).contains("backups"));
+    }
+    // Audit rows and workspace deletion are not for bucket-limited tokens.
+    assert_eq!(
+        code(&h.call("GET", "/v1/audit", &tok, None)),
+        "insufficient_scope"
+    );
+    assert_eq!(
+        code(&h.call("DELETE", "/v1/account", &tok, None)),
+        "insufficient_scope"
+    );
 }
 
 #[test]

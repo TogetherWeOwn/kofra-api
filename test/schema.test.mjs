@@ -82,6 +82,19 @@ test('constraints refuse values the code never writes', () => {
 	);
 });
 
+test('one token per idempotency key in a workspace', () => {
+	const db = open();
+	seed(db);
+	const ins = db.prepare(
+		`INSERT INTO api_tokens (id, workspace_id, user_id, name, secret_hash, scopes, agent, created_at, expires_at, idempotency_key)
+		 VALUES (?, 'ws_a', 'usr_a', 'ci', ?, '["buckets:read"]', 0, 1, 2, ?) ON CONFLICT DO NOTHING`
+	);
+	assert.equal(ins.run('tok_1', hash, 'k').changes, 1);
+	assert.equal(ins.run('tok_2', hash, 'k').changes, 0);
+	assert.equal(ins.run('tok_3', hash, null).changes, 1);
+	assert.equal(ins.run('tok_4', hash, null).changes, 1);
+});
+
 test('an idempotency claim is one conditional write', () => {
 	const db = open();
 	const claim = db.prepare(

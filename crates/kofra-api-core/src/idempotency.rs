@@ -103,14 +103,6 @@ pub fn fingerprint(
     h.finalize().into()
 }
 
-/// The query in a canonical order, so that `a=1&b=2` and `b=2&a=1` are the
-/// same request.
-pub fn canonical_query(query: &str) -> String {
-    let mut parts: Vec<&str> = query.split('&').filter(|p| !p.is_empty()).collect();
-    parts.sort_unstable();
-    parts.join("&")
-}
-
 /// The answer for a claim that cannot run.
 pub fn refusal(begin: &Begin) -> Option<Problem> {
     match begin {
@@ -145,7 +137,6 @@ mod tests {
             fingerprint("ab", "c", "", "", b""),
             fingerprint("a", "bc", "", "", b"")
         );
-        assert_eq!(canonical_query("b=2&a=1"), canonical_query("a=1&b=2"));
     }
 
     #[test]

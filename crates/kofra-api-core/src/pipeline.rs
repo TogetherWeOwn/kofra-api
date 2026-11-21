@@ -168,6 +168,10 @@ impl Reply {
     }
 }
 
+fn creates_credential(op_id: &str) -> bool {
+    matches!(op_id, "keys.create" | "tokens.create")
+}
+
 fn is_write(method: &str) -> bool {
     matches!(method, "POST" | "PATCH" | "DELETE")
 }
@@ -230,30 +234,51 @@ impl<P: Ports> Api<P> {
     ) -> Result<(), Problem> {
         let cred = format!("cred:{}", principal.credential_key());
         let ws = format!("ws:{}", principal.workspace.id);
-        let mut plan: Vec<(String, Policy)> = vec![
-            (cred.clone(), ratelimit::CREDENTIAL_DEFAULT),
-            (ws.clone(), ratelimit::WORKSPACE_DEFAULT),
-        ];
+        // The credential's own allowances first, the shared ones after, and
+        // nothing more is taken once one refuses: a refused request must not
+        // use up what other credentials of the workspace share.
+        let mut plan: Vec<(String, Policy)> = vec![(cred.clone(), ratelimit::CREDENTIAL_DEFAULT)];
         if write {
             plan.push((cred, ratelimit::CREDENTIAL_WRITES));
+        }
+        plan.push((ws.clone(), ratelimit::WORKSPACE_DEFAULT));
+        if write {
             plan.push((ws.clone(), ratelimit::WORKSPACE_WRITES));
         }
-        if matches!(op_id, "keys.create" | "tokens.create") {
+        if creates_credential(op_id) {
+            // Taken later, only when the creation is about to run
+            // ([`Self::take_creation`]); named here for the header.
             plan.push((ws, ratelimit::WORKSPACE_CREDENTIALS));
         }
-        let mut retry_after = 0;
+        limits.policies = plan.iter().map(|(_, p)| *p).collect();
+        plan.retain(|(_, p)| p.name != ratelimit::WORKSPACE_CREDENTIALS.name);
         for (key, policy) in plan {
-            limits.policies.push(policy);
             let d = self.ports.rate().take(&key, &policy, now_ms).await?;
-            if !d.allowed {
-                retry_after = retry_after.max(d.retry_after_secs);
-            }
             limits.taken.push((policy, d));
-        }
-        if retry_after > 0 {
-            return Err(Problem::new("rate_limited").retry_after(retry_after));
+            if !d.allowed {
+                return Err(Problem::new("rate_limited").retry_after(d.retry_after_secs));
+            }
         }
         Ok(())
+    }
+
+    /// Takes one credential creation from the workspace's hourly allowance,
+    /// once the request is known to run (not a replay, not refused).
+    async fn take_creation(
+        &self,
+        principal: &Principal,
+        now_ms: u64,
+        limits: &mut Limits,
+    ) -> Result<(), Problem> {
+        let policy = ratelimit::WORKSPACE_CREDENTIALS;
+        let key = format!("ws:{}", principal.workspace.id);
+        let d = self.ports.rate().take(&key, &policy, now_ms).await?;
+        limits.taken.push((policy, d));
+        if d.allowed {
+            Ok(())
+        } else {
+            Err(Problem::new("rate_limited").retry_after(d.retry_after_secs))
+        }
     }
 
     async fn load_tenant(
@@ -261,6 +286,19 @@ impl<P: Ports> Api<P> {
         principal: &Principal,
         op_id: &str,
     ) -> Result<Option<(String, Tenant)>, Problem> {
+        if op_id == "tokens.create" {
+            // No new credentials for a blocked or deleting account. Tokens
+            // can still be listed and revoked, and the audit log read.
+            if let (WorkspaceState::Active, Some(tenant_id)) = (
+                principal.workspace.state,
+                principal.workspace.tenant_id.as_deref(),
+            ) && self.ports.storage().tenant(tenant_id).await?.access
+                == kofra_api_types::AccountAccess::None
+            {
+                return Err(Problem::new("account_unavailable"));
+            }
+            return Ok(None);
+        }
         if !handlers::needs_tenant(op_id) {
             return Ok(None);
         }
@@ -308,8 +346,13 @@ impl<P: Ports> Api<P> {
             req,
             request_id,
             now_ms,
-            dry_run: false,
+            // Known before validation runs, for rows of refused requests.
+            dry_run: op.dry_run && req.query.split('&').any(|p| p == "dry_run=true"),
         };
+        // Rate limits come first, so refused requests are limited too and
+        // cannot flood the audit log with refusal rows.
+        self.take_limits(&principal, op.id, write, now_ms, limits)
+            .await?;
         if let Err(p) = principal
             .check_ip(req.client_ip)
             .and_then(|()| principal.authorize(op.scopes))
@@ -320,8 +363,7 @@ impl<P: Ports> Api<P> {
             return Err(p);
         }
         self.touch(&principal, now_ms).await;
-        self.take_limits(&principal, op.id, write, now_ms, limits)
-            .await?;
+        handlers::check_path(&matched)?;
 
         // Validation.
         let query = Query::parse(&req.query, handlers::declared_query(op.id))?;
@@ -350,7 +392,7 @@ impl<P: Ports> Api<P> {
                     &principal.credential_key(),
                     &req.method,
                     &req.path,
-                    &idempotency::canonical_query(&req.query),
+                    &query.fingerprint_form(),
                     &req.body,
                 );
                 let begin = self
@@ -394,6 +436,15 @@ impl<P: Ports> Api<P> {
                 return Err(p);
             }
         };
+
+        if creates_credential(op.id)
+            && let Err(p) = self.take_creation(&principal, now_ms, limits).await
+        {
+            if let Some((key, fp)) = &claim {
+                let _ = self.ports.idempotency().release(&ws_id, key, fp).await;
+            }
+            return Err(p);
+        }
 
         // Audit row before the change.
         let target = handlers::input_target(&input).or_else(|| audit_ctx.target.clone());
@@ -474,7 +525,9 @@ impl<P: Ports> Api<P> {
         }
         if let Some((key, fp)) = claim {
             let store = self.ports.idempotency();
-            if resp.status < 500 {
+            // Only final answers are stored: a 5xx or a 429 (busy storage)
+            // releases the key, so the retry runs again.
+            if resp.status < 500 && resp.status != 429 {
                 let stored = Stored {
                     status: replay.status,
                     headers: replay

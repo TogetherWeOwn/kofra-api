@@ -88,6 +88,16 @@ pub(super) async fn create<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Prob
             )));
         }
     }
+    if (body.buckets.is_some() || p.buckets.is_some())
+        && let Some(s) = crate::auth::BUCKET_LIMITED_NEVER
+            .iter()
+            .find(|s| requested.has(**s))
+    {
+        return Err(invalid(
+            "/scopes",
+            &format!("A token limited to some buckets cannot hold {s}."),
+        ));
+    }
     if body.agent && requested.has(Scope::TokensWrite) {
         return Err(invalid(
             "/scopes",
@@ -187,8 +197,21 @@ pub(super) async fn create<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Prob
         expires_at_ms,
         last_used_at_ms: None,
         revoked_at_ms: None,
+        idempotency_key: ctx.idempotency_key.clone(),
     };
-    ctx.api.ports.directory().insert_token(&record).await?;
+    if let Some(existing) = ctx.api.ports.directory().insert_token(&record).await? {
+        // A retry after its first run lost its idempotency record: the token
+        // exists; its secret is not shown again.
+        let mut shown = to_json(&existing);
+        shown["token"] = Value::Null;
+        return Ok(Reply {
+            status: 201,
+            body: Some(shown.clone()),
+            replay_body: Some(shown),
+            headers: Vec::new(),
+            created: Some(existing.id),
+        });
+    }
     let mut shown = to_json(&record);
     let mut replay = shown.clone();
     shown["token"] = Value::String(secret);

@@ -139,6 +139,7 @@ impl H {
             expires_at_ms: self.now() + o.expires_in,
             last_used_at_ms: None,
             revoked_at_ms: None,
+            idempotency_key: None,
         };
         use kofra_api_core::ports::Directory;
         pollster::block_on(self.api.ports.directory.insert_token(&rec)).expect("insert");

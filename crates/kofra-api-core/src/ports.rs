@@ -101,6 +101,10 @@ pub struct TokenRecord {
     pub last_used_at_ms: Option<u64>,
     /// Revocation time, Unix ms.
     pub revoked_at_ms: Option<u64>,
+    /// The `Idempotency-Key` of the request that made it, unique per
+    /// workspace, so a retry after a claim takeover finds this token instead
+    /// of making a second one.
+    pub idempotency_key: Option<String>,
 }
 
 /// A request to delete a workspace that waits for an Owner's confirmation in
@@ -130,8 +134,10 @@ pub trait Directory {
     async fn workspace(&self, id: &str) -> Result<Option<WorkspaceRecord>, PortError>;
     /// A member of a workspace.
     async fn member(&self, workspace: &str, user: &str) -> Result<Option<MemberRecord>, PortError>;
-    /// Stores a new token.
-    async fn insert_token(&self, token: &TokenRecord) -> Result<(), PortError>;
+    /// Stores a new token, unless a token of the workspace already carries
+    /// its `idempotency_key`: then nothing is written and that token is the
+    /// answer (one conditional write).
+    async fn insert_token(&self, token: &TokenRecord) -> Result<Option<TokenRecord>, PortError>;
     /// Tokens of a workspace that are not revoked, newest first; only those
     /// of `user` when given.
     async fn list_tokens(
@@ -156,8 +162,9 @@ pub trait Directory {
     /// Stores a deletion request. `false` when one that has not lapsed at
     /// `request.requested_at_ms` exists already (nothing is written).
     async fn insert_deletion_request(&self, request: &DeletionRequest) -> Result<bool, PortError>;
-    /// Drops the workspace's deletion request. `false` when there was none.
-    async fn drop_deletion_request(&self, workspace: &str) -> Result<bool, PortError>;
+    /// Drops the workspace's deletion request that has not lapsed at
+    /// `now_ms`. `false` when there was none (a lapsed one is left alone).
+    async fn drop_deletion_request(&self, workspace: &str, now_ms: u64) -> Result<bool, PortError>;
 }
 
 /// Idempotency records.

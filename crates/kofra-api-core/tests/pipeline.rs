@@ -362,8 +362,15 @@ fn the_account_state_gates_operations() {
         "account_unavailable"
     );
     assert_eq!(h.call("GET", "/v1/account", &owner, None).status, 200);
-    // Tokens and the audit log do not depend on storage.
+    // Tokens can be listed (and revoked) but no new ones made.
     assert_eq!(h.call("GET", "/v1/tokens", &owner, None).status, 200);
+    let r = h.call(
+        "POST",
+        "/v1/tokens",
+        &owner,
+        Some(json!({ "name": "n", "scopes": ["usage:read"] })),
+    );
+    assert_eq!(code(&r), "account_unavailable");
 
     h.api
         .ports
@@ -560,4 +567,76 @@ fn read_only_refusals_and_tenant_needs_match_the_contract() {
             .is_some();
         assert_eq!(!handlers::works_when_unavailable(id), unavailable, "{id}");
     });
+}
+
+#[test]
+fn a_refused_dry_run_is_recorded_as_one() {
+    let h = setup();
+    let viewer = h.with_role("usr_viewer");
+    h.call("DELETE", "/v1/buckets/photos?dry_run=true", &viewer, None);
+    let rows = h.api.ports.audit.rows();
+    assert_eq!(rows.len(), 1);
+    assert!(rows[0].dry_run);
+    assert_eq!(rows[0].outcome.as_str(), "refused");
+}
+
+#[test]
+fn dry_run_false_is_the_same_request_as_no_dry_run() {
+    let h = setup();
+    let owner = h.owner();
+    let mut r = h.req("DELETE", "/v1/buckets/photos?dry_run=false", Some(&owner));
+    r.headers.push(("Idempotency-Key".into(), "d1".into()));
+    assert_eq!(h.send(r).status, 204);
+    let mut r = h.req("DELETE", "/v1/buckets/photos", Some(&owner));
+    r.headers.push(("Idempotency-Key".into(), "d1".into()));
+    let again = h.send(r);
+    assert_eq!(
+        (again.status, again.header("Idempotent-Replayed")),
+        (204, Some("true"))
+    );
+}
+
+#[test]
+fn the_feed_has_no_next_link_at_its_end_and_lists_keep_theirs() {
+    let h = setup();
+    let owner = h.owner();
+    let r = h.call("GET", "/v1/events", &owner, None);
+    assert!(r.json_body()["next_cursor"].is_string());
+    assert!(r.header("Link").is_none());
+    h.call(
+        "POST",
+        "/v1/buckets",
+        &owner,
+        Some(json!({ "name": "e-1" })),
+    );
+    let r = h.call("GET", "/v1/events?limit=1", &owner, None);
+    assert!(r.header("Link").is_some());
+}
+
+#[test]
+fn a_bucket_limited_cursor_does_not_show_hidden_buckets() {
+    use base64::Engine;
+    let h = setup();
+    h.api.ports.storage.add_bucket("t_a", "zz-hidden", 0, 0);
+    h.api.ports.storage.add_bucket("t_a", "zzz-last", 0, 0);
+    let (tok, _) = h.token(Tok {
+        buckets: Some(&["photos", "zzz-last"]),
+        ..Tok::default()
+    });
+    let r = h.call("GET", "/v1/buckets?limit=3", &tok, None);
+    let c = r.json_body()["next_cursor"]
+        .as_str()
+        .expect("cursor")
+        .to_owned();
+    let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&c)
+        .expect("b64");
+    assert!(!raw.windows(9).any(|w| w == b"zz-hidden"));
+    let r = h.call(
+        "GET",
+        &format!("/v1/buckets?limit=3&cursor={c}"),
+        &tok,
+        None,
+    );
+    assert_eq!(r.json_body()["data"][0]["name"], "zzz-last");
 }

@@ -113,7 +113,7 @@ pub(super) async fn cancel_deletion<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Re
     let ws = ctx.principal.workspace.id.clone();
     let dir = ctx.api.ports.directory();
     let t = tenant(ctx)?.clone();
-    let now_tenant = if dir.drop_deletion_request(&ws).await? {
+    let now_tenant = if dir.drop_deletion_request(&ws, ctx.now_ms).await? {
         t
     } else if t.deletion.is_some() {
         let storage = ctx.api.ports.storage();

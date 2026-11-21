@@ -51,9 +51,20 @@ impl Query {
         let mut map = BTreeMap::new();
         for part in raw.split('&').filter(|p| !p.is_empty()) {
             let (name, value) = part.split_once('=').unwrap_or((part, ""));
-            let (Some(name), Some(value)) =
-                (percent_decode(name, true), percent_decode(value, true))
-            else {
+            let Some(name) = percent_decode(name, true) else {
+                // A name that does not decode is no declared parameter.
+                if !unknown.contains(&String::new()) {
+                    unknown.push(String::new());
+                }
+                continue;
+            };
+            if !declared.contains(&name.as_str()) {
+                if !unknown.contains(&name) {
+                    unknown.push(name);
+                }
+                continue;
+            }
+            let Some(value) = percent_decode(value, true) else {
                 return Err(Problem::new("validation_failed")
                     .detail("The query has an invalid percent-encoding.")
                     .errors(vec![FieldError::new(
@@ -62,12 +73,6 @@ impl Query {
                         "Not valid percent-encoding.",
                     )]));
             };
-            if !declared.contains(&name.as_str()) {
-                if !unknown.contains(&name) {
-                    unknown.push(name);
-                }
-                continue;
-            }
             if seen.contains(&name) {
                 if !repeated.contains(&name) {
                     repeated.push(name);
@@ -178,6 +183,18 @@ impl Query {
         }
     }
 
+    /// Every parameter in one canonical form, for idempotency fingerprints:
+    /// decoded, sorted, re-encoded, with `dry_run=false` left out (the same
+    /// request as no `dry_run`, as the contract says).
+    pub fn fingerprint_form(&self) -> String {
+        self.0
+            .iter()
+            .filter(|(n, v)| !(n.as_str() == "dry_run" && v.as_str() == "false"))
+            .map(|(n, v)| format!("{}={}", encode(n), encode(v)))
+            .collect::<Vec<_>>()
+            .join("&")
+    }
+
     /// The parameters in a canonical form, for binding cursors to filters.
     pub fn canonical(&self, names: &[&str]) -> String {
         names
@@ -190,7 +207,7 @@ impl Query {
 
 /// Percent-encodes a query value (everything but RFC 3986 unreserved
 /// characters), so it can go into a `Link` header as it is.
-fn encode(v: &str) -> String {
+pub fn encode(v: &str) -> String {
     let mut out = String::with_capacity(v.len());
     for b in v.bytes() {
         if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
@@ -336,7 +353,14 @@ mod tests {
         }
         let q = Query::parse("dry_run=yes", &["dry_run"]).expect("parses");
         assert!(q.dry_run().is_err());
-        assert!(Query::parse("a=%zz", &["a"]).is_err());
+        assert_eq!(
+            Query::parse("a=%zz", &["a"]).map_err(|p| p.code).err(),
+            Some("validation_failed")
+        );
+        assert_eq!(
+            Query::parse("%zz=1", &["a"]).map_err(|p| p.code).err(),
+            Some("unknown_field")
+        );
     }
 
     #[test]

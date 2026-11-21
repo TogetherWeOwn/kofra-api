@@ -123,8 +123,49 @@ pub fn refused_when_read_only(op_id: &str) -> bool {
     matches!(op_id, "buckets.create" | "keys.create" | "keys.update")
 }
 
-/// The audit target named by the path.
+/// The path parameter that does not fit the contract, if any.
+fn bad_path(m: &Matched) -> Option<(&'static str, &'static str)> {
+    for (name, value) in &m.params {
+        let ok = match *name {
+            "bucket" => t::BucketName::try_from(value.clone()).is_ok(),
+            "key_id" => t::AccessKeyId::try_from(value.clone()).is_ok(),
+            "token_id" => t::TokenId::try_from(value.clone()).is_ok(),
+            _ => false,
+        };
+        if !ok {
+            let detail = match *name {
+                "bucket" => "Use 3 to 63 lowercase letters, digits or hyphens.",
+                "key_id" => "Use an ID from GET /v1/keys.",
+                "token_id" => "Use an ID from GET /v1/tokens.",
+                _ => "This parameter is not valid.",
+            };
+            return Some((name, detail));
+        }
+    }
+    None
+}
+
+/// Refuses path parameters that do not fit the contract, before any audit
+/// row is written.
+pub fn check_path(m: &Matched) -> Result<(), Problem> {
+    match bad_path(m) {
+        None => Ok(()),
+        Some((name, detail)) => Err(Problem::new("validation_failed")
+            .detail(format!("The path parameter \"{name}\" is not valid."))
+            .errors(vec![crate::problem::FieldError::new(
+                format!("#path/{name}"),
+                "invalid_value",
+                detail,
+            )])),
+    }
+}
+
+/// The audit target named by the path; none when a parameter does not fit
+/// the contract (a crafted path never reaches the log).
 pub fn path_target(m: &Matched) -> Option<String> {
+    if bad_path(m).is_some() {
+        return None;
+    }
     ["bucket", "key_id", "token_id"]
         .iter()
         .find_map(|n| m.param(n))
@@ -199,6 +240,7 @@ fn page<P: Ports>(
     data: Vec<Value>,
     next: Option<String>,
 ) -> Result<Reply, Problem> {
+    let data_was_empty = data.is_empty();
     let next_cursor = match next {
         Some(pos) => Some(
             cursor::seal(&ctx.api.config.cursor_key, &binding(ctx, filters), &pos)
@@ -210,7 +252,12 @@ fn page<P: Ports>(
         200,
         serde_json::json!({ "data": data, "next_cursor": next_cursor }),
     );
-    if let Some(c) = &next_cursor {
+    // The event feed's cursor is never null; at the end (an empty page) it
+    // is the position to poll from, not a next page to follow at once.
+    if let Some(c) = next_cursor
+        .as_ref()
+        .filter(|_| !(data_was_empty && ctx.matched.op.id == "events.list"))
+    {
         let mut link = format!("<{}?cursor={c}", ctx.matched.op.path);
         if !filters.is_empty() {
             link.push('&');
