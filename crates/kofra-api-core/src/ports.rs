@@ -338,7 +338,8 @@ impl From<StorageError> for crate::problem::Problem {
 }
 
 /// One page from storage: the items and the storage's own position for the
-/// next page (`None` at the end). The API seals the position into its cursor.
+/// next page (`None` at the end). The API seals the position into its cursor;
+/// a position is at most [`crate::cursor::MAX_POSITION`] bytes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Page<T> {
     /// Items.
@@ -467,7 +468,9 @@ pub trait Storage {
         after: Option<&str>,
         limit: usize,
     ) -> Result<Page<t::BucketUsage>, StorageError>;
-    /// The event feed from `after`; the answer's position is never `None`.
+    /// The event feed from `after`; the answer's position is never `None`,
+    /// is at most [`crate::cursor::MAX_POSITION`] bytes, and is `after`
+    /// itself when no event follows it (clients stop polling on that).
     async fn events(
         &self,
         tenant: &str,

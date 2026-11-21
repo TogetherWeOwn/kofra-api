@@ -229,12 +229,19 @@ impl<P: Ports> Api<P> {
         row.code = Some(problem.code.to_owned());
         // Bounded per workspace: past the allowance the refusal is answered
         // without a row. Best effort: the request is refused either way.
-        let key = format!("ws:{}", principal.workspace.id);
-        let room = self
-            .ports
-            .rate()
-            .take(&key, &ratelimit::WORKSPACE_REFUSAL_ROWS, ctx.now_ms)
+        let rate = self.ports.rate();
+        let cred = format!("cred:{}", principal.credential_key());
+        let ws = format!("ws:{}", principal.workspace.id);
+        let own = rate
+            .take(&cred, &ratelimit::CREDENTIAL_REFUSAL_ROWS, ctx.now_ms)
             .await;
+        let room = match own {
+            Ok(d) if d.allowed => {
+                rate.take(&ws, &ratelimit::WORKSPACE_REFUSAL_ROWS, ctx.now_ms)
+                    .await
+            }
+            other => other,
+        };
         if matches!(room, Ok(d) if d.allowed) {
             let _ = self.ports.audit().begin(&row).await;
         }
@@ -597,7 +604,13 @@ impl<P: Ports> Api<P> {
                     body: Vec::new(),
                 };
                 let _ = store.finish(&ws_id, &key, &fp, at, &stored).await;
-            } else if resp.status < 500 && resp.status != 429 {
+            } else if resp.status < 500
+                && resp.status != 429
+                // Storage saw this key with another request (after a lost
+                // record): not this request's answer, so nothing is stored
+                // and the first request's retry can still reach storage.
+                && code != Some("idempotency_key_reused")
+            {
                 let stored = Stored {
                     status: replay.status,
                     headers: replay

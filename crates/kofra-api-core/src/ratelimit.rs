@@ -74,7 +74,16 @@ pub const CREDENTIAL_REFUSALS: Policy = Policy {
     window_secs: 60,
 };
 
-/// Per workspace, refusal rows in the audit log: 60 a minute. A refusal past
+/// Per credential, refusal rows in the audit log: a burst of 10, then 1
+/// every 6 s. One credential cannot use up the workspace's rows.
+pub const CREDENTIAL_REFUSAL_ROWS: Policy = Policy {
+    name: "refusal-rows-own",
+    quota: 10,
+    window_secs: 60,
+};
+
+/// Per workspace, refusal rows in the audit log: a burst of 60, then 1 a
+/// second. A refusal past
 /// it is still answered, without a row, so many tokens of one workspace
 /// cannot flood its log.
 pub const WORKSPACE_REFUSAL_ROWS: Policy = Policy {

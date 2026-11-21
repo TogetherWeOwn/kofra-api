@@ -527,3 +527,75 @@ fn many_tokens_of_one_workspace_cannot_flood_its_audit_log() {
     }
     assert_eq!(h.api.ports.audit.rows().len(), 60);
 }
+
+#[test]
+fn one_credential_cannot_use_up_the_workspace_refusal_rows() {
+    let h = setup();
+    let (noisy, _) = h.token(Tok {
+        user: "usr_viewer",
+        scopes: &["buckets:read"],
+        ..Tok::default()
+    });
+    for _ in 0..600 {
+        h.api.ports.env.advance(500);
+        h.call(
+            "POST",
+            "/v1/buckets",
+            &noisy,
+            Some(json!({ "name": "nope" })),
+        );
+    }
+    let before = h.api.ports.audit.rows().len();
+    assert!(before <= 10 + 300 / 6 + 1, "{before}");
+    let other = h
+        .token(Tok {
+            scopes: &["buckets:read"],
+            ..Tok::default()
+        })
+        .0;
+    h.call(
+        "POST",
+        "/v1/buckets",
+        &other,
+        Some(json!({ "name": "nope" })),
+    );
+    assert_eq!(h.api.ports.audit.rows().len(), before + 1);
+}
+
+#[test]
+fn the_feed_end_hands_back_the_cursor_it_was_given() {
+    let h = setup();
+    let owner = h.owner();
+    h.call(
+        "POST",
+        "/v1/buckets",
+        &owner,
+        Some(json!({ "name": "e-2" })),
+    );
+    let first = h.call("GET", "/v1/events", &owner, None).json_body();
+    let c = first["next_cursor"].as_str().expect("cursor").to_owned();
+    let end = h
+        .call("GET", &format!("/v1/events?cursor={c}"), &owner, None)
+        .json_body();
+    assert!(end["data"].as_array().expect("data").is_empty());
+    assert_eq!(end["next_cursor"].as_str(), Some(c.as_str()));
+}
+
+#[test]
+fn a_storage_key_conflict_is_not_stored_as_the_keys_answer() {
+    let h = setup();
+    let owner = h.owner();
+    let create = |name: &str| {
+        let mut r = H::with_body(
+            h.req("POST", "/v1/buckets", Some(&owner)),
+            &json!({ "name": name }),
+        );
+        r.headers.push(("Idempotency-Key".into(), "kc".into()));
+        h.send(r)
+    };
+    assert_eq!(create("aaa").status, 201);
+    h.api.ports.idempotency.forget("ws_a", "kc");
+    assert_eq!(code(&create("bbb")), "idempotency_key_reused");
+    // The first request's retry still reaches storage's first answer.
+    assert_eq!(create("aaa").status, 201);
+}

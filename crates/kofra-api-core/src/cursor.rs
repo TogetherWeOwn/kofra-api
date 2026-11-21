@@ -3,9 +3,9 @@
 //! A cursor carries a position (the storage's own position, or the last row
 //! of a newest-first page) and is bound to the workspace, the operation and
 //! the list's filters. It is sealed SIV-style with two keys derived from the
-//! API's cursor key: a 128-bit HMAC-SHA256 tag over the binding and the
-//! position, and the position encrypted with an HMAC-SHA256 keystream seeded
-//! by that tag. So a cursor cannot be forged or moved to another workspace,
+//! API's cursor key: the position, length-prefixed and padded to one block,
+//! is covered by a 128-bit HMAC-SHA256 tag (with the binding) and encrypted
+//! with an HMAC-SHA256 keystream seeded by that tag. So a cursor cannot be forged or moved to another workspace,
 //! list or filter set (`invalid_cursor`), and it does not show its position:
 //! a storage position can name a bucket that a bucket-limited token must not
 //! see. Cursors are URL-safe base64 (`[A-Za-z0-9_-]`) of at most 512
@@ -31,6 +31,10 @@ const VERSION: u8 = 1;
 /// block holds the longest known position (an access key ID, 128
 /// characters, plus the 2-byte length).
 const BLOCK: usize = 192;
+
+/// The longest position a cursor holds, in bytes: one block less the length
+/// prefix (two blocks would pass the 512-character limit).
+pub const MAX_POSITION: usize = BLOCK - 2;
 
 /// What a cursor is bound to.
 #[derive(Debug, Clone, Copy)]
@@ -178,6 +182,20 @@ mod tests {
         let short = seal(&KEY, &b("ws_a", "buckets.list", ""), "abc").expect("fits");
         let long = seal(&KEY, &b("ws_a", "buckets.list", ""), &"y".repeat(128)).expect("fits");
         assert_eq!(short.len(), long.len());
+        let edge = seal(
+            &KEY,
+            &b("ws_a", "buckets.list", ""),
+            &"z".repeat(MAX_POSITION),
+        );
+        assert!(edge.is_some_and(|c| c.len() <= MAX_LEN));
+        assert!(
+            seal(
+                &KEY,
+                &b("ws_a", "buckets.list", ""),
+                &"z".repeat(MAX_POSITION + 1)
+            )
+            .is_none()
+        );
         // The position is not readable from the cursor.
         let raw = URL_SAFE_NO_PAD.decode(&c).expect("base64");
         assert!(!raw.windows(6).any(|w| w == b"photos"));
