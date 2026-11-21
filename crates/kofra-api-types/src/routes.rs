@@ -26,6 +26,7 @@ pub const OPERATIONS: &[Operation] = &[
     Operation { id: "buckets.create", method: "POST", path: "/v1/buckets", scopes: &["buckets:write"], success: 201, dry_run: false },
     Operation { id: "buckets.get", method: "GET", path: "/v1/buckets/{bucket}", scopes: &["buckets:read"], success: 200, dry_run: false },
     Operation { id: "buckets.delete", method: "DELETE", path: "/v1/buckets/{bucket}", scopes: &["buckets:delete"], success: 204, dry_run: true },
+    Operation { id: "objects.list", method: "GET", path: "/v1/buckets/{bucket}/objects", scopes: &["objects:read"], success: 200, dry_run: false },
     Operation { id: "keys.list", method: "GET", path: "/v1/keys", scopes: &["keys:read"], success: 200, dry_run: false },
     Operation { id: "keys.create", method: "POST", path: "/v1/keys", scopes: &["keys:write"], success: 201, dry_run: false },
     Operation { id: "keys.revoke", method: "DELETE", path: "/v1/keys/{key_id}", scopes: &["keys:write"], success: 204, dry_run: true },

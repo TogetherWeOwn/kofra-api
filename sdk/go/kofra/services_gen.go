@@ -77,6 +77,27 @@ func (s *BucketsService) Delete(ctx context.Context, bucket api.BucketName, para
 	return resp, checkResponse(resp.HTTPResponse, resp.Body)
 }
 
+// ObjectsService holds the `objects` operations.
+type ObjectsService struct{ c *Client }
+
+// List: List objects. Operation `objects.list`.
+func (s *ObjectsService) List(ctx context.Context, bucket api.BucketName, params *api.ObjectsListParams) (*api.ObjectsListResponse, error) {
+	resp, err := s.c.raw.ObjectsListWithResponse(ctx, bucket, params)
+	if err != nil {
+		return nil, err
+	}
+	return resp, checkResponse(resp.HTTPResponse, resp.Body)
+}
+
+// Presign: Create a presigned URL. Operation `objects.presign`.
+func (s *ObjectsService) Presign(ctx context.Context, params *api.ObjectsPresignParams, body api.ObjectsPresignJSONRequestBody) (*api.ObjectsPresignResponse, error) {
+	resp, err := s.c.raw.ObjectsPresignWithResponse(ctx, params, body)
+	if err != nil {
+		return nil, err
+	}
+	return resp, checkResponse(resp.HTTPResponse, resp.Body)
+}
+
 // KeysService holds the `keys` operations.
 type KeysService struct{ c *Client }
 
@@ -200,37 +221,25 @@ func (s *AuditService) List(ctx context.Context, params *api.AuditListParams) (*
 	return resp, checkResponse(resp.HTTPResponse, resp.Body)
 }
 
-// ObjectsService holds the `objects` operations.
-type ObjectsService struct{ c *Client }
-
-// Presign: Create a presigned URL. Operation `objects.presign`.
-func (s *ObjectsService) Presign(ctx context.Context, params *api.ObjectsPresignParams, body api.ObjectsPresignJSONRequestBody) (*api.ObjectsPresignResponse, error) {
-	resp, err := s.c.raw.ObjectsPresignWithResponse(ctx, params, body)
-	if err != nil {
-		return nil, err
-	}
-	return resp, checkResponse(resp.HTTPResponse, resp.Body)
-}
-
 func (c *Client) initServices() {
 	c.Account = &AccountService{c: c}
 	c.Buckets = &BucketsService{c: c}
+	c.Objects = &ObjectsService{c: c}
 	c.Keys = &KeysService{c: c}
 	c.Usage = &UsageService{c: c}
 	c.Events = &EventsService{c: c}
 	c.Tokens = &TokensService{c: c}
 	c.Audit = &AuditService{c: c}
-	c.Objects = &ObjectsService{c: c}
 }
 
 // services are the resources of the API, as client.<Resource>.
 type services struct {
 	Account *AccountService
 	Buckets *BucketsService
+	Objects *ObjectsService
 	Keys    *KeysService
 	Usage   *UsageService
 	Events  *EventsService
 	Tokens  *TokensService
 	Audit   *AuditService
-	Objects *ObjectsService
 }

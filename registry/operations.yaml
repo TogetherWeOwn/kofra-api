@@ -135,6 +135,12 @@ operations:
     mcp: { tool: audit_list }
     console: Audit log
 
+  - operation_id: objects.list
+    sdk: { typescript: client.objects.list(), python: client.objects.list(), go: 'client.Objects.List(ctx)' }
+    cli: kofra objects list
+    mcp: { tool: objects_list }
+    console: Files
+
   - operation_id: objects.presign
     sdk: { typescript: client.objects.presign(), python: client.objects.presign(), go: 'client.Objects.Presign(ctx)' }
     cli: kofra objects presign
