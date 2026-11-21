@@ -47,6 +47,7 @@ impl Memory {
                 env: Rc::clone(&env),
                 tenants: RefCell::default(),
                 fail_next: Cell::default(),
+                fail_skip: Cell::default(),
             },
             env,
             directory: MemoryDirectory::default(),
@@ -199,12 +200,21 @@ impl Directory for MemoryDirectory {
     async fn insert_token(&self, token: &TokenRecord) -> Result<Option<TokenRecord>, PortError> {
         check_failure(&self.fail)?;
         let mut tokens = self.tokens.borrow_mut();
-        if let Some(key) = &token.idempotency_key
-            && let Some(existing) = tokens.values().find(|t| {
+        if let Some(key) = &token.idempotency_key {
+            for t in tokens.values_mut().filter(|t| {
                 t.workspace_id == token.workspace_id && t.idempotency_key.as_ref() == Some(key)
-            })
-        {
-            return Ok(Some(existing.clone()));
+            }) {
+                let same_request = t.revoked_at_ms.is_none()
+                    && t.idempotency_fingerprint == token.idempotency_fingerprint
+                    && t.user_id == token.user_id
+                    && token.created_at_ms
+                        < t.created_at_ms.saturating_add(crate::idempotency::TTL_MS);
+                if same_request {
+                    return Ok(Some(t.clone()));
+                }
+                t.idempotency_key = None;
+                t.idempotency_fingerprint = None;
+            }
         }
         tokens.insert(token.id.clone(), token.clone());
         Ok(None)
@@ -634,6 +644,8 @@ fn grant(input: &t::GrantInput) -> t::Grant {
 pub struct MemoryStorage {
     /// Error returned and cleared by the next storage port call.
     pub fail_next: Cell<Option<StorageError>>,
+    /// Storage calls that succeed before `fail_next` fires.
+    pub fail_skip: Cell<u32>,
     env: Rc<MemoryEnv>,
     tenants: RefCell<BTreeMap<String, TenantData>>,
 }
@@ -751,16 +763,24 @@ impl MemoryStorage {
     }
 
     fn read(&self, tenant: &str) -> Result<Ref<'_, TenantData>, StorageError> {
-        if let Some(error) = self.fail_next.take() {
-            return Err(error);
+        if self.fail_next.get().is_some() {
+            if self.fail_skip.get() > 0 {
+                self.fail_skip.set(self.fail_skip.get() - 1);
+            } else if let Some(error) = self.fail_next.take() {
+                return Err(error);
+            }
         }
         Ref::filter_map(self.tenants.borrow(), |tenants| tenants.get(tenant))
             .map_err(|_| StorageError::Upstream)
     }
 
     fn write(&self, tenant: &str) -> Result<RefMut<'_, TenantData>, StorageError> {
-        if let Some(error) = self.fail_next.take() {
-            return Err(error);
+        if self.fail_next.get().is_some() {
+            if self.fail_skip.get() > 0 {
+                self.fail_skip.set(self.fail_skip.get() - 1);
+            } else if let Some(error) = self.fail_next.take() {
+                return Err(error);
+            }
         }
         RefMut::filter_map(self.tenants.borrow_mut(), |tenants| tenants.get_mut(tenant))
             .map_err(|_| StorageError::Upstream)
@@ -1253,6 +1273,7 @@ mod tests {
                         last_used_at_ms: None,
                         revoked_at_ms: None,
                         idempotency_key: None,
+                        idempotency_fingerprint: None,
                     })
                     .await
                     .unwrap();

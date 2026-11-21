@@ -198,6 +198,7 @@ pub(super) async fn create<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Prob
         last_used_at_ms: None,
         revoked_at_ms: None,
         idempotency_key: ctx.idempotency_key.clone(),
+        idempotency_fingerprint: ctx.idempotency_fingerprint,
     };
     if let Some(existing) = ctx.api.ports.directory().insert_token(&record).await? {
         // A retry after its first run lost its idempotency record: the token

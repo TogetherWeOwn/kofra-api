@@ -87,6 +87,8 @@ pub struct Ctx<'a, P: Ports> {
     pub dry_run: bool,
     /// The request's `Idempotency-Key`, passed on to storage.
     pub idempotency_key: Option<String>,
+    /// The request's idempotency fingerprint (with a key only).
+    pub idempotency_fingerprint: Option<[u8; 32]>,
     /// The storage tenant and its state, for operations that reach storage.
     pub tenant: Option<(String, Tenant)>,
     /// Now, Unix ms.
@@ -413,7 +415,15 @@ impl<P: Ports> Api<P> {
                 if let Some(p) = idempotency::refusal(&begin) {
                     return Err(p);
                 }
-                if let Begin::Done(stored) = begin {
+                if let Begin::Done(stored) = &begin
+                    && stored
+                        .headers
+                        .iter()
+                        .any(|(n, _)| n == idempotency::RERUN_MARK)
+                {
+                    // Bound to this request, answer not kept: run again.
+                    None
+                } else if let Begin::Done(stored) = begin {
                     let mut r = Response {
                         status: stored.status,
                         headers: stored.headers,
@@ -421,11 +431,12 @@ impl<P: Ports> Api<P> {
                     };
                     r.set_header("Idempotent-Replayed", "true");
                     return Ok(r);
+                } else {
+                    let Begin::Started { claimed_at_ms } = begin else {
+                        return Err(Problem::new("internal_error"));
+                    };
+                    Some((key.clone(), fp, claimed_at_ms))
                 }
-                let Begin::Started { claimed_at_ms } = begin else {
-                    return Err(Problem::new("internal_error"));
-                };
-                Some((key.clone(), fp, claimed_at_ms))
             }
             None => None,
         };
@@ -482,6 +493,7 @@ impl<P: Ports> Api<P> {
             input,
             dry_run,
             idempotency_key: idempotency_key.clone(),
+            idempotency_fingerprint: claim.as_ref().map(|(_, fp, _)| *fp),
             tenant,
             now_ms,
             request_id: request_id.to_owned(),
@@ -535,7 +547,14 @@ impl<P: Ports> Api<P> {
             let store = self.ports.idempotency();
             // Only final answers are stored: a 5xx or a 429 (busy storage)
             // releases the key, so the retry runs again.
-            if resp.status < 500 && resp.status != 429 && !no_store {
+            if no_store && resp.status < 300 {
+                let stored = Stored {
+                    status: resp.status,
+                    headers: vec![(idempotency::RERUN_MARK.to_owned(), "1".to_owned())],
+                    body: Vec::new(),
+                };
+                let _ = store.finish(&ws_id, &key, &fp, at, &stored).await;
+            } else if resp.status < 500 && resp.status != 429 {
                 let stored = Stored {
                     status: replay.status,
                     headers: replay

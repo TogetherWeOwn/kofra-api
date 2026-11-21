@@ -51,6 +51,8 @@ CREATE TABLE api_tokens (
   -- The Idempotency-Key of the creating request: a retry after a lost
   -- idempotency record finds this token instead of making a second one.
   idempotency_key TEXT CHECK (idempotency_key IS NULL OR length(idempotency_key) BETWEEN 1 AND 255),
+  idempotency_fingerprint BLOB CHECK (idempotency_fingerprint IS NULL OR length(idempotency_fingerprint) = 32),
+  CHECK ((idempotency_key IS NULL) = (idempotency_fingerprint IS NULL)),
   FOREIGN KEY (workspace_id, user_id) REFERENCES api_members (workspace_id, user_id)
 ) STRICT;
 

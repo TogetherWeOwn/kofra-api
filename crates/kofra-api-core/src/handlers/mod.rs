@@ -240,7 +240,6 @@ fn page<P: Ports>(
     data: Vec<Value>,
     next: Option<String>,
 ) -> Result<Reply, Problem> {
-    let data_was_empty = data.is_empty();
     let next_cursor = match next {
         Some(pos) => Some(
             cursor::seal(&ctx.api.config.cursor_key, &binding(ctx, filters), &pos)
@@ -252,12 +251,7 @@ fn page<P: Ports>(
         200,
         serde_json::json!({ "data": data, "next_cursor": next_cursor }),
     );
-    // The event feed's cursor is never null; at the end (an empty page) it
-    // is the position to poll from, not a next page to follow at once.
-    if let Some(c) = next_cursor
-        .as_ref()
-        .filter(|_| !(data_was_empty && ctx.matched.op.id == "events.list"))
-    {
+    if let Some(c) = &next_cursor {
         let mut link = format!("<{}?cursor={c}", ctx.matched.op.path);
         if !filters.is_empty() {
             link.push('&');

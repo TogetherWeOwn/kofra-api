@@ -105,6 +105,9 @@ pub struct TokenRecord {
     /// workspace, so a retry after a claim takeover finds this token instead
     /// of making a second one.
     pub idempotency_key: Option<String>,
+    /// The idempotency fingerprint of that request (credential, method,
+    /// path, query, body).
+    pub idempotency_fingerprint: Option<[u8; 32]>,
 }
 
 /// A request to delete a workspace that waits for an Owner's confirmation in
@@ -134,9 +137,12 @@ pub trait Directory {
     async fn workspace(&self, id: &str) -> Result<Option<WorkspaceRecord>, PortError>;
     /// A member of a workspace.
     async fn member(&self, workspace: &str, user: &str) -> Result<Option<MemberRecord>, PortError>;
-    /// Stores a new token, unless a token of the workspace already carries
-    /// its `idempotency_key`: then nothing is written and that token is the
-    /// answer (one conditional write).
+    /// Stores a new token, unless an unrevoked token of the workspace was
+    /// made by the same request: the same `idempotency_key` and
+    /// `idempotency_fingerprint` (so the same credential and body), made
+    /// less than 24 hours before. Then nothing is written and that token is
+    /// the answer. Any other token holding the key (older, revoked, another
+    /// request) loses it, and the new token is stored.
     async fn insert_token(&self, token: &TokenRecord) -> Result<Option<TokenRecord>, PortError>;
     /// Tokens of a workspace that are not revoked, newest first; only those
     /// of `user` when given.

@@ -40,6 +40,12 @@ pub const LEASE_MS: u64 = 2 * HANDLER_DEADLINE_MS;
 /// The header.
 pub const HEADER: &str = "Idempotency-Key";
 
+/// Marks a stored record whose answer is not kept (a presigned URL is a
+/// bearer credential): the record still binds the key to its request, so
+/// another request with the key answers `idempotency_key_reused`, and the
+/// same request runs again instead of replaying.
+pub const RERUN_MARK: &str = "Kofra-Idempotency-Rerun";
+
 /// A stored answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stored {

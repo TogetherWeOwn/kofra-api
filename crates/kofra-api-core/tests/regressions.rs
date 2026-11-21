@@ -98,6 +98,8 @@ fn a_busy_answer_from_storage_is_not_stored_for_replay() {
         .storage
         .fail_next
         .set(Some(StorageError::Busy { retry_after: 4 }));
+    // The tenant lookup passes; the bucket creation in the handler is busy.
+    h.api.ports.storage.fail_skip.set(1);
     let send = || {
         let mut r = H::with_body(
             h.req("POST", "/v1/buckets", Some(&owner)),
@@ -203,12 +205,77 @@ fn presigned_urls_are_never_kept_for_replay() {
         h.send(r)
     };
     assert_eq!(send().status, 200);
-    assert!(h.api.ports.idempotency.is_empty());
     let again = send();
     assert_eq!(
         (again.status, again.header("Idempotent-Replayed")),
         (200, None)
     );
+    assert!(again.json_body()["url"].is_string());
+    // The key stays bound to its request.
+    let mut other = H::with_body(
+        h.req("POST", "/v1/objects/presign", Some(&owner)),
+        &json!({ "bucket": "backups", "key": "b.txt", "method": "GET" }),
+    );
+    other.headers.push(("Idempotency-Key".into(), "p1".into()));
+    assert_eq!(code(&h.send(other)), "idempotency_key_reused");
+}
+
+#[test]
+fn token_recovery_never_crosses_members_requests_or_the_key_lifetime() {
+    let h = setup();
+    let owner = h.owner();
+    let member = h.with_role("usr_member");
+    let make = |tok: &str, name: &str| {
+        let mut r = H::with_body(
+            h.req("POST", "/v1/tokens", Some(tok)),
+            &json!({ "name": name, "scopes": ["usage:read"] }),
+        );
+        r.headers.push(("Idempotency-Key".into(), "same".into()));
+        h.send(r)
+    };
+    let a = make(&owner, "owner-token");
+    // The same key from another member answers 422 at the API; with the API's
+    // record lost, the token store still never hands over the owner's token.
+    assert_eq!(
+        code(&make(&member, "member-token")),
+        "idempotency_key_reused"
+    );
+    h.api.ports.idempotency.forget("ws_a", "same");
+    let b = make(&member, "member-token");
+    assert_eq!(b.status, 201);
+    assert_ne!(b.json_body()["id"], a.json_body()["id"]);
+    assert!(b.json_body()["token"].is_string());
+    // After the key's lifetime, the same request makes a new token.
+    h.api.ports.env.advance(idempotency::TTL_MS);
+    let c = make(&owner, "owner-token");
+    assert_eq!(c.status, 201);
+    assert_ne!(c.json_body()["id"], a.json_body()["id"]);
+    assert!(c.json_body()["token"].is_string());
+}
+
+#[test]
+fn a_filtered_event_page_keeps_its_next_link() {
+    let h = setup();
+    let owner = h.owner();
+    h.call(
+        "POST",
+        "/v1/buckets",
+        &owner,
+        Some(json!({ "name": "hidden-1" })),
+    );
+    h.call(
+        "POST",
+        "/v1/buckets",
+        &owner,
+        Some(json!({ "name": "seen-1" })),
+    );
+    let (tok, _) = h.token(Tok {
+        buckets: Some(&["seen-1"]),
+        ..Tok::default()
+    });
+    let r = h.call("GET", "/v1/events?limit=1", &tok, None);
+    assert!(r.json_body()["data"].as_array().expect("data").is_empty());
+    assert!(r.header("Link").is_some());
 }
 
 #[test]

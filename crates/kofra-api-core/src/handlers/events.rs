@@ -33,5 +33,11 @@ pub(super) async fn list<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Proble
             data.push(to_json(e)?);
         }
     }
-    page(ctx, "", data, Some(position))
+    let mut reply = page(ctx, "", data, Some(position))?;
+    // The feed's cursor is never null; at its end (storage returned no
+    // event) it is the position to poll from, not a page to follow at once.
+    if events.is_empty() {
+        reply.headers.retain(|(n, _)| n != "Link");
+    }
+    Ok(reply)
 }
