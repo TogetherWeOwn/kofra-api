@@ -1157,3 +1157,21 @@ fn a_credential_change_during_enrolment_refuses_the_passkey() {
         0
     );
 }
+
+#[test]
+fn enrolling_a_passkey_raises_this_session_for_the_next_steps() {
+    let h = Harness::new();
+    let s = h.signed_up("ada");
+    let mut a = Authenticator::es256(52);
+    assert_eq!(h.register(&s, &mut a).status, 201);
+    // The enrolling session stays signed in, at level 2 with a fresh step,
+    // so the console can go straight on to the next security steps.
+    let me = h.call("POST", "session/resolve", Some(&s), None);
+    assert_eq!(me.status, 200, "{}", me.body);
+    assert_eq!(me.body["session"]["level"], 2);
+    let codes = h.call("POST", "recovery-codes", Some(&s), None);
+    assert_eq!(codes.status, 200, "{}", codes.body);
+    assert_eq!(codes.body["recovery_codes"].as_array().unwrap().len(), 10);
+    let totp = h.call("POST", "totp/begin", Some(&s), None);
+    assert_eq!(totp.status, 200, "{}", totp.body);
+}
