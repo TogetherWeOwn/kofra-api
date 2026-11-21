@@ -164,7 +164,10 @@ def sync_detailed(
     Whoever holds a key with access to a bucket can read its objects, so
     `keys:write` is treated as data access. The grants cannot exceed the
     caller's own access: a grant on a bucket, or an access level, that the
-    caller's role does not allow is refused with `role_forbidden`.
+    caller's role does not allow is refused with `role_forbidden`, and a
+    bucket outside the token's bucket list with `bucket_not_allowed`. A
+    token limited to some client addresses cannot create keys
+    (`ip_not_allowed`): access keys have no address limit yet.
 
     Through the MCP tool `keys_create`, the secret is not in the tool
     result: the result links to a console page that shows it once.
@@ -214,7 +217,10 @@ def sync(
     Whoever holds a key with access to a bucket can read its objects, so
     `keys:write` is treated as data access. The grants cannot exceed the
     caller's own access: a grant on a bucket, or an access level, that the
-    caller's role does not allow is refused with `role_forbidden`.
+    caller's role does not allow is refused with `role_forbidden`, and a
+    bucket outside the token's bucket list with `bucket_not_allowed`. A
+    token limited to some client addresses cannot create keys
+    (`ip_not_allowed`): access keys have no address limit yet.
 
     Through the MCP tool `keys_create`, the secret is not in the tool
     result: the result links to a console page that shows it once.
@@ -259,7 +265,10 @@ async def asyncio_detailed(
     Whoever holds a key with access to a bucket can read its objects, so
     `keys:write` is treated as data access. The grants cannot exceed the
     caller's own access: a grant on a bucket, or an access level, that the
-    caller's role does not allow is refused with `role_forbidden`.
+    caller's role does not allow is refused with `role_forbidden`, and a
+    bucket outside the token's bucket list with `bucket_not_allowed`. A
+    token limited to some client addresses cannot create keys
+    (`ip_not_allowed`): access keys have no address limit yet.
 
     Through the MCP tool `keys_create`, the secret is not in the tool
     result: the result links to a console page that shows it once.
@@ -309,7 +318,10 @@ async def asyncio(
     Whoever holds a key with access to a bucket can read its objects, so
     `keys:write` is treated as data access. The grants cannot exceed the
     caller's own access: a grant on a bucket, or an access level, that the
-    caller's role does not allow is refused with `role_forbidden`.
+    caller's role does not allow is refused with `role_forbidden`, and a
+    bucket outside the token's bucket list with `bucket_not_allowed`. A
+    token limited to some client addresses cannot create keys
+    (`ip_not_allowed`): access keys have no address limit yet.
 
     Through the MCP tool `keys_create`, the secret is not in the tool
     result: the result links to a console page that shows it once.

@@ -249,3 +249,43 @@ fn a_bad_or_repeated_key_header_is_refused() {
     req.headers.push(("idempotency-key".into(), "b".into()));
     assert_eq!(code(&h.send(req)), "validation_failed");
 }
+
+#[test]
+fn a_replay_returns_the_first_answer_whatever_the_account_state_is_now() {
+    let h = setup();
+    let owner = h.owner();
+    let first = keyed(
+        &h,
+        "POST",
+        "/v1/buckets",
+        &owner,
+        "k8",
+        json!({ "name": "kept" }),
+    );
+    assert_eq!(first.status, 201);
+    h.api.ports.storage.set_access(
+        "t_a",
+        kofra_api_types::AccountState::Suspended,
+        kofra_api_types::AccountAccess::ReadOnly,
+    );
+    let again = keyed(
+        &h,
+        "POST",
+        "/v1/buckets",
+        &owner,
+        "k8",
+        json!({ "name": "kept" }),
+    );
+    assert_eq!((again.status, again.body.clone()), (201, first.body));
+    // A refusal for the account state claims no key.
+    let r = keyed(
+        &h,
+        "POST",
+        "/v1/buckets",
+        &owner,
+        "k9",
+        json!({ "name": "later" }),
+    );
+    assert_eq!(code(&r), "account_read_only");
+    assert_eq!(h.api.ports.idempotency.len(), 1);
+}

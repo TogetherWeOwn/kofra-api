@@ -62,6 +62,13 @@ pub(super) async fn create<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Prob
     let Input::KeyCreate(body) = &ctx.input else {
         return Err(Problem::new("internal_error"));
     };
+    // An S3 key has no address limit yet, so a token held to some addresses
+    // would make a credential that works from anywhere.
+    if ctx.principal.allowed_ips.is_some() {
+        return Err(Problem::new("ip_not_allowed").detail(
+            "A token limited to some addresses cannot create access keys: access keys have no address limit yet.",
+        ));
+    }
     for g in body.grants.as_slice() {
         ctx.principal.check_bucket(g.bucket.as_str())?;
     }

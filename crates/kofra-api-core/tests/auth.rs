@@ -219,6 +219,14 @@ fn an_address_limit_is_checked_on_every_request() {
     let mut r = h.req("GET", "/v1/buckets", Some(&tok));
     r.client_ip = None;
     assert_eq!(code(&h.send(r)), "ip_not_allowed");
+    // An S3 key has no address limit, so such a token cannot make one.
+    let r = h.call(
+        "POST",
+        "/v1/keys",
+        &tok,
+        Some(json!({ "grants": [{ "bucket": "photos", "access": "read" }] })),
+    );
+    assert_eq!(code(&r), "ip_not_allowed");
 }
 
 #[test]

@@ -8,10 +8,10 @@
 //! 5. The token's last use, to the hour.
 //! 6. Rate limits ([`crate::ratelimit`]), per credential and per workspace.
 //! 7. Validation of the query, the `Idempotency-Key` header and the body.
-//! 8. Account state: the storage tenant must exist; a blocked or deleting
+//! 8. Idempotency ([`crate::idempotency`]): replay, refuse or claim.
+//! 9. Account state: the storage tenant must exist; a blocked or deleting
 //!    account answers `account_unavailable`, a read-only one
 //!    `account_read_only` where the operation declares it.
-//! 9. Idempotency ([`crate::idempotency`]): replay, refuse or claim.
 //! 10. Audit: a `pending` row before any write runs; no row, no write.
 //! 11. The handler.
 //! 12. Audit outcome, idempotency record, and the standard headers:
@@ -341,7 +341,6 @@ impl<P: Ports> Api<P> {
             Ok(_) => None,
         };
         let input = handlers::decode_input(op.id, req)?;
-        let tenant = self.load_tenant(&principal, op.id).await?;
 
         // Idempotency.
         let ws_id = principal.workspace.id.clone();
@@ -381,6 +380,19 @@ impl<P: Ports> Api<P> {
                 Some((key.clone(), fp))
             }
             None => None,
+        };
+
+        // Account state. After the claim, so that a replay returns the first
+        // answer whatever the account's state is now; a refusal here is not a
+        // handler answer and releases the claim.
+        let tenant = match self.load_tenant(&principal, op.id).await {
+            Ok(t) => t,
+            Err(p) => {
+                if let Some((key, fp)) = &claim {
+                    let _ = self.ports.idempotency().release(&ws_id, key, fp).await;
+                }
+                return Err(p);
+            }
         };
 
         // Audit row before the change.

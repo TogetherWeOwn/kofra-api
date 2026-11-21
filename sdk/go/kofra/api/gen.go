@@ -1407,7 +1407,10 @@ type ClientInterface interface {
 	// Whoever holds a key with access to a bucket can read its objects, so
 	// `keys:write` is treated as data access. The grants cannot exceed the
 	// caller's own access: a grant on a bucket, or an access level, that the
-	// caller's role does not allow is refused with `role_forbidden`.
+	// caller's role does not allow is refused with `role_forbidden`, and a
+	// bucket outside the token's bucket list with `bucket_not_allowed`. A
+	// token limited to some client addresses cannot create keys
+	// (`ip_not_allowed`): access keys have no address limit yet.
 	//
 	// Through the MCP tool `keys_create`, the secret is not in the tool
 	// result: the result links to a console page that shows it once.
@@ -1430,7 +1433,10 @@ type ClientInterface interface {
 	// Whoever holds a key with access to a bucket can read its objects, so
 	// `keys:write` is treated as data access. The grants cannot exceed the
 	// caller's own access: a grant on a bucket, or an access level, that the
-	// caller's role does not allow is refused with `role_forbidden`.
+	// caller's role does not allow is refused with `role_forbidden`, and a
+	// bucket outside the token's bucket list with `bucket_not_allowed`. A
+	// token limited to some client addresses cannot create keys
+	// (`ip_not_allowed`): access keys have no address limit yet.
 	//
 	// Through the MCP tool `keys_create`, the secret is not in the tool
 	// result: the result links to a console page that shows it once.
@@ -1851,7 +1857,10 @@ func (c *Client) KeysList(ctx context.Context, params *KeysListParams, reqEditor
 // Whoever holds a key with access to a bucket can read its objects, so
 // `keys:write` is treated as data access. The grants cannot exceed the
 // caller's own access: a grant on a bucket, or an access level, that the
-// caller's role does not allow is refused with `role_forbidden`.
+// caller's role does not allow is refused with `role_forbidden`, and a
+// bucket outside the token's bucket list with `bucket_not_allowed`. A
+// token limited to some client addresses cannot create keys
+// (`ip_not_allowed`): access keys have no address limit yet.
 //
 // Through the MCP tool `keys_create`, the secret is not in the tool
 // result: the result links to a console page that shows it once.
@@ -1884,7 +1893,10 @@ func (c *Client) KeysCreateWithBody(ctx context.Context, params *KeysCreateParam
 // Whoever holds a key with access to a bucket can read its objects, so
 // `keys:write` is treated as data access. The grants cannot exceed the
 // caller's own access: a grant on a bucket, or an access level, that the
-// caller's role does not allow is refused with `role_forbidden`.
+// caller's role does not allow is refused with `role_forbidden`, and a
+// bucket outside the token's bucket list with `bucket_not_allowed`. A
+// token limited to some client addresses cannot create keys
+// (`ip_not_allowed`): access keys have no address limit yet.
 //
 // Through the MCP tool `keys_create`, the secret is not in the tool
 // result: the result links to a console page that shows it once.
@@ -3617,7 +3629,10 @@ type ClientWithResponsesInterface interface {
 	// Whoever holds a key with access to a bucket can read its objects, so
 	// `keys:write` is treated as data access. The grants cannot exceed the
 	// caller's own access: a grant on a bucket, or an access level, that the
-	// caller's role does not allow is refused with `role_forbidden`.
+	// caller's role does not allow is refused with `role_forbidden`, and a
+	// bucket outside the token's bucket list with `bucket_not_allowed`. A
+	// token limited to some client addresses cannot create keys
+	// (`ip_not_allowed`): access keys have no address limit yet.
 	//
 	// Through the MCP tool `keys_create`, the secret is not in the tool
 	// result: the result links to a console page that shows it once.
@@ -3640,7 +3655,10 @@ type ClientWithResponsesInterface interface {
 	// Whoever holds a key with access to a bucket can read its objects, so
 	// `keys:write` is treated as data access. The grants cannot exceed the
 	// caller's own access: a grant on a bucket, or an access level, that the
-	// caller's role does not allow is refused with `role_forbidden`.
+	// caller's role does not allow is refused with `role_forbidden`, and a
+	// bucket outside the token's bucket list with `bucket_not_allowed`. A
+	// token limited to some client addresses cannot create keys
+	// (`ip_not_allowed`): access keys have no address limit yet.
 	//
 	// Through the MCP tool `keys_create`, the secret is not in the tool
 	// result: the result links to a console page that shows it once.
@@ -7695,7 +7713,10 @@ func (c *ClientWithResponses) KeysListWithResponse(ctx context.Context, params *
 // Whoever holds a key with access to a bucket can read its objects, so
 // `keys:write` is treated as data access. The grants cannot exceed the
 // caller's own access: a grant on a bucket, or an access level, that the
-// caller's role does not allow is refused with `role_forbidden`.
+// caller's role does not allow is refused with `role_forbidden`, and a
+// bucket outside the token's bucket list with `bucket_not_allowed`. A
+// token limited to some client addresses cannot create keys
+// (`ip_not_allowed`): access keys have no address limit yet.
 //
 // Through the MCP tool `keys_create`, the secret is not in the tool
 // result: the result links to a console page that shows it once.
@@ -7724,7 +7745,10 @@ func (c *ClientWithResponses) KeysCreateWithBodyWithResponse(ctx context.Context
 // Whoever holds a key with access to a bucket can read its objects, so
 // `keys:write` is treated as data access. The grants cannot exceed the
 // caller's own access: a grant on a bucket, or an access level, that the
-// caller's role does not allow is refused with `role_forbidden`.
+// caller's role does not allow is refused with `role_forbidden`, and a
+// bucket outside the token's bucket list with `bucket_not_allowed`. A
+// token limited to some client addresses cannot create keys
+// (`ip_not_allowed`): access keys have no address limit yet.
 //
 // Through the MCP tool `keys_create`, the secret is not in the tool
 // result: the result links to a console page that shows it once.
