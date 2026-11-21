@@ -1098,3 +1098,35 @@ fn a_passkey_only_account_resets_with_a_recovery_code() {
     );
     assert_eq!(ok.status, 200, "{}", ok.body);
 }
+
+#[test]
+fn a_passkey_insert_under_an_old_epoch_is_refused() {
+    use kofra_account::{
+        model::PasskeyRecord,
+        ports::{InsertPasskey, Store},
+    };
+    let h = Harness::new();
+    let s = h.signed_up("ada");
+    let me = h.call("POST", "session/resolve", Some(&s), None);
+    let user_id = me.body["user"]["id"].as_str().unwrap().to_owned();
+    let rec = PasskeyRecord {
+        id: "pk_x".into(),
+        user_id,
+        credential_id: vec![1; 16],
+        public_key: Authenticator::es256(50).cose(),
+        alg: -7,
+        sign_count: 0,
+        backup_eligible: false,
+        backed_up: false,
+        name: "Late".into(),
+        created_at: T0,
+        last_used_at: None,
+    };
+    let store = &h.acc.ports().store;
+    assert_eq!(
+        pollster::block_on(store.insert_passkey(&rec, 0)).unwrap(),
+        InsertPasskey::Stale
+    );
+    let me = h.call("GET", "passkeys", Some(&s), None);
+    assert_eq!(me.body["data"].as_array().unwrap().len(), 0);
+}
