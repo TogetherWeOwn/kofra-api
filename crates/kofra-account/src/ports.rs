@@ -82,7 +82,7 @@ pub trait Store {
     async fn insert_session(&self, session: &SessionRecord) -> PortResult<()>;
     /// A session by token hash.
     async fn session_by_hash(&self, hash: &[u8; 32]) -> PortResult<Option<SessionRecord>>;
-    /// Writes `last_seen_at` and `step_at` and `level` of a session.
+    /// Writes `last_seen_at`, `step_at`, `level` and `epoch` of a session.
     async fn update_session(&self, session: &SessionRecord) -> PortResult<()>;
     /// Deletes one session of a user; `false` if there was none.
     async fn delete_session(&self, user_id: &str, id: &str) -> PortResult<bool>;
