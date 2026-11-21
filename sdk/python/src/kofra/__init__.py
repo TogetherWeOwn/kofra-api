@@ -62,10 +62,11 @@ class Kofra:
 def paginate(list_fn: Callable[..., Any], **kwargs: Any) -> Iterator[Any]:
     """Every item of a cursor-paged list: `for b in paginate(kofra.buckets.list): ...`.
 
-    Stops at the end of the list (`next_cursor` is None), or at an empty page
-    that hands back the cursor it was fetched with (the end of the event feed,
-    which always returns a cursor to poll from). An empty page with a new
-    cursor is read past: a token limited to some buckets can get one."""
+    Stops at the end of the list, or at an empty page that hands back the
+    cursor it was fetched with (the event feed has caught up: it always
+    returns a cursor to poll from). An empty page with a new cursor is read
+    past: a list can hold a page with no `data` (a page of only folder
+    `prefixes`, or of buckets a token cannot see). Only `data` is yielded."""
     while True:
         page = list_fn(**kwargs)
         # A non-empty page that hands back the cursor it was fetched with would

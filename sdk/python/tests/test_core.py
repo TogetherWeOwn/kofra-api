@@ -235,9 +235,10 @@ def test_an_unknown_nested_response_enum_value_reads_as_other():
 
 def test_request_only_enums_stay_strict():
     from kofra._generated.models.grant_input_access import GrantInputAccess
+    from kofra._generated.models.objects_list_delimiter import ObjectsListDelimiter
     from kofra._generated.models.presign_request_method import PresignRequestMethod
 
-    for enum in (GrantInputAccess, PresignRequestMethod):
+    for enum in (GrantInputAccess, ObjectsListDelimiter, PresignRequestMethod):
         with pytest.raises(ValueError):
             enum("not_a_value")
 
@@ -251,7 +252,7 @@ def test_every_generated_enum_but_the_request_only_ones_tolerates_new_values():
 
     import kofra._generated.models as models
 
-    request_only = {"GrantInputAccess", "PresignRequestMethod"}
+    request_only = {"GrantInputAccess", "ObjectsListDelimiter", "PresignRequestMethod"}
     seen = set()
     for info in pkgutil.iter_modules(models.__path__):
         module = importlib.import_module(f"{models.__name__}.{info.name}")
