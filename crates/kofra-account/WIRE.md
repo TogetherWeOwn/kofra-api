@@ -85,7 +85,7 @@ interface SecurityEvent { at: string; kind: string; user_agent: string; country:
 |---|---|---|---|
 | `POST /account/v1/signup` | none | `{ invite?: string, email, name, password }` | `202 { "state": "verify_email" }` whether or not the address had an account |
 | `POST /account/v1/email/resend` | none | `{ email }` | `202 {}` always |
-| `POST /account/v1/email/verify` | none | `{ token }` | sign-up link: `200 SignInAnswer` with `state: "signed_in"`; e-mail change link: `200 { "state": "verified" }` |
+| `POST /account/v1/email/verify` | none | `{ token }` | `200 { "state": "verified", "what": "address" \| "email_changed" }`. A link never signs anyone in: after a sign-up link, send the person to sign in. The first confirmation ends every session of the account and voids the other confirmation links. |
 | `POST /account/v1/login/password` | none | `{ email, password }` | `200 SignInAnswer` |
 | `POST /account/v1/login/totp` | second step | `{ code }` | `200 SignInAnswer` (a new token) |
 | `POST /account/v1/login/recovery` | second step | `{ code }` | `200 SignInAnswer` (a new token) |
@@ -109,4 +109,8 @@ interface SecurityEvent { at: string; kind: string; user_agent: string; country:
 | `GET /account/v1/security-log` | full | | `200 { data: SecurityEvent[] }` (newest first, at most 50) |
 
 "Session: full" means `stage = full`. A second-step session reaches only
-`login/totp`, `login/recovery`, `session/resolve` and `logout`.
+`login/totp`, `login/recovery`, `session/resolve` and `logout`, and its
+`resolve` answer lists no workspaces.
+
+A password reset, a password change, an address change and turning two-step
+verification off void every e-mail link sent before them.

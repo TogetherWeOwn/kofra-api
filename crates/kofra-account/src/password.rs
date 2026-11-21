@@ -11,6 +11,13 @@ use argon2::{
     Algorithm, Argon2, Params, PasswordHash, PasswordHasher, PasswordVerifier, Version,
     password_hash::SaltString,
 };
+use unicode_normalization::UnicodeNormalization;
+
+/// NFKC, as NIST SP 800-63B asks, so that the same passphrase typed on two
+/// keyboards (composed or decomposed accents, full-width forms) matches.
+fn normal(password: &str) -> String {
+    password.nfkc().collect()
+}
 
 /// Fewest characters.
 pub const MIN_CHARS: usize = 12;
@@ -53,6 +60,7 @@ impl Weak {
 
 /// Checks a new password against the policy.
 pub fn check(password: &str, email_key: &str, name: &str) -> Result<(), Weak> {
+    let password = normal(password);
     let n = password.chars().count();
     if n < MIN_CHARS {
         return Err(Weak::TooShort);
@@ -81,7 +89,9 @@ fn argon2() -> Option<Argon2<'static>> {
 /// invalid, which a test rules out.
 pub fn hash(password: &str, salt: [u8; 16]) -> Option<String> {
     let salt = SaltString::encode_b64(&salt).ok()?;
-    let h = argon2()?.hash_password(password.as_bytes(), &salt).ok()?;
+    let h = argon2()?
+        .hash_password(normal(password).as_bytes(), &salt)
+        .ok()?;
     Some(h.to_string())
 }
 
@@ -94,7 +104,7 @@ pub fn verify(password: &str, stored: &str) -> bool {
     // The stored string carries its own parameters; `Argon2::default()`
     // verifies with those.
     Argon2::default()
-        .verify_password(password.as_bytes(), &parsed)
+        .verify_password(normal(password).as_bytes(), &parsed)
         .is_ok()
 }
 
@@ -144,6 +154,12 @@ mod tests {
         assert!(!verify("correct horse batterY", &h));
         assert!(!verify("correct horse battery", "not a hash"));
         assert!(!needs_rehash(&h));
+    }
+
+    #[test]
+    fn composed_and_decomposed_forms_match() {
+        let h = hash("caf\u{e9} au lait please", [1; 16]).unwrap();
+        assert!(verify("cafe\u{301} au lait please", &h));
     }
 
     #[test]

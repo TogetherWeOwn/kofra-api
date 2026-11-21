@@ -100,6 +100,24 @@ impl Harness {
         }
     }
 
+    fn send_from(&self, ip: &str, method: &str, path: &str, body: Option<Value>) -> Answer {
+        let req = Request {
+            method: method.to_owned(),
+            path: format!("/account/v1/{path}"),
+            headers: vec![("Kofra-Client-IP".to_owned(), ip.to_owned())],
+            body: body
+                .map(|b| serde_json::to_vec(&b).unwrap())
+                .unwrap_or_default(),
+            from_console: true,
+        };
+        let res = pollster::block_on(handle(&self.acc, &req));
+        Answer {
+            status: res.status,
+            body: serde_json::from_slice(&res.body).unwrap_or(Value::Null),
+            headers: res.headers,
+        }
+    }
+
     fn call(&self, method: &str, path: &str, session: Option<&str>, body: Option<Value>) -> Answer {
         self.send(method, path, session, body, true)
     }
@@ -140,8 +158,20 @@ impl Harness {
         let t = self.mailed_token(&email);
         let v = self.call("POST", "email/verify", None, Some(json!({"token": t})));
         assert_eq!(v.status, 200, "{}", v.body);
-        assert_eq!(v.body["state"], "signed_in");
-        v.token()
+        assert_eq!(v.body, json!({"state": "verified", "what": "address"}));
+        self.login(&email)
+    }
+
+    /// Signs in with the password; returns the session token.
+    fn login(&self, email: &str) -> String {
+        let l = self.call(
+            "POST",
+            "login/password",
+            None,
+            Some(json!({"email": email, "password": PW})),
+        );
+        assert_eq!(l.status, 200, "{}", l.body);
+        l.token()
     }
 
     fn totp_code(&self, secret_b32: &str, offset_steps: i64) -> String {
@@ -325,7 +355,7 @@ fn unknown_fields_and_bad_bodies_are_refused() {
 }
 
 #[test]
-fn verification_signs_in_once_and_resolve_asks_for_a_workspace() {
+fn verification_confirms_once_and_resolve_asks_for_a_workspace() {
     let h = Harness::new(SignupMode::Invite);
     let s = h.signed_up("ada");
     let r = h.call("POST", "session/resolve", Some(&s), None);
@@ -406,7 +436,8 @@ fn sign_in_errors_are_identical_for_unknown_and_wrong() {
 fn sign_in_is_throttled_per_address_with_a_wait() {
     let h = Harness::new(SignupMode::Invite);
     h.signed_up("ada");
-    for _ in 0..10 {
+    // signed_up() signed in once: 9 more attempts reach the limit of 10.
+    for _ in 0..9 {
         let a = h.call(
             "POST",
             "login/password",
@@ -845,7 +876,10 @@ fn email_change_waits_for_the_new_link_and_notifies_the_old_address() {
         "unchanged until the link is used"
     );
     let v = h.call("POST", "email/verify", None, Some(json!({"token": t})));
-    assert_eq!(v.body, json!({"state": "verified"}));
+    assert_eq!(
+        v.body,
+        json!({"state": "verified", "what": "email_changed"})
+    );
     let r = h.call("POST", "session/resolve", Some(&s), None);
     assert_eq!(r.body["user"]["email"], new);
     let l = h.call(
@@ -977,4 +1011,244 @@ fn totp_off_voids_recovery_codes_and_other_sessions() {
         Some(json!({"email": addr("ada"), "password": PW})),
     );
     assert_eq!(l.body["state"], "signed_in");
+}
+
+#[test]
+fn confirming_the_address_signs_nobody_in_and_ends_earlier_sessions() {
+    let h = Harness::new(SignupMode::Open);
+    let email = addr("ada");
+    // Someone signs up with this address and signs in before confirming.
+    h.call(
+        "POST",
+        "signup",
+        None,
+        Some(json!({"email": email, "name": "Ada", "password": PW})),
+    );
+    let early = h.login(&email);
+    h.call("POST", "email/resend", None, Some(json!({"email": email})));
+    let second_link = h.mailed_token(&email);
+    let first_link = {
+        let sent = h.ports().mailer.sent.borrow();
+        let m = sent.iter().find(|m| m.to == email).unwrap();
+        let i = m.text.find("token=").unwrap() + 6;
+        m.text[i..].split_whitespace().next().unwrap().to_owned()
+    };
+    assert_ne!(first_link, second_link);
+    let v = h.call(
+        "POST",
+        "email/verify",
+        None,
+        Some(json!({"token": first_link})),
+    );
+    assert_eq!(v.body, json!({"state": "verified", "what": "address"}));
+    assert!(v.body.get("session").is_none(), "a link is never a sign-in");
+    assert_eq!(
+        h.call("POST", "session/resolve", Some(&early), None).code(),
+        "session_invalid"
+    );
+    let other = h.call(
+        "POST",
+        "email/verify",
+        None,
+        Some(json!({"token": second_link})),
+    );
+    assert_eq!(other.code(), "token_invalid", "sibling links are voided");
+}
+
+#[test]
+fn a_pending_address_change_dies_with_a_password_reset() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    let intruder = addr("intruder");
+    assert_eq!(
+        h.call(
+            "POST",
+            "email/change",
+            Some(&s),
+            Some(json!({"email": intruder}))
+        )
+        .status,
+        202
+    );
+    let change_link = h.mailed_token(&intruder);
+    h.call(
+        "POST",
+        "password/forgot",
+        None,
+        Some(json!({"email": addr("ada")})),
+    );
+    let reset = h.mailed_token(&addr("ada"));
+    let r = h.call(
+        "POST",
+        "password/reset",
+        None,
+        Some(json!({"token": reset, "password": "the owner's new passphrase"})),
+    );
+    assert_eq!(r.status, 200, "{}", r.body);
+    let late = h.call(
+        "POST",
+        "email/verify",
+        None,
+        Some(json!({"token": change_link})),
+    );
+    assert_eq!(late.code(), "token_invalid");
+}
+
+#[test]
+fn a_pending_address_change_dies_with_a_password_change() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    let intruder = addr("intruder");
+    h.call(
+        "POST",
+        "email/change",
+        Some(&s),
+        Some(json!({"email": intruder})),
+    );
+    let change_link = h.mailed_token(&intruder);
+    let c = h.call(
+        "POST",
+        "password/change",
+        Some(&s),
+        Some(json!({"current": PW, "password": "the owner's new passphrase"})),
+    );
+    assert_eq!(c.status, 200);
+    let late = h.call(
+        "POST",
+        "email/verify",
+        None,
+        Some(json!({"token": change_link})),
+    );
+    assert_eq!(late.code(), "token_invalid");
+}
+
+#[test]
+fn one_user_cannot_end_another_users_session() {
+    let h = Harness::new(SignupMode::Invite);
+    let a = h.signed_up("ada");
+    let h2 = &h;
+    let b = {
+        let email = addr("bea");
+        let (token, hash) = crypto::new_token([8; 32]);
+        h2.ports().store.add_invite(InviteRecord {
+            id: "inv_2".into(),
+            token_hash: hash,
+            email_key: email.clone(),
+            created_at: T0,
+            expires_at: T0 + MINUTE * 60,
+            used_at: None,
+        });
+        h2.call(
+            "POST",
+            "signup",
+            None,
+            Some(json!({"invite": token, "email": email, "name": "Bea", "password": PW})),
+        );
+        let t = h2.mailed_token(&email);
+        h2.call("POST", "email/verify", None, Some(json!({"token": t})));
+        h2.login(&email)
+    };
+    let b_id = h.call("POST", "session/resolve", Some(&b), None).body["session"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let d = h.call("DELETE", &format!("sessions/{b_id}"), Some(&a), None);
+    assert_eq!(d.code(), "not_found");
+    assert_eq!(
+        h.call("POST", "session/resolve", Some(&b), None).status,
+        200
+    );
+}
+
+#[test]
+fn reauth_asks_for_the_code_when_two_step_is_on() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    let (secret, _) = h.enable_totp(&s);
+    let no_code = h.call("POST", "reauth", Some(&s), Some(json!({"password": PW})));
+    assert_eq!(no_code.code(), "code_invalid");
+    h.advance(30_000);
+    let ok = h.call(
+        "POST",
+        "reauth",
+        Some(&s),
+        Some(json!({"password": PW, "code": h.totp_code(&secret, 0)})),
+    );
+    assert_eq!(ok.status, 200, "{}", ok.body);
+}
+
+#[test]
+fn turning_two_step_off_ends_other_sessions() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    let (secret, _) = h.enable_totp(&s);
+    let p = h.call(
+        "POST",
+        "login/password",
+        None,
+        Some(json!({"email": addr("ada"), "password": PW})),
+    );
+    h.advance(30_000);
+    let other = h
+        .call(
+            "POST",
+            "login/totp",
+            Some(&p.token()),
+            Some(json!({"code": h.totp_code(&secret, 0)})),
+        )
+        .token();
+    assert_eq!(h.call("DELETE", "totp", Some(&s), None).status, 204);
+    assert_eq!(
+        h.call("POST", "session/resolve", Some(&other), None).code(),
+        "session_invalid"
+    );
+}
+
+#[test]
+fn a_second_step_session_sees_no_workspaces() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    h.call("POST", "workspaces", Some(&s), Some(json!({"name": "W"})));
+    h.enable_totp(&s);
+    let p = h.call(
+        "POST",
+        "login/password",
+        None,
+        Some(json!({"email": addr("ada"), "password": PW})),
+    );
+    let r = h.call("POST", "session/resolve", Some(&p.token()), None);
+    assert_eq!(r.body["workspaces"], json!([]));
+    assert_eq!(r.body["needs"], "second_step");
+}
+
+#[test]
+fn ipv6_clients_share_a_throttle_per_64() {
+    let h = Harness::new(SignupMode::Invite);
+    for i in 0..50 {
+        let mut req_ip = format!("2001:db8:1:2::{i:x}");
+        if i % 2 == 0 {
+            req_ip = format!("2001:db8:1:2:ffff::{i:x}");
+        }
+        let a = h.send_from(
+            &req_ip,
+            "POST",
+            "login/password",
+            Some(json!({"email": addr(&format!("u{i}")), "password": PW})),
+        );
+        assert_eq!(a.status, 401);
+    }
+    let blocked = h.send_from(
+        "2001:db8:1:2::abcd",
+        "POST",
+        "login/password",
+        Some(json!({"email": addr("z"), "password": PW})),
+    );
+    assert_eq!(blocked.code(), "rate_limited");
+    let other_net = h.send_from(
+        "2001:db8:1:3::1",
+        "POST",
+        "login/password",
+        Some(json!({"email": addr("z"), "password": PW})),
+    );
+    assert_eq!(other_net.code(), "invalid_credentials");
 }

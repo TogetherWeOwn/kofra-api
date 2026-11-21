@@ -304,10 +304,14 @@ async fn route<P: Ports>(acc: &Accounts<P>, req: &Request) -> Result<Response, A
         }
         ("POST", ["email", "verify"]) => {
             let b: TokenOnly = body(req)?;
-            match acc.verify_email(&b.token, &c).await? {
-                Verified::SignedIn(i) => Ok(Response::json(200, &issued(&i))),
-                Verified::EmailChanged => Ok(Response::json(200, &json!({ "state": "verified" }))),
-            }
+            let what = match acc.verify_email(&b.token, &c).await? {
+                Verified::Address => "address",
+                Verified::EmailChanged => "email_changed",
+            };
+            Ok(Response::json(
+                200,
+                &json!({ "state": "verified", "what": what }),
+            ))
         }
         ("POST", ["email", "change"]) => {
             let b: EmailOnly = body(req)?;

@@ -93,17 +93,55 @@ impl Store for MemoryStore {
         Ok(true)
     }
 
-    async fn update_user(&self, user: &UserRecord) -> PortResult<bool> {
+    async fn set_name(&self, user_id: &str, name: &str, now_ms: u64) -> PortResult<()> {
+        self.check()?;
+        if let Some(u) = self.users.borrow_mut().iter_mut().find(|u| u.id == user_id) {
+            name.clone_into(&mut u.name);
+            u.updated_at = now_ms;
+        }
+        Ok(())
+    }
+
+    async fn set_password_hash(&self, user_id: &str, hash: &str, now_ms: u64) -> PortResult<()> {
+        self.check()?;
+        if let Some(u) = self.users.borrow_mut().iter_mut().find(|u| u.id == user_id) {
+            hash.clone_into(&mut u.password_hash);
+            u.updated_at = now_ms;
+        }
+        Ok(())
+    }
+
+    async fn mark_email_verified(&self, user_id: &str, now_ms: u64) -> PortResult<bool> {
         self.check()?;
         let mut users = self.users.borrow_mut();
-        if users
-            .iter()
-            .any(|u| u.id != user.id && u.email_key == user.email_key)
-        {
+        let Some(u) = users
+            .iter_mut()
+            .find(|u| u.id == user_id && u.email_verified_at.is_none())
+        else {
+            return Ok(false);
+        };
+        u.email_verified_at = Some(now_ms);
+        u.updated_at = now_ms;
+        Ok(true)
+    }
+
+    async fn set_email(
+        &self,
+        user_id: &str,
+        display: &str,
+        key: &str,
+        now_ms: u64,
+    ) -> PortResult<bool> {
+        self.check()?;
+        let mut users = self.users.borrow_mut();
+        if users.iter().any(|u| u.id != user_id && u.email_key == key) {
             return Ok(false);
         }
-        if let Some(u) = users.iter_mut().find(|u| u.id == user.id) {
-            *u = user.clone();
+        if let Some(u) = users.iter_mut().find(|u| u.id == user_id) {
+            display.clone_into(&mut u.email);
+            key.clone_into(&mut u.email_key);
+            u.email_verified_at = Some(now_ms);
+            u.updated_at = now_ms;
         }
         Ok(true)
     }
@@ -192,6 +230,21 @@ impl Store for MemoryStore {
                     && t.expires_at > now_ms
             })
             .cloned())
+    }
+
+    async fn void_email_tokens(
+        &self,
+        user_id: &str,
+        purposes: &[Purpose],
+        now_ms: u64,
+    ) -> PortResult<()> {
+        self.check()?;
+        for t in self.email_tokens.borrow_mut().iter_mut() {
+            if t.user_id == user_id && purposes.contains(&t.purpose) && t.used_at.is_none() {
+                t.used_at = Some(now_ms);
+            }
+        }
+        Ok(())
     }
 
     async fn take_email_token(
@@ -341,11 +394,14 @@ impl Store for MemoryStore {
         &self,
         workspace: &WorkspaceRecord,
         owner: &MemberRecord,
-    ) -> PortResult<()> {
-        self.check()?;
+        max_owned: u32,
+    ) -> PortResult<bool> {
+        if self.owned_workspaces(&owner.user_id).await? >= max_owned {
+            return Ok(false);
+        }
         self.workspaces.borrow_mut().push(workspace.clone());
         self.members.borrow_mut().push(owner.clone());
-        Ok(())
+        Ok(true)
     }
 
     async fn claim_provisioning(

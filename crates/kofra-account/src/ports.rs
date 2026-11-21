@@ -35,9 +35,24 @@ pub trait Store {
     async fn user_by_email(&self, email_key: &str) -> PortResult<Option<UserRecord>>;
     /// Inserts a user; `false` (nothing written) if the address is taken.
     async fn insert_user(&self, user: &UserRecord) -> PortResult<bool>;
-    /// Replaces a user's row. `false` if the new address is taken by another
-    /// user (nothing written).
-    async fn update_user(&self, user: &UserRecord) -> PortResult<bool>;
+    /// Sets the display name. Each user write touches only its own columns,
+    /// so two requests that race never put back a value the other replaced
+    /// (a stale password hash above all).
+    async fn set_name(&self, user_id: &str, name: &str, now_ms: u64) -> PortResult<()>;
+    /// Sets the password hash.
+    async fn set_password_hash(&self, user_id: &str, hash: &str, now_ms: u64) -> PortResult<()>;
+    /// Marks the address confirmed if it is not yet; `true` if this call did
+    /// it (`UPDATE ... WHERE email_verified_at IS NULL`).
+    async fn mark_email_verified(&self, user_id: &str, now_ms: u64) -> PortResult<bool>;
+    /// Sets a new, confirmed address; `false` (nothing written) if another
+    /// user has it.
+    async fn set_email(
+        &self,
+        user_id: &str,
+        display: &str,
+        key: &str,
+        now_ms: u64,
+    ) -> PortResult<bool>;
 
     /// Stores a session.
     async fn insert_session(&self, session: &SessionRecord) -> PortResult<()>;
@@ -61,6 +76,14 @@ pub trait Store {
         purpose: Purpose,
         now_ms: u64,
     ) -> PortResult<Option<EmailToken>>;
+    /// Marks every unused link of the user for these purposes used, so that
+    /// no link sent before a credential change can be used after it.
+    async fn void_email_tokens(
+        &self,
+        user_id: &str,
+        purposes: &[Purpose],
+        now_ms: u64,
+    ) -> PortResult<()>;
     /// Atomically marks the link used if it is still usable; returns it, or
     /// `None` if another request took it first (or it is not usable).
     async fn take_email_token(
@@ -106,12 +129,15 @@ pub trait Store {
     async fn memberships(&self, user_id: &str) -> PortResult<Vec<(WorkspaceRecord, MemberRecord)>>;
     /// Workspaces the user owns that are not closed.
     async fn owned_workspaces(&self, user_id: &str) -> PortResult<u32>;
-    /// Inserts a workspace and its first member in one batch.
+    /// Inserts a workspace and its first member in one batch, only if the
+    /// owner then owns at most `max_owned` workspaces that are not closed
+    /// (one conditional statement). `false` if the cap stopped it.
     async fn insert_workspace(
         &self,
         workspace: &WorkspaceRecord,
         owner: &MemberRecord,
-    ) -> PortResult<()>;
+        max_owned: u32,
+    ) -> PortResult<bool>;
     /// Records a provisioning attempt; `false` if another attempt was
     /// recorded after `not_after_ms` (so this one should not run).
     async fn claim_provisioning(

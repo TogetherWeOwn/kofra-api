@@ -171,14 +171,18 @@ pub struct Resolved {
     pub needs: Option<Needs>,
 }
 
-/// The outcome of an e-mail link.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The outcome of an e-mail link. Neither signs anyone in: a link in an
+/// inbox is never a sign-in factor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verified {
-    /// A sign-up link: the person is signed in.
-    SignedIn(Issued),
+    /// A sign-up link: the address is confirmed.
+    Address,
     /// A new-address link: the address changed.
     EmailChanged,
 }
+
+/// Every link purpose.
+const ALL_PURPOSES: [Purpose; 3] = [Purpose::Verify, Purpose::Reset, Purpose::EmailChange];
 
 /// A new authenticator-app secret, shown once.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -498,8 +502,18 @@ impl<P: Ports> Accounts<P> {
         Ok(())
     }
 
-    fn ip_key(prefix: &str, client: &Client) -> String {
-        format!("{prefix}:ip:{}", client.ip.as_deref().unwrap_or("none"))
+    /// The throttle key of a client address: the address itself for IPv4,
+    /// its /64 for IPv6 (one host usually holds a whole /64).
+    pub(crate) fn ip_key(prefix: &str, client: &Client) -> String {
+        let ip = match client.ip.as_deref().map(str::parse::<std::net::IpAddr>) {
+            Some(Ok(std::net::IpAddr::V6(v6))) => {
+                let s = v6.segments();
+                format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
+            }
+            Some(Ok(v4)) => v4.to_string(),
+            _ => "none".to_owned(),
+        };
+        format!("{prefix}:ip:{ip}")
     }
 
     // ----- sign-up and e-mail -------------------------------------------
@@ -596,7 +610,10 @@ impl<P: Ports> Accounts<P> {
         Ok(())
     }
 
-    /// `POST /email/verify`: a sign-up link or a new-address link.
+    /// `POST /email/verify`: a sign-up link or a new-address link. On the
+    /// first confirmation every session of the account ends and every other
+    /// confirmation link is voided: whoever created the account before the
+    /// owner of the address confirmed it keeps nothing.
     pub async fn verify_email(&self, token: &str, client: &Client) -> Result<Verified> {
         if !crypto::token_shape_ok(token) {
             return Err(Code::TokenInvalid.into());
@@ -607,47 +624,43 @@ impl<P: Ports> Accounts<P> {
         let now = self.now();
         let hash = crypto::token_hash(token);
         if let Some(t) = store.take_email_token(&hash, Purpose::Verify, now).await? {
-            let mut user = store.user(&t.user_id).await?.ok_or(Code::TokenInvalid)?;
+            let user = store.user(&t.user_id).await?.ok_or(Code::TokenInvalid)?;
             if user.email != t.email {
                 return Err(Code::TokenInvalid.into());
             }
-            if user.email_verified_at.is_none() {
-                user.email_verified_at = Some(now);
-                user.updated_at = now;
-                store.update_user(&user).await?;
+            if store.mark_email_verified(&user.id, now).await? {
+                store
+                    .void_email_tokens(&user.id, &[Purpose::Verify], now)
+                    .await?;
+                store.delete_sessions(&user.id, None).await?;
                 self.event(&user.id, EventKind::EmailVerified, client)
                     .await?;
             }
-            let issued = if self.totp_enabled(&user.id).await?.is_some() {
-                self.issue(&user.id, Stage::SecondStep, 1, client).await?
-            } else {
-                self.event(&user.id, EventKind::SignIn, client).await?;
-                self.issue(&user.id, Stage::Full, 1, client).await?
-            };
-            return Ok(Verified::SignedIn(issued));
+            return Ok(Verified::Address);
         }
         if let Some(t) = store
             .take_email_token(&hash, Purpose::EmailChange, now)
             .await?
         {
-            let mut user = store.user(&t.user_id).await?.ok_or(Code::TokenInvalid)?;
+            let user = store.user(&t.user_id).await?.ok_or(Code::TokenInvalid)?;
             let new = email::parse(&t.email).ok_or(Code::TokenInvalid)?;
-            let old = user.email.clone();
-            user.email = new.display;
-            user.email_key = new.key;
-            user.email_verified_at = Some(now);
-            user.updated_at = now;
-            if !store.update_user(&user).await? {
+            if !store
+                .set_email(&user.id, &new.display, &new.key, now)
+                .await?
+            {
                 return Err(Code::TokenInvalid.into());
             }
+            store
+                .void_email_tokens(&user.id, &ALL_PURPOSES, now)
+                .await?;
             self.event(&user.id, EventKind::EmailChanged, client)
                 .await?;
             self.send(mail::notice(
-                &old,
+                &user.email,
                 &user.name,
                 &format!(
                     "The sign-in address of your Kofra account was changed to {}.",
-                    user.email
+                    new.display
                 ),
             ))
             .await;
@@ -699,8 +712,6 @@ impl<P: Ports> Accounts<P> {
         client: &Client,
     ) -> Result<Issued> {
         let (s, user) = self.session(token, Want::SecondStep).await?;
-        self.limit(&format!("second:{}", user.id), 10, 15 * MINUTE)
-            .await?;
         let shape_ok = if recovery_only {
             recovery::normalise(code).is_some()
         } else {
@@ -743,7 +754,12 @@ impl<P: Ports> Accounts<P> {
     pub async fn resolve(&self, token: Option<&str>) -> Result<Resolved> {
         let (session, user) = self.session(token, Want::Any).await?;
         let store = self.ports.store();
-        let mut workspaces = store.memberships(&user.id).await?;
+        // A second-step session opens nothing but the second step.
+        let mut workspaces = if session.stage == Stage::Full {
+            store.memberships(&user.id).await?
+        } else {
+            Vec::new()
+        };
         if session.stage == Stage::Full
             && workspaces
                 .iter()
@@ -905,7 +921,7 @@ impl<P: Ports> Accounts<P> {
         code: Option<&str>,
         client: &Client,
     ) -> Result<()> {
-        let (t, mut user) = self.reset_user(token).await?;
+        let (t, user) = self.reset_user(token).await?;
         self.limit(&format!("reset:{}", user.id), 10, 15 * MINUTE)
             .await?;
         self.check_new_password(pw, &user.email_key, &user.name)
@@ -930,11 +946,14 @@ impl<P: Ports> Accounts<P> {
         {
             return Err(Code::TokenInvalid.into());
         }
-        user.password_hash = self.hash_password(pw)?;
+        store
+            .set_password_hash(&user.id, &self.hash_password(pw)?, now)
+            .await?;
         // The link proved control of the inbox.
-        user.email_verified_at = user.email_verified_at.or(Some(now));
-        user.updated_at = now;
-        store.update_user(&user).await?;
+        store.mark_email_verified(&user.id, now).await?;
+        store
+            .void_email_tokens(&user.id, &ALL_PURPOSES, now)
+            .await?;
         store.delete_sessions(&user.id, None).await?;
         self.event(&user.id, EventKind::PasswordReset, client)
             .await?;
@@ -956,7 +975,7 @@ impl<P: Ports> Accounts<P> {
         new: &str,
         client: &Client,
     ) -> Result<Issued> {
-        let (s, mut user) = self.fresh(token).await?;
+        let (s, user) = self.fresh(token).await?;
         self.limit(&format!("reauth:{}", user.id), 10, 15 * MINUTE)
             .await?;
         if !password::verify(current, &user.password_hash) {
@@ -967,9 +986,13 @@ impl<P: Ports> Accounts<P> {
         self.check_new_password(new, &user.email_key, &user.name)
             .await?;
         let store = self.ports.store();
-        user.password_hash = self.hash_password(new)?;
-        user.updated_at = self.now();
-        store.update_user(&user).await?;
+        let now = self.now();
+        store
+            .set_password_hash(&user.id, &self.hash_password(new)?, now)
+            .await?;
+        store
+            .void_email_tokens(&user.id, &ALL_PURPOSES, now)
+            .await?;
         store.delete_sessions(&user.id, None).await?;
         self.event(&user.id, EventKind::PasswordChanged, client)
             .await?;
@@ -1023,7 +1046,10 @@ impl<P: Ports> Accounts<P> {
         let (_, mut user) = self.full_verified(token).await?;
         user.name = clean_name(name)?;
         user.updated_at = self.now();
-        self.ports.store().update_user(&user).await?;
+        self.ports
+            .store()
+            .set_name(&user.id, &user.name, user.updated_at)
+            .await?;
         let totp = self.totp_enabled(&user.id).await?.is_some();
         let recovery_codes_left = self.ports.store().recovery_codes_left(&user.id).await?;
         Ok(UserView {
@@ -1119,6 +1145,9 @@ impl<P: Ports> Accounts<P> {
         store
             .replace_recovery_codes(&user.id, &[], self.now())
             .await?;
+        store
+            .void_email_tokens(&user.id, &ALL_PURPOSES, self.now())
+            .await?;
         store.delete_sessions(&user.id, Some(&s.id)).await?;
         s.level = 1;
         store.update_session(&s).await?;
@@ -1185,7 +1214,12 @@ impl<P: Ports> Accounts<P> {
             active: true,
             created_at: now,
         };
-        store.insert_workspace(&ws, &member).await?;
+        if !store
+            .insert_workspace(&ws, &member, self.config.max_owned_workspaces)
+            .await?
+        {
+            return Err(Code::WorkspaceLimitReached.into());
+        }
         self.provision(&ws.id).await?;
         let found = store
             .memberships(&user.id)
