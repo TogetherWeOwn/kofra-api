@@ -105,7 +105,7 @@ interface SecurityEvent { at: string; kind: string; user_agent: string; country:
 | `POST /account/v1/email/change` | full, fresh step | `{ email }` | `202 {}` |
 | `PATCH /account/v1/profile` | full, verified | `{ name }` | `200 User` |
 | `POST /account/v1/totp/begin` | full, fresh step | none | `200 { "secret": base32, "uri": "otpauth://totp/..." }` |
-| `POST /account/v1/totp/confirm` | full, fresh step | `{ code, password? }` (`password` required when this is the first second factor) | `200 { "recovery_codes": string[] \| null }` (a new set only when the user had no unused recovery code) |
+| `POST /account/v1/totp/confirm` | full, fresh step | `{ code, password? }` (`password` required when this is the first second factor; other devices are signed out) | `200 { "recovery_codes": string[] \| null }` (a new set only when the user had no unused recovery code) |
 | `DELETE /account/v1/totp` | full, fresh step | | `204` |
 | `POST /account/v1/recovery-codes` | full, fresh step | none | `200 { "recovery_codes": string[] }` |
 | `POST /account/v1/workspaces` | full, verified | `{ name }` | `201 WorkspaceSummary` |
@@ -122,7 +122,7 @@ answers `401 passkey_invalid`.
 | Method and path | Session | Body | Answer |
 |---|---|---|---|
 | `POST /account/v1/passkeys/register/begin` | full, fresh step | none | `200 { challenge_id, options }` |
-| `POST /account/v1/passkeys/register/finish` | full, fresh step | `{ challenge_id, name, credential, password? }` (`password` required when this is the first second factor) | `201 { passkey, recovery_codes: string[] \| null }` (codes when this is the first second factor) |
+| `POST /account/v1/passkeys/register/finish` | full, fresh step | `{ challenge_id, name, credential, password? }` (`password` required when this is the first second factor) | `201 { passkey, recovery_codes: string[] \| null }` (codes when this is the first second factor). Every added passkey raises the credential epoch: other devices are signed out, this one stays. |
 | `POST /account/v1/passkeys/login/begin` | none, or second step | none | `200 { challenge_id, options }` (with a second-step session, only that user's passkeys are allowed; `404 not_found` when that user has none) |
 | `POST /account/v1/passkeys/login/finish` | none, or second step | `{ challenge_id, credential }` | `200 SignInAnswer` with `state: "signed_in"` (two factors) |
 | `POST /account/v1/reauth/passkey/begin` | full | none | `200 { challenge_id, options }` |
