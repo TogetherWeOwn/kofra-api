@@ -18,12 +18,15 @@
 - [unauthenticated](https://kofra.app/docs/errors/unauthenticated.md): Authentication required
 - [token_expired](https://kofra.app/docs/errors/token_expired.md): API token has expired
 - [insufficient_scope](https://kofra.app/docs/errors/insufficient_scope.md): Token lacks a required scope
+- [ip_not_allowed](https://kofra.app/docs/errors/ip_not_allowed.md): Request address is not allowed for this token
+- [bucket_not_allowed](https://kofra.app/docs/errors/bucket_not_allowed.md): Token is limited to other buckets
 - [role_forbidden](https://kofra.app/docs/errors/role_forbidden.md): Your role does not allow this
 - [account_read_only](https://kofra.app/docs/errors/account_read_only.md): Account is read-only
 - [account_unavailable](https://kofra.app/docs/errors/account_unavailable.md): Account is not available
 - [not_found](https://kofra.app/docs/errors/not_found.md): No such endpoint
 - [bucket_not_found](https://kofra.app/docs/errors/bucket_not_found.md): Bucket not found
 - [key_not_found](https://kofra.app/docs/errors/key_not_found.md): Access key not found
+- [token_not_found](https://kofra.app/docs/errors/token_not_found.md): API token not found
 - [method_not_allowed](https://kofra.app/docs/errors/method_not_allowed.md): Method not allowed
 - [payload_too_large](https://kofra.app/docs/errors/payload_too_large.md): Request body is too large
 - [unsupported_media_type](https://kofra.app/docs/errors/unsupported_media_type.md): Body must be JSON

@@ -65,6 +65,20 @@ errors:
     meaning: The API token is valid but does not carry the scope this operation needs. The scopes needed are listed in the operation's description.
     hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
     detail_example: 'This operation needs the scope "buckets:write".'
+  - code: ip_not_allowed
+    status: 403
+    title: Request address is not allowed for this token
+    retryable: false
+    meaning: The API token is limited to some client addresses (`allowed_ips`), and this request came from another address. When a token is being created, an address list wider than the creating token's own is refused the same way.
+    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+    detail_example: 'The token is not accepted from 198.51.100.7.'
+  - code: bucket_not_allowed
+    status: 403
+    title: Token is limited to other buckets
+    retryable: false
+    meaning: The API token is limited to some buckets (`buckets`), and the request names a bucket outside that list. When a token or an access key is being created, a bucket outside the creating token's list is refused the same way.
+    hint: Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.
+    detail_example: 'The token is limited to other buckets than "photos".'
   - code: role_forbidden
     status: 403
     title: Your role does not allow this
@@ -83,7 +97,7 @@ errors:
     status: 403
     title: Account is not available
     retryable: false
-    meaning: The account is blocked or is being deleted, so only reading the account itself and cancelling a deletion are possible.
+    meaning: The account is blocked or is being deleted. Storage operations and new API tokens are refused; reading the account, cancelling a deletion, listing and revoking API tokens and reading the audit log still work.
     hint: Open Account in the console to see the reason; a deletion can be cancelled there or with POST /v1/account/deletion/cancel.
     detail_example: 'The account is being deleted.'
 
@@ -111,6 +125,13 @@ errors:
     detail_example: 'There is no active access key with this ID.'
 
   # 405, 413, 415
+  - code: token_not_found
+    status: 404
+    title: API token not found
+    retryable: false
+    meaning: No API token with this ID exists in the workspace that you can manage, or it has been revoked.
+    hint: List your API tokens with GET /v1/tokens and use one of the returned IDs.
+    detail_example: 'No API token "tok_01jd3p5d9v1n6z8r0t2v4x6y8a" exists.'
   - code: method_not_allowed
     status: 405
     title: Method not allowed

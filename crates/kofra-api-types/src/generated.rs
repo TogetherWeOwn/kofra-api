@@ -430,6 +430,402 @@ impl ::std::convert::TryFrom<::std::string::String> for AccountState {
         value.parse()
     }
 }
+///`ApiToken`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+pub struct ApiToken {
+    ///The token is used by an AI agent. Shown as such in the audit log; an agent token cannot create tokens.
+    pub agent: bool,
+    ///The only client addresses the token is accepted from; `null` for any address.
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub allowed_ips: ::std::option::Option<::std::vec::Vec<IpRange>>,
+    ///The only buckets the token can reach; `null` for every bucket the member can reach.
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub buckets: ::std::option::Option<::std::vec::Vec<BucketName>>,
+    pub created_at: Timestamp,
+    pub created_by: UserId,
+    pub expires_at: Timestamp,
+    pub id: TokenId,
+    ///Last accepted request, to within an hour. `null` if never used.
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub last_used_at: ::std::option::Option<Timestamp>,
+    pub name: TokenName,
+    pub scopes: ::std::vec::Vec<Scope>,
+}
+///`ApiTokenCreate`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ApiTokenCreate {
+    ///Mark the token as used by an AI agent.
+    #[serde(default)]
+    pub agent: bool,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub allowed_ips: ::std::option::Option<crate::bounded::AllowedIps>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub buckets: ::std::option::Option<crate::bounded::TokenBuckets>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub expires_in_days: ::std::option::Option<crate::bounded::TokenLifetimeDays>,
+    pub name: TokenName,
+    pub scopes: crate::bounded::TokenScopes,
+}
+///An API token with its secret. The secret appears in this response only.
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+pub struct ApiTokenCreated {
+    ///The token is used by an AI agent. Shown as such in the audit log; an agent token cannot create tokens.
+    pub agent: bool,
+    ///The only client addresses the token is accepted from; `null` for any address.
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub allowed_ips: ::std::option::Option<::std::vec::Vec<IpRange>>,
+    ///The only buckets the token can reach; `null` for every bucket the member can reach.
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub buckets: ::std::option::Option<::std::vec::Vec<BucketName>>,
+    pub created_at: Timestamp,
+    pub created_by: UserId,
+    pub expires_at: Timestamp,
+    pub id: TokenId,
+    ///Last accepted request, to within an hour. `null` if never used.
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub last_used_at: ::std::option::Option<Timestamp>,
+    pub name: TokenName,
+    pub scopes: ::std::vec::Vec<Scope>,
+    ///The token to send as `Authorization: Bearer <token>`. `null` when this is a replay of an earlier request.
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub token: ::std::option::Option<::std::string::String>,
+}
+///`ApiTokenList`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+pub struct ApiTokenList {
+    pub data: ::std::vec::Vec<ApiToken>,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub next_cursor: ::std::option::Option<Cursor>,
+}
+///A member's user ID (`usr_...`) or an API token ID (`tok_...`).
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AuditActorId(::std::string::String);
+impl ::std::ops::Deref for AuditActorId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AuditActorId> for ::std::string::String {
+    fn from(value: AuditActorId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AuditActorId {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for AuditActorId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(||
+        { ::regress::Regex::with_flags("^(usr|tok)_[0-9a-z]{1,64}$", "u").unwrap() });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^(usr|tok)_[0-9a-z]{1,64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AuditActorId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value.as_str())
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AuditActorId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::convert::TryFrom::try_from(
+                ::std::string::String::deserialize(deserializer)?,
+            )
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AuditEntry`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+pub struct AuditEntry {
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub actor_id: ::std::option::Option<UserId>,
+    ///`user`: a member in the console. `token`: an API token. `agent`: an API token marked `agent`.
+    pub actor_type: AuditEntryActorType,
+    ///The error code of a refused or failed request.
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub code: ::std::option::Option<::std::string::String>,
+    pub created_at: Timestamp,
+    ///The API token used, if any.
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub credential_id: ::std::option::Option<TokenId>,
+    pub dry_run: bool,
+    pub id: AuditEntryId,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub ip: ::std::option::Option<::std::string::String>,
+    pub operation: OperationId,
+    ///`pending`: the request never finished. `refused`: answered with a 4xx. `failed`: answered with a 5xx.
+    pub outcome: AuditEntryOutcome,
+    pub request_id: ::std::string::String,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub status: ::std::option::Option<i64>,
+    ///The bucket, key or token the operation named, if any.
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub target: ::std::option::Option<::std::string::String>,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub user_agent: ::std::option::Option<AuditEntryUserAgent>,
+}
+///`user`: a member in the console. `token`: an API token. `agent`: an API token marked `agent`.
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum AuditEntryActorType {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "token")]
+    Token,
+    #[serde(rename = "agent")]
+    Agent,
+}
+impl ::std::fmt::Display for AuditEntryActorType {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::User => f.write_str("user"),
+            Self::Token => f.write_str("token"),
+            Self::Agent => f.write_str("agent"),
+        }
+    }
+}
+impl ::std::str::FromStr for AuditEntryActorType {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "user" => Ok(Self::User),
+            "token" => Ok(Self::Token),
+            "agent" => Ok(Self::Agent),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AuditEntryActorType {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AuditEntryActorType {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AuditEntryId`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AuditEntryId(::std::string::String);
+impl ::std::ops::Deref for AuditEntryId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AuditEntryId> for ::std::string::String {
+    fn from(value: AuditEntryId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AuditEntryId {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for AuditEntryId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(||
+        { ::regress::Regex::with_flags("^aud_[0-9a-z]{26}$", "u").unwrap() });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^aud_[0-9a-z]{26}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AuditEntryId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value.as_str())
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AuditEntryId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::convert::TryFrom::try_from(
+                ::std::string::String::deserialize(deserializer)?,
+            )
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`pending`: the request never finished. `refused`: answered with a 4xx. `failed`: answered with a 5xx.
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum AuditEntryOutcome {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "succeeded")]
+    Succeeded,
+    #[serde(rename = "refused")]
+    Refused,
+    #[serde(rename = "failed")]
+    Failed,
+}
+impl ::std::fmt::Display for AuditEntryOutcome {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pending => f.write_str("pending"),
+            Self::Succeeded => f.write_str("succeeded"),
+            Self::Refused => f.write_str("refused"),
+            Self::Failed => f.write_str("failed"),
+        }
+    }
+}
+impl ::std::str::FromStr for AuditEntryOutcome {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "succeeded" => Ok(Self::Succeeded),
+            "refused" => Ok(Self::Refused),
+            "failed" => Ok(Self::Failed),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AuditEntryOutcome {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AuditEntryOutcome {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AuditEntryUserAgent`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AuditEntryUserAgent(::std::string::String);
+impl ::std::ops::Deref for AuditEntryUserAgent {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AuditEntryUserAgent> for ::std::string::String {
+    fn from(value: AuditEntryUserAgent) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AuditEntryUserAgent {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for AuditEntryUserAgent {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AuditEntryUserAgent {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value.as_str())
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AuditEntryUserAgent {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::convert::TryFrom::try_from(
+                ::std::string::String::deserialize(deserializer)?,
+            )
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AuditList`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+pub struct AuditList {
+    pub data: ::std::vec::Vec<AuditEntry>,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub next_cursor: ::std::option::Option<Cursor>,
+}
 ///`Bucket`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 pub struct Bucket {
@@ -998,6 +1394,73 @@ impl ::std::convert::TryFrom<::std::string::String> for GrantInputAccess {
         value.parse()
     }
 }
+///An IPv4 or IPv6 address, or a CIDR block such as `203.0.113.0/24`.
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct IpRange(::std::string::String);
+impl ::std::ops::Deref for IpRange {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<IpRange> for ::std::string::String {
+    fn from(value: IpRange) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for IpRange {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for IpRange {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 49usize {
+            return Err("longer than 49 characters".into());
+        }
+        if value.chars().count() < 2usize {
+            return Err("shorter than 2 characters".into());
+        }
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(||
+        {
+            ::regress::Regex::with_flags("^[0-9A-Fa-f:.]+(/[0-9]{1,3})?$", "u").unwrap()
+        });
+        if PATTERN.find(value).is_none() {
+            return Err(
+                "doesn't match pattern \"^[0-9A-Fa-f:.]+(/[0-9]{1,3})?$\"".into(),
+            );
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for IpRange {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value.as_str())
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for IpRange {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::convert::TryFrom::try_from(
+                ::std::string::String::deserialize(deserializer)?,
+            )
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///A label for people; not used for access.
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
@@ -1061,6 +1524,66 @@ impl<'de> ::serde::Deserialize<'de> for KeyName {
 pub struct OpenUploads {
     pub count: i64,
     pub limit: i64,
+}
+///An operation of this API, for example `buckets.create`.
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct OperationId(::std::string::String);
+impl ::std::ops::Deref for OperationId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<OperationId> for ::std::string::String {
+    fn from(value: OperationId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for OperationId {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for OperationId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(||
+        { ::regress::Regex::with_flags("^[a-z][a-z_]*\\.[a-z][a-z_]*$", "u").unwrap() });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[a-z][a-z_]*\\.[a-z][a-z_]*$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for OperationId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value.as_str())
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for OperationId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::convert::TryFrom::try_from(
+                ::std::string::String::deserialize(deserializer)?,
+            )
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
 }
 ///Set while stored bytes are above the storage limit.
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
@@ -1169,6 +1692,8 @@ pub enum PlanEffectResource {
     Bucket,
     #[serde(rename = "key")]
     Key,
+    #[serde(rename = "token")]
+    Token,
 }
 impl ::std::fmt::Display for PlanEffectResource {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
@@ -1176,6 +1701,7 @@ impl ::std::fmt::Display for PlanEffectResource {
             Self::Account => f.write_str("account"),
             Self::Bucket => f.write_str("bucket"),
             Self::Key => f.write_str("key"),
+            Self::Token => f.write_str("token"),
         }
     }
 }
@@ -1188,6 +1714,7 @@ impl ::std::str::FromStr for PlanEffectResource {
             "account" => Ok(Self::Account),
             "bucket" => Ok(Self::Bucket),
             "key" => Ok(Self::Key),
+            "token" => Ok(Self::Token),
             _ => Err("invalid value".into()),
         }
     }
@@ -1475,6 +2002,105 @@ impl<'de> ::serde::Deserialize<'de> for ProblemCode {
             })
     }
 }
+///A permission an API token can carry, as `resource:verb`.
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum Scope {
+    #[serde(rename = "account:read")]
+    AccountRead,
+    #[serde(rename = "account:delete")]
+    AccountDelete,
+    #[serde(rename = "buckets:read")]
+    BucketsRead,
+    #[serde(rename = "buckets:write")]
+    BucketsWrite,
+    #[serde(rename = "buckets:delete")]
+    BucketsDelete,
+    #[serde(rename = "keys:read")]
+    KeysRead,
+    #[serde(rename = "keys:write")]
+    KeysWrite,
+    #[serde(rename = "tokens:read")]
+    TokensRead,
+    #[serde(rename = "tokens:write")]
+    TokensWrite,
+    #[serde(rename = "usage:read")]
+    UsageRead,
+    #[serde(rename = "events:read")]
+    EventsRead,
+    #[serde(rename = "audit:read")]
+    AuditRead,
+    #[serde(rename = "objects:read")]
+    ObjectsRead,
+}
+impl ::std::fmt::Display for Scope {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::AccountRead => f.write_str("account:read"),
+            Self::AccountDelete => f.write_str("account:delete"),
+            Self::BucketsRead => f.write_str("buckets:read"),
+            Self::BucketsWrite => f.write_str("buckets:write"),
+            Self::BucketsDelete => f.write_str("buckets:delete"),
+            Self::KeysRead => f.write_str("keys:read"),
+            Self::KeysWrite => f.write_str("keys:write"),
+            Self::TokensRead => f.write_str("tokens:read"),
+            Self::TokensWrite => f.write_str("tokens:write"),
+            Self::UsageRead => f.write_str("usage:read"),
+            Self::EventsRead => f.write_str("events:read"),
+            Self::AuditRead => f.write_str("audit:read"),
+            Self::ObjectsRead => f.write_str("objects:read"),
+        }
+    }
+}
+impl ::std::str::FromStr for Scope {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "account:read" => Ok(Self::AccountRead),
+            "account:delete" => Ok(Self::AccountDelete),
+            "buckets:read" => Ok(Self::BucketsRead),
+            "buckets:write" => Ok(Self::BucketsWrite),
+            "buckets:delete" => Ok(Self::BucketsDelete),
+            "keys:read" => Ok(Self::KeysRead),
+            "keys:write" => Ok(Self::KeysWrite),
+            "tokens:read" => Ok(Self::TokensRead),
+            "tokens:write" => Ok(Self::TokensWrite),
+            "usage:read" => Ok(Self::UsageRead),
+            "events:read" => Ok(Self::EventsRead),
+            "audit:read" => Ok(Self::AuditRead),
+            "objects:read" => Ok(Self::ObjectsRead),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Scope {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Scope {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 ///`Suspension`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 pub struct Suspension {
@@ -1633,6 +2259,121 @@ impl ::std::str::FromStr for Timestamp {
         Ok(Self(value.to_string()))
     }
 }
+///The API token ID. The token itself is `kofra_tok_`, this ID without `tok_`, `_` and the secret.
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct TokenId(::std::string::String);
+impl ::std::ops::Deref for TokenId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<TokenId> for ::std::string::String {
+    fn from(value: TokenId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for TokenId {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for TokenId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(||
+        { ::regress::Regex::with_flags("^tok_[0-9a-z]{26}$", "u").unwrap() });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^tok_[0-9a-z]{26}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for TokenId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value.as_str())
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for TokenId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::convert::TryFrom::try_from(
+                ::std::string::String::deserialize(deserializer)?,
+            )
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///A label for people; not used for access.
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct TokenName(::std::string::String);
+impl ::std::ops::Deref for TokenName {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<TokenName> for ::std::string::String {
+    fn from(value: TokenName) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for TokenName {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for TokenName {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for TokenName {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value.as_str())
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for TokenName {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::convert::TryFrom::try_from(
+                ::std::string::String::deserialize(deserializer)?,
+            )
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///Uploads in the current 24-hour window.
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 pub struct Upload24h {
@@ -1732,6 +2473,63 @@ impl ::std::convert::TryFrom<::std::string::String> for UsageDayStatus {
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
+    }
+}
+///A member's user ID.
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct UserId(::std::string::String);
+impl ::std::ops::Deref for UserId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<UserId> for ::std::string::String {
+    fn from(value: UserId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for UserId {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value)
+    }
+}
+impl ::std::convert::TryFrom<&str> for UserId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(||
+        { ::regress::Regex::with_flags("^usr_[0-9a-z]{1,64}$", "u").unwrap() });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^usr_[0-9a-z]{1,64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for UserId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        ::std::convert::TryFrom::try_from(value.as_str())
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for UserId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::convert::TryFrom::try_from(
+                ::std::string::String::deserialize(deserializer)?,
+            )
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
     }
 }
 /// Generation of default values for serde.

@@ -40,6 +40,13 @@ fn check(schema: &str, value: &Value) {
         "PresignRequest" => round_trip::<PresignRequest>(schema, value),
         "PresignedUrl" => round_trip::<PresignedUrl>(schema, value),
         "Problem" => round_trip::<Problem>(schema, value),
+        "TokenId" => round_trip::<TokenId>(schema, value),
+        "UserId" => round_trip::<UserId>(schema, value),
+        "IpRange" => round_trip::<IpRange>(schema, value),
+        "ApiTokenList" => round_trip::<ApiTokenList>(schema, value),
+        "ApiTokenCreate" => round_trip::<ApiTokenCreate>(schema, value),
+        "ApiTokenCreated" => round_trip::<ApiTokenCreated>(schema, value),
+        "AuditList" => round_trip::<AuditList>(schema, value),
         other => panic!("no Rust type mapped for schema {other}; add it to this test"),
     }
 }

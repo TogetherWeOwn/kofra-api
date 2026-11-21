@@ -116,6 +116,40 @@ export class EventsApi {
 	}
 }
 
+export class TokensApi {
+	private readonly core: Core;
+	constructor(core: Core) {
+		this.core = core;
+	}
+
+	/** List API tokens. `tokens.list`. */
+	list(args: NonNullable<operations['tokens.list']['parameters']['query']> = {}, options?: CallOptions): Promise<Json<operations['tokens.list']['responses'][200]>> {
+		return this.core.call('GET', '/v1/tokens', args, [], ["limit","cursor"], options) as Promise<Json<operations['tokens.list']['responses'][200]>>;
+	}
+
+	/** Create an API token. `tokens.create`. */
+	create(args: { body: operations['tokens.create']['requestBody']['content']['application/json'] }, options?: CallOptions): Promise<Json<operations['tokens.create']['responses'][201]>> {
+		return this.core.call('POST', '/v1/tokens', args, [], [], options) as Promise<Json<operations['tokens.create']['responses'][201]>>;
+	}
+
+	/** Revoke an API token. `tokens.revoke`; pass `dry_run: true` to preview. */
+	revoke(args: operations['tokens.revoke']['parameters']['path'] & NonNullable<operations['tokens.revoke']['parameters']['query']>, options?: CallOptions): Promise<undefined | Plan> {
+		return this.core.call('DELETE', '/v1/tokens/{token_id}', args, ["token_id"], ["dry_run"], options) as Promise<undefined | Plan>;
+	}
+}
+
+export class AuditApi {
+	private readonly core: Core;
+	constructor(core: Core) {
+		this.core = core;
+	}
+
+	/** Read the audit log. `audit.list`. */
+	list(args: NonNullable<operations['audit.list']['parameters']['query']> = {}, options?: CallOptions): Promise<Json<operations['audit.list']['responses'][200]>> {
+		return this.core.call('GET', '/v1/audit', args, [], ["actor","operation","since","until","limit","cursor"], options) as Promise<Json<operations['audit.list']['responses'][200]>>;
+	}
+}
+
 export class ObjectsApi {
 	private readonly core: Core;
 	constructor(core: Core) {
@@ -136,6 +170,8 @@ export function resources(core: Core) {
 		keys: new KeysApi(core),
 		usage: new UsageApi(core),
 		events: new EventsApi(core),
+		tokens: new TokensApi(core),
+		audit: new AuditApi(core),
 		objects: new ObjectsApi(core),
 	};
 }

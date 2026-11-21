@@ -20,6 +20,10 @@ from ._generated.api.usage import usage_get as _usage_get
 from ._generated.api.usage import usage_days as _usage_days
 from ._generated.api.usage import usage_buckets as _usage_buckets
 from ._generated.api.events import events_list as _events_list
+from ._generated.api.api_tokens import tokens_list as _tokens_list
+from ._generated.api.api_tokens import tokens_create as _tokens_create
+from ._generated.api.api_tokens import tokens_revoke as _tokens_revoke
+from ._generated.api.audit_log import audit_list as _audit_list
 from ._generated.api.objects import objects_presign as _objects_presign
 from ._core import Core
 
@@ -119,6 +123,36 @@ class EventsApi:
         return self._core.call(_events_list, **kwargs)
 
 
+class TokensApi:
+    """`tokens` operations."""
+
+    def __init__(self, core: Core) -> None:
+        self._core = core
+
+    def list(self, **kwargs: Any) -> Any:
+        """List API tokens. `tokens.list`."""
+        return self._core.call(_tokens_list, **kwargs)
+
+    def create(self, body: Any, **kwargs: Any) -> Any:
+        """Create an API token. `tokens.create`."""
+        return self._core.call(_tokens_create, body=body, **kwargs)
+
+    def revoke(self, token_id: str, **kwargs: Any) -> Any:
+        """Revoke an API token. `tokens.revoke`; pass dry_run=True to preview."""
+        return self._core.call(_tokens_revoke, token_id, **kwargs)
+
+
+class AuditApi:
+    """`audit` operations."""
+
+    def __init__(self, core: Core) -> None:
+        self._core = core
+
+    def list(self, **kwargs: Any) -> Any:
+        """Read the audit log. `audit.list`."""
+        return self._core.call(_audit_list, **kwargs)
+
+
 class ObjectsApi:
     """`objects` operations."""
 
@@ -136,5 +170,7 @@ RESOURCES = {
     "keys": KeysApi,
     "usage": UsageApi,
     "events": EventsApi,
+    "tokens": TokensApi,
+    "audit": AuditApi,
     "objects": ObjectsApi,
 }
