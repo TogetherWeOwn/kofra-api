@@ -3,10 +3,11 @@
 //! 1. A request ID (`req_...`), on every answer and in every audit row.
 //! 2. Route: the contract's route table (`not_found`, `method_not_allowed`).
 //! 3. Authentication ([`crate::auth`]).
-//! 4. Client address, scopes and role. A refused write is recorded in the
-//!    audit log as `refused`.
+//! 4. Admission ([`Api::admit`]): client address, the credential's rate
+//!    limits, scopes and role, the workspace's rate limits. A refused write
+//!    is recorded in the audit log as `refused`.
 //! 5. The token's last use, to the hour.
-//! 6. Rate limits ([`crate::ratelimit`]), per credential and per workspace.
+//! 6. Path parameters.
 //! 7. Validation of the query, the `Idempotency-Key` header and the body.
 //! 8. Idempotency ([`crate::idempotency`]): replay, refuse or claim.
 //! 9. Account state: the storage tenant must exist; a blocked or deleting
@@ -138,8 +139,9 @@ pub struct Reply {
     pub headers: Vec<(String, String)>,
     /// The ID of what the request created, for the audit row.
     pub created: Option<String>,
-    /// Never store this answer for a replay (it holds a bearer URL); the
-    /// claim is released instead, so a retry runs again.
+    /// Never keep this answer for a replay (it holds a bearer URL): the
+    /// record keeps the key bound to its request but stores no answer, so
+    /// the same request runs again ([`idempotency::RERUN_MARK`]).
     pub no_store: bool,
 }
 
@@ -229,42 +231,72 @@ impl<P: Ports> Api<P> {
         let _ = self.ports.audit().begin(&row).await;
     }
 
-    async fn take_limits(
+    /// Takes from each allowance in `plan`, in order, stopping at the first
+    /// refusal (nothing more is taken after it).
+    async fn take(
         &self,
-        principal: &Principal,
-        op_id: &str,
-        write: bool,
+        plan: &[(String, Policy)],
         now_ms: u64,
         limits: &mut Limits,
     ) -> Result<(), Problem> {
-        let cred = format!("cred:{}", principal.credential_key());
-        let ws = format!("ws:{}", principal.workspace.id);
-        // The credential's own allowances first, the shared ones after, and
-        // nothing more is taken once one refuses: a refused request must not
-        // use up what other credentials of the workspace share.
-        let mut plan: Vec<(String, Policy)> = vec![(cred.clone(), ratelimit::CREDENTIAL_DEFAULT)];
-        if write {
-            plan.push((cred, ratelimit::CREDENTIAL_WRITES));
-        }
-        plan.push((ws.clone(), ratelimit::WORKSPACE_DEFAULT));
-        if write {
-            plan.push((ws.clone(), ratelimit::WORKSPACE_WRITES));
-        }
-        if creates_credential(op_id) {
-            // Taken later, only when the creation is about to run
-            // ([`Self::take_creation`]); named here for the header.
-            plan.push((ws, ratelimit::WORKSPACE_CREDENTIALS));
-        }
-        limits.policies = plan.iter().map(|(_, p)| *p).collect();
-        plan.retain(|(_, p)| p.name != ratelimit::WORKSPACE_CREDENTIALS.name);
         for (key, policy) in plan {
-            let d = self.ports.rate().take(&key, &policy, now_ms).await?;
-            limits.taken.push((policy, d));
+            let d = self.ports.rate().take(key, policy, now_ms).await?;
+            limits.taken.push((*policy, d));
             if !d.allowed {
                 return Err(Problem::new("rate_limited").retry_after(d.retry_after_secs));
             }
         }
         Ok(())
+    }
+
+    /// Address, credential allowances, scopes and role, workspace
+    /// allowances, in this order. A request refused for its address is
+    /// charged only to the credential's small refusal allowance; one refused
+    /// for its scope or role only to the credential's own allowances. So
+    /// refused requests never use up what the workspace shares, and the
+    /// refusal rows they write are bounded.
+    async fn admit(
+        &self,
+        principal: &Principal,
+        op: &kofra_api_types::routes::Operation,
+        req: &Request,
+        audit_ctx: AuditCtx<'_>,
+        now_ms: u64,
+        limits: &mut Limits,
+    ) -> Result<(), Problem> {
+        let write = is_write(&req.method);
+        let cred = format!("cred:{}", principal.credential_key());
+        let ws = format!("ws:{}", principal.workspace.id);
+        let mut own = vec![(cred.clone(), ratelimit::CREDENTIAL_DEFAULT)];
+        let mut shared = vec![(ws.clone(), ratelimit::WORKSPACE_DEFAULT)];
+        if write {
+            own.push((cred.clone(), ratelimit::CREDENTIAL_WRITES));
+            shared.push((ws, ratelimit::WORKSPACE_WRITES));
+        }
+        limits.policies = own.iter().chain(&shared).map(|(_, p)| *p).collect();
+        if creates_credential(op.id) {
+            // Taken only when the creation is about to run
+            // ([`Self::take_creation`]); named here for the header.
+            limits.policies.push(ratelimit::WORKSPACE_CREDENTIALS);
+        }
+
+        if let Err(p) = principal.check_ip(req.client_ip) {
+            limits.policies.push(ratelimit::CREDENTIAL_REFUSALS);
+            self.take(&[(cred, ratelimit::CREDENTIAL_REFUSALS)], now_ms, limits)
+                .await?;
+            if write {
+                self.audit_refusal(principal, audit_ctx, &p).await;
+            }
+            return Err(p);
+        }
+        self.take(&own, now_ms, limits).await?;
+        if let Err(p) = principal.authorize(op.scopes) {
+            if write {
+                self.audit_refusal(principal, audit_ctx, &p).await;
+            }
+            return Err(p);
+        }
+        self.take(&shared, now_ms, limits).await
     }
 
     /// Takes one credential creation from the workspace's hourly allowance,
@@ -352,21 +384,14 @@ impl<P: Ports> Api<P> {
             request_id,
             now_ms,
             // Known before validation runs, for rows of refused requests.
-            dry_run: op.dry_run && req.query.split('&').any(|p| p == "dry_run=true"),
+            dry_run: op.dry_run
+                && Query::parse(&req.query, handlers::declared_query(op.id))
+                    .ok()
+                    .and_then(|q| q.dry_run().ok())
+                    .unwrap_or(false),
         };
-        // Rate limits come first, so refused requests are limited too and
-        // cannot flood the audit log with refusal rows.
-        self.take_limits(&principal, op.id, write, now_ms, limits)
+        self.admit(&principal, op, req, audit_ctx.clone(), now_ms, limits)
             .await?;
-        if let Err(p) = principal
-            .check_ip(req.client_ip)
-            .and_then(|()| principal.authorize(op.scopes))
-        {
-            if write {
-                self.audit_refusal(&principal, audit_ctx, &p).await;
-            }
-            return Err(p);
-        }
         self.touch(&principal, now_ms).await;
         handlers::check_path(&matched)?;
 
@@ -375,6 +400,8 @@ impl<P: Ports> Api<P> {
         handlers::check_query(op.id, &query)?;
         let dry_run = op.dry_run && query.dry_run()?;
         let idempotency_key = match req.header(idempotency::HEADER) {
+            // Reads ignore the header (the contract has it on writes only).
+            _ if !write => None,
             Err(_) => {
                 return Err(Problem::new("validation_failed")
                     .detail("The Idempotency-Key header is repeated.")
@@ -384,8 +411,8 @@ impl<P: Ports> Api<P> {
                         "Give this header once.",
                     )]));
             }
-            Ok(Some(v)) if write => Some(idempotency::parse_key(v)?.to_owned()),
-            Ok(_) => None,
+            Ok(Some(v)) => Some(idempotency::parse_key(v)?.to_owned()),
+            Ok(None) => None,
         };
         let input = handlers::decode_input(op.id, req)?;
 
@@ -455,7 +482,10 @@ impl<P: Ports> Api<P> {
         };
 
         if creates_credential(op.id)
-            && let Err(p) = self.take_creation(&principal, now_ms, limits).await
+            && let Err(p) = match handlers::precheck(op.id, &principal) {
+                Ok(()) => self.take_creation(&principal, now_ms, limits).await,
+                Err(p) => Err(p),
+            }
         {
             if let Some((key, fp, at)) = &claim {
                 let _ = self.ports.idempotency().release(&ws_id, key, fp, *at).await;
@@ -628,7 +658,7 @@ impl AuditCtx<'_> {
             actor_id: Some(principal.user_id.clone()),
             credential_id: principal.token_id().map(str::to_owned),
             operation: self.op_id.to_owned(),
-            target: self.target.clone(),
+            target: crate::audit::clean_target(self.target.as_deref()),
             dry_run: self.dry_run,
             outcome: Outcome::Pending,
             status: None,

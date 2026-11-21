@@ -4,7 +4,7 @@ Code: `account_unavailable`
 HTTP status: 403
 Retryable: no, not without a change
 
-The account is blocked or is being deleted, so only reading the account itself and cancelling a deletion are possible.
+The account is blocked or is being deleted. Storage operations and new API tokens are refused; reading the account, cancelling a deletion, listing and revoking API tokens and reading the audit log still work.
 
 ## What to do
 

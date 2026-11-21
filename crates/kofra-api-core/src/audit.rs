@@ -156,6 +156,12 @@ impl AuditFilter {
     }
 }
 
+/// An audit target as stored: the same cleaning as user agents (no control
+/// characters, at most 256 characters). Targets come from requests.
+pub fn clean_target(target: Option<&str>) -> Option<String> {
+    clean_user_agent(target)
+}
+
 /// The user agent as stored: control characters (terminal escapes included)
 /// removed, at most [`USER_AGENT_MAX`] characters, `None` when nothing is
 /// left. The log is shown in the console and read by agents; a crafted user

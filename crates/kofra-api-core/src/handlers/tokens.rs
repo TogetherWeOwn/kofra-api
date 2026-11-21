@@ -63,7 +63,14 @@ pub(super) async fn list<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Proble
     } else {
         None
     };
-    page(ctx, "", rows.iter().map(to_json).collect(), next)
+    // A bucket-limited caller sees only tokens limited to buckets it can
+    // see itself, so no answer names a bucket hidden from it.
+    let visible = rows.iter().filter(|t| match (&p.buckets, &t.buckets) {
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(_), Some(list)) => list.iter().all(|b| p.bucket_allowed(b)),
+    });
+    page(ctx, "", visible.map(to_json).collect(), next)
 }
 
 pub(super) async fn create<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Problem> {

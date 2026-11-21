@@ -64,6 +64,16 @@ pub const WORKSPACE_WRITES: Policy = Policy {
     window_secs: 5,
 };
 
+/// Per credential, requests refused for their client address: 10 a minute.
+/// They are charged here only, so a leaked address-limited token used from
+/// elsewhere neither slows its rightful user nor the workspace, and adds at
+/// most 10 refusal rows a minute to the audit log.
+pub const CREDENTIAL_REFUSALS: Policy = Policy {
+    name: "refusals",
+    quota: 10,
+    window_secs: 60,
+};
+
 /// Per workspace, creating access keys and API tokens: 30 per hour (design
 /// §2.4; tenancy design §6.3).
 pub const WORKSPACE_CREDENTIALS: Policy = Policy {

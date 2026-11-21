@@ -26,6 +26,9 @@ const TAG_LEN: usize = 16;
 pub const MAX_LEN: usize = 512;
 /// Version byte of the cursor format.
 const VERSION: u8 = 1;
+/// The encrypted position is padded to a multiple of this many bytes, so a
+/// cursor's length does not give away the length of a hidden name.
+const BLOCK: usize = 64;
 
 /// What a cursor is bound to.
 #[derive(Debug, Clone, Copy)]
@@ -79,7 +82,10 @@ fn crypt(key: &[u8; 32], tag: &[u8; TAG_LEN], data: &mut [u8]) {
 /// A cursor for `position`, or `None` when the position is too long to fit.
 pub fn seal(key: &[u8; 32], binding: &Binding<'_>, position: &str) -> Option<String> {
     let t = tag(key, binding, position.as_bytes());
-    let mut body = position.as_bytes().to_vec();
+    let len = u16::try_from(position.len()).ok()?;
+    let mut body = len.to_be_bytes().to_vec();
+    body.extend_from_slice(position.as_bytes());
+    body.resize(body.len().div_ceil(BLOCK) * BLOCK, 0);
     crypt(key, &t, &mut body);
     let mut raw = Vec::with_capacity(1 + TAG_LEN + body.len());
     raw.push(VERSION);
@@ -101,8 +107,16 @@ pub fn open(key: &[u8; 32], binding: &Binding<'_>, cursor: &str) -> Result<Strin
     }
     let mut got = [0u8; TAG_LEN];
     got.copy_from_slice(&raw[1..=TAG_LEN]);
-    let mut position = raw[1 + TAG_LEN..].to_vec();
-    crypt(key, &got, &mut position);
+    let mut body = raw[1 + TAG_LEN..].to_vec();
+    if body.len() < 2 || body.len() % BLOCK != 0 {
+        return Err(invalid());
+    }
+    crypt(key, &got, &mut body);
+    let len = usize::from(u16::from_be_bytes([body[0], body[1]]));
+    if 2 + len > body.len() || body[2 + len..].iter().any(|b| *b != 0) {
+        return Err(invalid());
+    }
+    let position = body[2..2 + len].to_vec();
     if tag(key, binding, &position).ct_eq(&got).unwrap_u8() != 1 {
         return Err(invalid());
     }
@@ -156,6 +170,10 @@ mod tests {
             );
         }
         assert!(open(&[8; 32], &b("ws_a", "buckets.list", ""), &c).is_err());
+        // Positions of different lengths make cursors of one length.
+        let short = seal(&KEY, &b("ws_a", "buckets.list", ""), "abc").expect("fits");
+        let long = seal(&KEY, &b("ws_a", "buckets.list", ""), &"y".repeat(40)).expect("fits");
+        assert_eq!(short.len(), long.len());
         // The position is not readable from the cursor.
         let raw = URL_SAFE_NO_PAD.decode(&c).expect("base64");
         assert!(!raw.windows(6).any(|w| w == b"photos"));

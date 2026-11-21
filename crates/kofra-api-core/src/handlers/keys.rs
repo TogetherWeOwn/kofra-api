@@ -46,33 +46,48 @@ fn check_key(p: &Principal, k: &t::AccessKey) -> Result<(), Problem> {
     }
 }
 
+/// An S3 key has no address limit yet, so a token held to some addresses
+/// would make a credential that works from anywhere.
+pub(super) fn address_rule(p: &Principal) -> Result<(), Problem> {
+    if p.allowed_ips.is_some() {
+        return Err(Problem::new("ip_not_allowed").detail(
+            "A token limited to some addresses cannot create access keys: access keys have no address limit yet.",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) async fn list<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Problem> {
     let limit = ctx.query.limit()?;
-    let after = open_cursor(ctx, "")?;
-    let got = ctx
-        .api
-        .ports
-        .storage()
-        .keys(ctx.tenant_id()?, after.as_deref(), limit)
-        .await?;
+    let mut after = open_cursor(ctx, "")?;
     let mut data = Vec::new();
-    for k in got.items.iter().filter(|k| key_allowed(&ctx.principal, k)) {
-        data.push(to_json(k)?);
+    let mut next = None;
+    // A bucket limit can hide a whole storage page; read on (bounded) so a
+    // client is not handed an empty page that looks like the end.
+    for _ in 0..super::SCAN_PAGES {
+        let got = ctx
+            .api
+            .ports
+            .storage()
+            .keys(ctx.tenant_id()?, after.as_deref(), limit)
+            .await?;
+        for item in got.items.iter().filter(|x| key_allowed(&ctx.principal, x)) {
+            data.push(to_json(item)?);
+        }
+        next = got.next;
+        if !data.is_empty() || next.is_none() {
+            break;
+        }
+        after.clone_from(&next);
     }
-    page(ctx, "", data, got.next)
+    page(ctx, "", data, next)
 }
 
 pub(super) async fn create<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Problem> {
     let Input::KeyCreate(body) = &ctx.input else {
         return Err(Problem::new("internal_error"));
     };
-    // An S3 key has no address limit yet, so a token held to some addresses
-    // would make a credential that works from anywhere.
-    if ctx.principal.allowed_ips.is_some() {
-        return Err(Problem::new("ip_not_allowed").detail(
-            "A token limited to some addresses cannot create access keys: access keys have no address limit yet.",
-        ));
-    }
+    address_rule(&ctx.principal)?;
     for g in body.grants.as_slice() {
         ctx.principal.check_bucket(g.bucket.as_str())?;
     }

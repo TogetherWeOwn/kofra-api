@@ -42,6 +42,13 @@ pub enum Input {
 
 const PAGE: &[&str] = &["limit", "cursor"];
 
+/// Storage pages one list request reads at most while a bucket limit hides
+/// every item. Each page is one storage call (one subrequest of the Worker);
+/// five keeps a request far inside the platform's per-request subrequest
+/// budget, and a client that gets an empty page with a cursor continues
+/// from it.
+pub const SCAN_PAGES: usize = 5;
+
 /// The query parameters each operation accepts (as in the contract; a test
 /// compares the two).
 pub fn declared_query(op_id: &str) -> &'static [&'static str] {
@@ -179,6 +186,16 @@ pub fn input_target(input: &Input) -> Option<String> {
         Input::Presign(p) => Some(format!("{}/{}", p.bucket.as_str(), p.key.as_str())),
         _ => None,
     }
+}
+
+/// Refusals that need no storage or directory read and that would otherwise
+/// come from inside the handler, run before the creation allowance is taken
+/// (so a credential that can never create does not spend it).
+pub fn precheck(op_id: &str, p: &crate::auth::Principal) -> Result<(), Problem> {
+    if op_id == "keys.create" {
+        keys::address_rule(p)?;
+    }
+    Ok(())
 }
 
 /// Runs the operation's handler.

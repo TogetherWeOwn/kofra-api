@@ -12,11 +12,17 @@
 //! replay returns the object without it (the contract says so), and no
 //! secret is ever written to the idempotency table.
 //!
-//! Only answers the handler made are stored (2xx and 4xx). A request refused
-//! before it reached the handler (authentication, scope, rate limit,
-//! validation) claims no key. A `5xx` releases the key, so the retry runs
-//! again; every storage call carries the same key, so storage does not apply
-//! the change twice.
+//! Only final answers the handler made are stored (2xx, and 4xx except
+//! 429). A request refused before it reached the handler (authentication,
+//! scope, rate limit, validation) claims no key. A `5xx` or `429` releases
+//! the key, so the retry runs again.
+//!
+//! A change must not run twice when a retry follows a lost record (a
+//! takeover after the lease): every storage write deduplicates by
+//! (principal, key, request) for 24 hours (the [`crate::ports::Storage`]
+//! contract), token creation by (workspace, member, key, fingerprint), and
+//! the Workers shell writes each directory change in one D1 batch with its
+//! idempotency record, so neither lands without the other.
 //!
 //! A pending claim older than [`LEASE_MS`] is taken over. The lease is twice
 //! the handler deadline ([`HANDLER_DEADLINE_MS`]), which the Workers shell

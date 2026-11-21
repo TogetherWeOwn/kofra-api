@@ -116,7 +116,7 @@
       "title": "Account is not available",
       "retryable": false,
       "hint": "Open Account in the console to see the reason; a deletion can be cancelled there or with POST /v1/account/deletion/cancel.",
-      "meaning": "The account is blocked or is being deleted, so only reading the account itself and cancelling a deletion are possible.",
+      "meaning": "The account is blocked or is being deleted. Storage operations and new API tokens are refused; reading the account, cancelling a deletion, listing and revoking API tokens and reading the audit log still work.",
       "type": "https://kofra.app/docs/errors/account_unavailable",
       "docs_url": "https://kofra.app/docs/errors/account_unavailable.md"
     },

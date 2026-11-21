@@ -130,6 +130,10 @@ pub struct DeletionRequest {
 pub type After = (u64, String);
 
 /// The API's own database: workspaces, members, API tokens.
+///
+/// In the Workers shell, a write made under an idempotency claim (token
+/// revocation, deletion requests) goes in one D1 batch with the claim's
+/// `done` record, so a lost record cannot lead to the change running twice.
 pub trait Directory {
     /// A token by ID, revoked ones included.
     async fn token(&self, id: &str) -> Result<Option<TokenRecord>, PortError>;
@@ -384,6 +388,12 @@ pub struct Reach {
 /// The storage management plane, as the tenancy design's §6.4 crosswalk
 /// gives it. Shapes are the public contract types: the storage adapter maps
 /// storage's own shapes to them, so a storage change does not reach clients.
+///
+/// Every write that carries `acting.idempotency_key` deduplicates by
+/// (principal, key, request) for 24 hours: the same request answers its
+/// first result without running again, and another request with the key is
+/// refused (never answered with the first result). This is what makes a
+/// retry after a lost idempotency record safe.
 pub trait Storage {
     /// The tenant.
     async fn tenant(&self, tenant: &str) -> Result<Tenant, StorageError>;

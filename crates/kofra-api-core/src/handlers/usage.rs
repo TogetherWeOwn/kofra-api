@@ -47,20 +47,30 @@ pub(super) async fn days<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Proble
 
 pub(super) async fn buckets<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Problem> {
     let limit = ctx.query.limit()?;
-    let after = open_cursor(ctx, "")?;
-    let got = ctx
-        .api
-        .ports
-        .storage()
-        .usage_buckets(ctx.tenant_id()?, after.as_deref(), limit)
-        .await?;
+    let mut after = open_cursor(ctx, "")?;
     let mut data = Vec::new();
-    for b in got
-        .items
-        .iter()
-        .filter(|b| ctx.principal.bucket_allowed(b.bucket.as_str()))
-    {
-        data.push(to_json(b)?);
+    let mut next = None;
+    // A bucket limit can hide a whole storage page; read on (bounded) so a
+    // client is not handed an empty page that looks like the end.
+    for _ in 0..super::SCAN_PAGES {
+        let got = ctx
+            .api
+            .ports
+            .storage()
+            .usage_buckets(ctx.tenant_id()?, after.as_deref(), limit)
+            .await?;
+        for item in got
+            .items
+            .iter()
+            .filter(|x| ctx.principal.bucket_allowed(x.bucket.as_str()))
+        {
+            data.push(to_json(item)?);
+        }
+        next = got.next;
+        if !data.is_empty() || next.is_none() {
+            break;
+        }
+        after.clone_from(&next);
     }
-    page(ctx, "", data, got.next)
+    page(ctx, "", data, next)
 }

@@ -234,6 +234,13 @@ fn token_recovery_never_crosses_members_requests_or_the_key_lifetime() {
         h.send(r)
     };
     let a = make(&owner, "owner-token");
+    // After the key's lifetime, the same request makes a new token: the old
+    // token is not recovered.
+    h.api.ports.env.advance(idempotency::TTL_MS);
+    let c = make(&owner, "owner-token");
+    assert_eq!(c.status, 201);
+    assert_ne!(c.json_body()["id"], a.json_body()["id"]);
+    assert!(c.json_body()["token"].is_string());
     // The same key from another member answers 422 at the API; with the API's
     // record lost, the token store still never hands over the owner's token.
     assert_eq!(
@@ -243,14 +250,8 @@ fn token_recovery_never_crosses_members_requests_or_the_key_lifetime() {
     h.api.ports.idempotency.forget("ws_a", "same");
     let b = make(&member, "member-token");
     assert_eq!(b.status, 201);
-    assert_ne!(b.json_body()["id"], a.json_body()["id"]);
+    assert_ne!(b.json_body()["id"], c.json_body()["id"]);
     assert!(b.json_body()["token"].is_string());
-    // After the key's lifetime, the same request makes a new token.
-    h.api.ports.env.advance(idempotency::TTL_MS);
-    let c = make(&owner, "owner-token");
-    assert_eq!(c.status, 201);
-    assert_ne!(c.json_body()["id"], a.json_body()["id"]);
-    assert!(c.json_body()["token"].is_string());
 }
 
 #[test]
@@ -318,4 +319,126 @@ fn bucket_limited_tokens_see_only_events_about_their_buckets() {
         })
         .collect();
     assert_eq!(types, ["bucket.created \"seen\""]);
+}
+
+#[test]
+fn a_retry_after_a_lost_record_does_not_delete_again() {
+    let h = setup();
+    let owner = h.owner();
+    let delete = || {
+        let mut r = h.req("DELETE", "/v1/buckets/photos", Some(&owner));
+        r.headers.push(("Idempotency-Key".into(), "del".into()));
+        h.send(r)
+    };
+    assert_eq!(delete().status, 204);
+    // The record is lost; the bucket is made again by someone else.
+    h.api.ports.idempotency.forget("ws_a", "del");
+    h.api.ports.storage.add_bucket("t_a", "photos", 0, 0);
+    assert_eq!(delete().status, 204);
+    assert!(
+        h.api
+            .ports
+            .storage
+            .bucket_names("t_a")
+            .contains(&"photos".to_owned())
+    );
+}
+
+#[test]
+fn bucket_limited_tokens_see_only_tokens_inside_their_buckets() {
+    let h = setup();
+    let (limited, _) = h.token(Tok {
+        user: "usr_admin",
+        buckets: Some(&["photos"]),
+        ..Tok::default()
+    });
+    h.token(Tok {
+        user: "usr_member",
+        buckets: Some(&["backups"]),
+        ..Tok::default()
+    });
+    let body = h.call("GET", "/v1/tokens", &limited, None).json_body();
+    assert!(
+        !serde_json::to_string(&body)
+            .expect("json")
+            .contains("backups")
+    );
+    assert_eq!(body["data"].as_array().expect("data").len(), 1);
+}
+
+#[test]
+fn a_hidden_storage_page_is_read_past() {
+    let h = setup();
+    for i in 0..30 {
+        h.api
+            .ports
+            .storage
+            .add_bucket("t_a", &format!("aa-{i:02}"), 0, 0);
+    }
+    let (tok, _) = h.token(Tok {
+        buckets: Some(&["photos"]),
+        ..Tok::default()
+    });
+    let r = h.call("GET", "/v1/buckets?limit=10", &tok, None);
+    assert_eq!(r.json_body()["data"][0]["name"], "photos");
+}
+
+#[test]
+fn a_repeated_key_header_on_a_read_is_ignored() {
+    let h = setup();
+    let owner = h.owner();
+    let mut r = h.req("GET", "/v1/account", Some(&owner));
+    r.headers.push(("Idempotency-Key".into(), "a".into()));
+    r.headers.push(("Idempotency-Key".into(), "b".into()));
+    assert_eq!(h.send(r).status, 200);
+}
+
+#[test]
+fn a_leaked_address_limited_token_does_not_slow_its_owner_or_the_workspace() {
+    let h = setup();
+    let (tok, _) = h.token(Tok {
+        ips: Some(&["203.0.113.0/24"]),
+        ..Tok::default()
+    });
+    for _ in 0..300 {
+        let mut r = h.req("POST", "/v1/buckets", Some(&tok));
+        r.client_ip = Some("198.51.100.9".parse().expect("ip"));
+        h.send(H::with_body(r, &json!({ "name": "x-y" })));
+    }
+    // At most 10 refusal rows a minute.
+    assert_eq!(h.api.ports.audit.rows().len(), 10);
+    // The rightful user (from the allowed address) and the workspace are served.
+    assert_eq!(h.call("GET", "/v1/buckets", &tok, None).status, 200);
+    assert_eq!(h.call("GET", "/v1/buckets", &h.owner(), None).status, 200);
+}
+
+#[test]
+fn an_encoded_refused_dry_run_is_recorded_as_one() {
+    let h = setup();
+    let viewer = h.with_role("usr_viewer");
+    h.call("DELETE", "/v1/buckets/photos?dry%5Frun=true", &viewer, None);
+    assert!(h.api.ports.audit.rows()[0].dry_run);
+}
+
+#[test]
+fn a_presign_target_is_cleaned_before_it_is_logged() {
+    let h = setup();
+    let (tok, _) = h.token(Tok {
+        scopes: &["objects:read"],
+        buckets: Some(&["photos"]),
+        ..Tok::default()
+    });
+    let key = format!("\u{1b}[2J\n{}", "k".repeat(900));
+    h.call(
+        "POST",
+        "/v1/objects/presign",
+        &tok,
+        Some(json!({ "bucket": "backups", "key": key, "method": "GET" })),
+    );
+    let rows = h.api.ports.audit.rows();
+    let target = rows[0].target.clone().unwrap_or_default();
+    assert!(
+        target.len() <= 256 && !target.chars().any(char::is_control),
+        "{target:?}"
+    );
 }

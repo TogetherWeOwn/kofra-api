@@ -534,9 +534,13 @@ impl RateLimiter for MemoryRate {
 
 const S3_ENDPOINT: &str = "https://s3.kofra.io";
 
+#[derive(Clone)]
 enum Created {
     Bucket(t::Bucket),
     Key(t::AccessKeyCreated),
+    KeyUpdated(t::AccessKey),
+    Deletion(t::Deletion),
+    Done,
 }
 
 struct TenantData {
@@ -550,7 +554,7 @@ struct TenantData {
     /// Storage-side idempotency: (principal, key) to the request it was
     /// first used for and its answer. Another principal or another request
     /// with the same key never gets that answer.
-    created: BTreeMap<StringPair, (String, Created)>,
+    created: BTreeMap<StringPair, (String, Created, u64)>,
 }
 
 /// The storage idempotency slot of a call, if it carries a key.
@@ -786,6 +790,40 @@ impl MemoryStorage {
             .map_err(|_| StorageError::Upstream)
     }
 
+    /// The first answer to this principal's request with this key, if it
+    /// was made less than 24 hours ago; an error if the key was used for
+    /// another request (storage answers a conflict, never the old result).
+    fn recall(
+        &self,
+        data: &TenantData,
+        acting: &Acting<'_>,
+        request: &str,
+    ) -> Option<Result<Created, StorageError>> {
+        let (first, created, at) = slot(acting).and_then(|s| data.created.get(&s))?;
+        if self.env.now_ms().saturating_sub(*at) >= crate::idempotency::TTL_MS {
+            return None;
+        }
+        Some(if first == request {
+            Ok(created.clone())
+        } else {
+            Err(StorageError::Upstream)
+        })
+    }
+
+    /// Records the answer to this principal's request with this key.
+    fn remember(
+        &self,
+        data: &mut TenantData,
+        acting: &Acting<'_>,
+        request: String,
+        created: Created,
+    ) {
+        if let Some(s) = slot(acting) {
+            data.created
+                .insert(s, (request, created, self.env.now_ms()));
+        }
+    }
+
     fn timestamp(&self) -> t::Timestamp {
         t::Timestamp(timefmt::format(self.env.now_ms()))
     }
@@ -829,6 +867,13 @@ impl Storage for MemoryStorage {
 
     async fn delete_tenant(&self, acting: Acting<'_>) -> Result<t::Deletion, StorageError> {
         let mut data = self.write(acting.tenant)?;
+        let request = "delete-tenant".to_owned();
+        if let Some(got) = self.recall(&data, &acting, &request) {
+            return match got? {
+                Created::Deletion(d) => Ok(d),
+                _ => Err(StorageError::Upstream),
+            };
+        }
         if data.tenant.deletion.is_some() {
             return Err(StorageError::DeletionAlreadyRequested);
         }
@@ -844,11 +889,21 @@ impl Storage for MemoryStorage {
         data.tenant.deletion = Some(deletion.clone());
         data.tenant.state = t::AccountState::Deleting;
         data.tenant.access = t::AccountAccess::None;
+        self.remember(
+            &mut data,
+            &acting,
+            request,
+            Created::Deletion(deletion.clone()),
+        );
         Ok(deletion)
     }
 
     async fn restore_tenant(&self, acting: Acting<'_>) -> Result<(), StorageError> {
         let mut data = self.write(acting.tenant)?;
+        let request = "restore-tenant".to_owned();
+        if let Some(got) = self.recall(&data, &acting, &request) {
+            return got.map(|_| ());
+        }
         let deletion = data
             .tenant
             .deletion
@@ -865,6 +920,7 @@ impl Storage for MemoryStorage {
         data.tenant.deletion = None;
         data.tenant.state = t::AccountState::Active;
         data.tenant.access = t::AccountAccess::Full;
+        self.remember(&mut data, &acting, request, Created::Done);
         Ok(())
     }
 
@@ -896,9 +952,9 @@ impl Storage for MemoryStorage {
     ) -> Result<t::Bucket, StorageError> {
         let mut data = self.write(acting.tenant)?;
         let request = format!("bucket\n{name}");
-        if let Some((first, created)) = slot(&acting).and_then(|s| data.created.get(&s)) {
-            return match created {
-                Created::Bucket(bucket) if *first == request => Ok(bucket.clone()),
+        if let Some(got) = self.recall(&data, &acting, &request) {
+            return match got? {
+                Created::Bucket(bucket) => Ok(bucket),
                 _ => Err(StorageError::Upstream),
             };
         }
@@ -914,15 +970,16 @@ impl Storage for MemoryStorage {
         let event = self.event("bucket.created", "bucket", name)?;
         data.buckets.insert(name.to_owned(), bucket.clone());
         data.events.push(event);
-        if let Some(s) = slot(&acting) {
-            data.created
-                .insert(s, (request, Created::Bucket(bucket.clone())));
-        }
+        self.remember(&mut data, &acting, request, Created::Bucket(bucket.clone()));
         Ok(bucket)
     }
 
     async fn delete_bucket(&self, acting: Acting<'_>, name: &str) -> Result<(), StorageError> {
         let mut data = self.write(acting.tenant)?;
+        let request = format!("delete-bucket\n{name}");
+        if let Some(got) = self.recall(&data, &acting, &request) {
+            return got.map(|_| ());
+        }
         let bucket = data.buckets.get(name).ok_or(StorageError::BucketNotFound)?;
         if bucket.object_count > 0 {
             return Err(StorageError::BucketNotEmpty);
@@ -933,6 +990,7 @@ impl Storage for MemoryStorage {
             key.grants.retain(|grant| grant.bucket.as_str() != name);
         }
         data.events.push(event);
+        self.remember(&mut data, &acting, request, Created::Done);
         Ok(())
     }
 
@@ -972,9 +1030,9 @@ impl Storage for MemoryStorage {
             name.unwrap_or_default(),
             serde_json::to_string(grants).unwrap_or_default()
         );
-        if let Some((first, created)) = slot(&acting).and_then(|s| data.created.get(&s)) {
-            return match created {
-                Created::Key(key) if *first == request => Ok(key.clone()),
+        if let Some(got) = self.recall(&data, &acting, &request) {
+            return match got? {
+                Created::Key(key) => Ok(key),
                 _ => Err(StorageError::Upstream),
             };
         }
@@ -1028,10 +1086,7 @@ impl Storage for MemoryStorage {
         let event = self.event("key.created", "key_id", &id)?;
         data.keys.push(key);
         data.events.push(event);
-        if let Some(s) = slot(&acting) {
-            data.created
-                .insert(s, (request, Created::Key(created.clone())));
-        }
+        self.remember(&mut data, &acting, request, Created::Key(created.clone()));
         Ok(created)
     }
 
@@ -1043,6 +1098,17 @@ impl Storage for MemoryStorage {
         grants: Option<&[t::GrantInput]>,
     ) -> Result<t::AccessKey, StorageError> {
         let mut data = self.write(acting.tenant)?;
+        let request = format!(
+            "update-key\n{id}\n{}\n{}",
+            name.unwrap_or_default(),
+            serde_json::to_string(&grants).unwrap_or_default()
+        );
+        if let Some(got) = self.recall(&data, &acting, &request) {
+            return match got? {
+                Created::KeyUpdated(k) => Ok(k),
+                _ => Err(StorageError::Upstream),
+            };
+        }
         let index = data.active_key_index(id)?;
         let mut key = data.keys[index].clone();
         if let Some(name) = name {
@@ -1068,15 +1134,26 @@ impl Storage for MemoryStorage {
         let event = self.event("key.updated", "key_id", id)?;
         data.keys[index] = key.clone();
         data.events.push(event);
+        self.remember(
+            &mut data,
+            &acting,
+            request,
+            Created::KeyUpdated(key.clone()),
+        );
         Ok(key)
     }
 
     async fn revoke_key(&self, acting: Acting<'_>, id: &str) -> Result<(), StorageError> {
         let mut data = self.write(acting.tenant)?;
+        let request = format!("revoke-key\n{id}");
+        if let Some(got) = self.recall(&data, &acting, &request) {
+            return got.map(|_| ());
+        }
         data.active_key_index(id)?;
         let event = self.event("key.revoked", "key_id", id)?;
         data.revoked.insert(id.to_owned());
         data.events.push(event);
+        self.remember(&mut data, &acting, request, Created::Done);
         Ok(())
     }
 
