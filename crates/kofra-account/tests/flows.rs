@@ -124,9 +124,12 @@ impl Harness {
 
     /// Adds an invite for `email` and returns its token.
     fn invite(&self, email: &str) -> String {
-        let (token, hash) = crypto::new_token([7; 32]);
+        let seed = email
+            .bytes()
+            .fold(7u8, |a, b| a.wrapping_mul(31).wrapping_add(b));
+        let (token, hash) = crypto::new_token([seed; 32]);
         self.ports().store.add_invite(InviteRecord {
-            id: "inv_1".into(),
+            id: format!("inv_{email}"),
             token_hash: hash,
             email_key: email.to_ascii_lowercase(),
             created_at: T0,
@@ -1430,7 +1433,7 @@ fn a_gone_tenant_reference_closes_the_workspace() {
     let s = h.signed_up("ada");
     h.ports().tenancy.gone.set(true);
     let w = h.call("POST", "workspaces", Some(&s), Some(json!({"name": "W"})));
-    assert_eq!(w.status, 201);
+    assert_eq!((w.status, w.code()), (503, "service_unavailable"));
     assert_eq!(
         h.ports().store.all_workspaces()[0].state,
         kofra_account::model::WorkspaceState::Closed
@@ -1521,6 +1524,23 @@ fn second_step_codes_are_throttled_per_user() {
         Some(json!({"code": h.totp_code(&secret, 0)})),
     );
     assert_eq!(blocked.code(), "rate_limited");
+    // Another account, from the same address, is not affected.
+    let b = h.signed_up("bea");
+    let (b_secret, _) = h.enable_totp(&b);
+    let bp = h.call(
+        "POST",
+        "login/password",
+        None,
+        Some(json!({"email": addr("bea"), "password": PW})),
+    );
+    h.advance(30_000);
+    let bt = h.call(
+        "POST",
+        "login/totp",
+        Some(&bp.token()),
+        Some(json!({"code": h.totp_code(&b_secret, 0)})),
+    );
+    assert_eq!(bt.status, 200, "{}", bt.body);
 }
 
 #[test]
@@ -1538,4 +1558,89 @@ fn a_unicode_variant_of_a_breached_password_is_refused() {
         Some(json!({"email": addr("a"), "name": "A", "password": "cafe\u{301} au lait 2024"})),
     );
     assert_eq!(a.code(), "breached_password");
+}
+
+#[test]
+fn a_link_that_expires_mid_reset_never_spends_a_recovery_code() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    let (_, codes) = h.enable_totp(&s);
+    h.call(
+        "POST",
+        "password/forgot",
+        None,
+        Some(json!({"email": addr("ada")})),
+    );
+    let link = h.mailed_token(&addr("ada"));
+    h.ports().store.expire_next_take.set(true);
+    let r = h.call(
+        "POST",
+        "password/reset",
+        None,
+        Some(json!({"token": link, "password": "a brand new pass phrase", "code": codes[0]})),
+    );
+    assert_eq!(r.code(), "token_invalid");
+    let me = h.call("POST", "session/resolve", Some(&s), None);
+    assert_eq!(me.body["user"]["recovery_codes_left"], 10);
+}
+
+#[test]
+fn a_password_change_does_not_renew_the_fresh_step() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    h.enable_totp(&s);
+    h.advance(9 * MINUTE);
+    let c = h.call(
+        "POST",
+        "password/change",
+        Some(&s),
+        Some(json!({"current": PW, "password": "the owner's new passphrase"})),
+    );
+    assert_eq!(c.status, 200, "{}", c.body);
+    let fresh = c.token();
+    h.advance(2 * MINUTE);
+    let off = h.call("DELETE", "totp", Some(&fresh), None);
+    assert_eq!(off.code(), "step_required");
+}
+
+#[test]
+fn a_throttled_reset_keeps_its_link() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    let (secret, _) = h.enable_totp(&s);
+    let p = h.call(
+        "POST",
+        "login/password",
+        None,
+        Some(json!({"email": addr("ada"), "password": PW})),
+    );
+    let half = p.token();
+    let wrong = if h.totp_code(&secret, 0) == "000000" {
+        "111111"
+    } else {
+        "000000"
+    };
+    for _ in 0..9 {
+        h.call(
+            "POST",
+            "login/totp",
+            Some(&half),
+            Some(json!({"code": wrong})),
+        );
+    }
+    h.call(
+        "POST",
+        "password/forgot",
+        None,
+        Some(json!({"email": addr("ada")})),
+    );
+    let link = h.mailed_token(&addr("ada"));
+    h.advance(30_000);
+    let body = json!({"token": link, "password": "a brand new pass phrase", "code": h.totp_code(&secret, 0)});
+    let blocked = h.call("POST", "password/reset", None, Some(body));
+    assert_eq!(blocked.code(), "rate_limited");
+    h.advance(15 * MINUTE);
+    let body = json!({"token": link, "password": "a brand new pass phrase", "code": h.totp_code(&secret, 0)});
+    let ok = h.call("POST", "password/reset", None, Some(body));
+    assert_eq!(ok.status, 200, "the link is still usable: {}", ok.body);
 }

@@ -181,6 +181,17 @@ pub enum Verified {
     EmailChanged,
 }
 
+/// The outcome of one provisioning attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Provisioned {
+    /// The tenant exists and the workspace is active.
+    Active,
+    /// Not now (another attempt ran recently, or the plane asked to retry).
+    Pending,
+    /// The tenant can never be created; the workspace is closed.
+    Closed,
+}
+
 /// Every link purpose.
 const ALL_PURPOSES: [Purpose; 3] = [Purpose::Verify, Purpose::Reset, Purpose::EmailChange];
 
@@ -331,6 +342,7 @@ impl<P: Ports> Accounts<P> {
         user: &UserRecord,
         stage: Stage,
         level: u8,
+        step_at: Option<u64>,
         client: &Client,
     ) -> Result<Issued> {
         let now = self.now();
@@ -346,7 +358,7 @@ impl<P: Ports> Accounts<P> {
             token_hash: hash,
             stage,
             level,
-            step_at: now,
+            step_at: step_at.unwrap_or(now),
             created_at: now,
             last_seen_at: now,
             expires_at,
@@ -441,10 +453,26 @@ impl<P: Ports> Accounts<P> {
     /// authenticator-app code, anything else as a recovery code. Spends what
     /// it accepts. `false` if neither matches.
     async fn second_factor(&self, user: &UserRecord, code: &str, client: &Client) -> Result<bool> {
-        // One bucket for every code attempt (sign-in, re-authentication,
-        // reset, set-up), so they cannot be spread over several allowances.
-        self.limit(&format!("second:{}", user.id), 10, 15 * MINUTE)
-            .await?;
+        self.charge_second(&user.id).await?;
+        self.check_second_factor(user, code, client).await
+    }
+
+    /// Takes one code attempt from the user's bucket. One bucket serves every
+    /// code attempt (sign-in, re-authentication, reset, set-up), so they
+    /// cannot be spread over several allowances.
+    async fn charge_second(&self, user_id: &str) -> Result<()> {
+        self.limit(&format!("second:{user_id}"), 10, 15 * MINUTE)
+            .await
+    }
+
+    /// [`Self::second_factor`] without the charge, for a caller that charged
+    /// before an irreversible step.
+    async fn check_second_factor(
+        &self,
+        user: &UserRecord,
+        code: &str,
+        client: &Client,
+    ) -> Result<bool> {
         let store = self.ports.store();
         if let Some(c) = totp::parse_code(code) {
             let Some(t) = self.totp_enabled(&user.id).await? else {
@@ -675,7 +703,7 @@ impl<P: Ports> Accounts<P> {
                 return Err(invalid_credentials());
             }
             if store
-                .take_email_token(&hash, Purpose::Verify, now)
+                .take_email_token(&hash, Purpose::Verify, self.now())
                 .await?
                 .is_none()
             {
@@ -764,10 +792,10 @@ impl<P: Ports> Accounts<P> {
             return Err(invalid_credentials());
         }
         if self.totp_enabled(&user.id).await?.is_some() {
-            return self.issue(&user, Stage::SecondStep, 1, client).await;
+            return self.issue(&user, Stage::SecondStep, 1, None, client).await;
         }
         self.event(&user.id, EventKind::SignIn, client).await?;
-        self.issue(&user, Stage::Full, 1, client).await
+        self.issue(&user, Stage::Full, 1, None, client).await
     }
 
     async fn finish_second_step(
@@ -793,7 +821,7 @@ impl<P: Ports> Accounts<P> {
             return Err(Code::SessionInvalid.into());
         }
         self.event(&user.id, EventKind::SignIn, client).await?;
-        self.issue(&user, Stage::Full, 2, client).await
+        self.issue(&user, Stage::Full, 2, None, client).await
     }
 
     /// `POST /login/totp`.
@@ -1012,6 +1040,11 @@ impl<P: Ports> Accounts<P> {
         if needs_factor && code.is_none() {
             return Err(Code::CodeInvalid.into());
         }
+        if needs_factor {
+            // Charged before the link is spent, so that a throttled attempt
+            // leaves the link usable after the wait.
+            self.charge_second(&user.id).await?;
+        }
         let store = self.ports.store();
         // The link is spent before any second factor is, so that a link
         // expiring mid-request can never cost the person a recovery code.
@@ -1024,7 +1057,7 @@ impl<P: Ports> Accounts<P> {
         }
         if needs_factor {
             let ok = match code {
-                Some(c) => self.second_factor(&user, c, client).await?,
+                Some(c) => self.check_second_factor(&user, c, client).await?,
                 None => false,
             };
             if !ok {
@@ -1092,7 +1125,8 @@ impl<P: Ports> Accounts<P> {
         ))
         .await;
         let user = UserRecord { epoch, ..user };
-        self.issue(&user, Stage::Full, s.level, client).await
+        self.issue(&user, Stage::Full, s.level, Some(s.step_at), client)
+            .await
     }
 
     // ----- profile and address -----------------------------------------
@@ -1310,7 +1344,10 @@ impl<P: Ports> Accounts<P> {
         {
             return Err(Code::WorkspaceLimitReached.into());
         }
-        self.provision(&ws.id).await?;
+        if self.provision(&ws.id).await? == Provisioned::Closed {
+            return Err(AccountError::new(Code::ServiceUnavailable)
+                .detail("The workspace could not be set up. Try again."));
+        }
         let found = store
             .memberships(&user.id)
             .await?
@@ -1325,14 +1362,14 @@ impl<P: Ports> Accounts<P> {
     /// principals, and only then is the workspace marked active, so that a
     /// failure at any step is retried from the start (each step is
     /// idempotent).
-    pub async fn provision(&self, workspace_id: &str) -> Result<()> {
+    pub async fn provision(&self, workspace_id: &str) -> Result<Provisioned> {
         let store = self.ports.store();
         let now = self.now();
         if !store
             .claim_provisioning(workspace_id, now.saturating_sub(PROVISION_RETRY_MS), now)
             .await?
         {
-            return Ok(());
+            return Ok(Provisioned::Pending);
         }
         let tenancy = self.ports.tenancy();
         let tenant_id = match tenancy
@@ -1345,9 +1382,12 @@ impl<P: Ports> Accounts<P> {
             .await
         {
             Ok(t) => t,
-            Err(TenancyError::Retry) => return Ok(()),
+            Err(TenancyError::Retry) => return Ok(Provisioned::Pending),
             // Never retried: the workspace leaves the queue and frees its slot.
-            Err(TenancyError::Gone) => return Ok(store.close_workspace(workspace_id).await?),
+            Err(TenancyError::Gone) => {
+                store.close_workspace(workspace_id).await?;
+                return Ok(Provisioned::Closed);
+            }
         };
         for owner in store.owners(workspace_id).await? {
             let req = CreatePrincipal {
@@ -1357,11 +1397,11 @@ impl<P: Ports> Accounts<P> {
                 role: Role::Owner,
             };
             if tenancy.create_principal(&req).await.is_err() {
-                return Ok(());
+                return Ok(Provisioned::Pending);
             }
         }
         store.set_tenant(workspace_id, &tenant_id).await?;
-        Ok(())
+        Ok(Provisioned::Active)
     }
 
     /// For the shell's cron: one attempt for up to `limit` workspaces still

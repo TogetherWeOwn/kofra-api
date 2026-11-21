@@ -38,6 +38,9 @@ pub struct MemoryStore {
     pub fail: Cell<Option<PortError>>,
     /// Calls of `equalise`, for tests.
     pub equalised: Cell<u32>,
+    /// When set, the next `take_email_token` finds nothing, as if the link
+    /// expired between the first read and the take (for tests).
+    pub expire_next_take: Cell<bool>,
 }
 
 impl MemoryStore {
@@ -285,6 +288,9 @@ impl Store for MemoryStore {
         now_ms: u64,
     ) -> PortResult<Option<EmailToken>> {
         self.check()?;
+        if self.expire_next_take.replace(false) {
+            return Ok(None);
+        }
         let mut tokens = self.email_tokens.borrow_mut();
         let Some(t) = tokens.iter_mut().find(|t| {
             &t.token_hash == hash
