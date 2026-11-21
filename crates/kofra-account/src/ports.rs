@@ -137,6 +137,15 @@ pub trait Store {
         hashes: &[[u8; 32]],
         now_ms: u64,
     ) -> PortResult<()>;
+    /// Stores a first set of recovery codes only if the user has no unused
+    /// code (one conditional write); `false` if another request stored a set
+    /// first, so that two concurrent enrolments never both hand out a set.
+    async fn init_recovery_codes(
+        &self,
+        user_id: &str,
+        hashes: &[[u8; 32]],
+        now_ms: u64,
+    ) -> PortResult<bool>;
     /// Atomically spends an unused code; `false` if there is none.
     async fn take_recovery_code(
         &self,

@@ -380,6 +380,25 @@ impl Store for MemoryStore {
         Ok(())
     }
 
+    async fn init_recovery_codes(
+        &self,
+        user_id: &str,
+        hashes: &[[u8; 32]],
+        _now_ms: u64,
+    ) -> PortResult<bool> {
+        self.check()?;
+        let mut codes = self.recovery.borrow_mut();
+        if codes
+            .iter()
+            .any(|(u, _, used)| u == user_id && used.is_none())
+        {
+            return Ok(false);
+        }
+        codes.retain(|(u, _, _)| u != user_id);
+        codes.extend(hashes.iter().map(|h| (user_id.to_owned(), *h, None)));
+        Ok(true)
+    }
+
     async fn take_recovery_code(
         &self,
         user_id: &str,

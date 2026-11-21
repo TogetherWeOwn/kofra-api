@@ -534,7 +534,7 @@ impl<P: Ports> Accounts<P> {
         Ok(false)
     }
 
-    async fn new_recovery_codes(&self, user_id: &str) -> Result<Vec<String>> {
+    fn make_recovery_codes(&self, user_id: &str) -> (Vec<String>, Vec<[u8; 32]>) {
         let codes: Vec<String> = (0..recovery::COUNT)
             .map(|_| recovery::make(self.random()))
             .collect();
@@ -543,11 +543,38 @@ impl<P: Ports> Accounts<P> {
             .filter_map(|c| recovery::normalise(c))
             .map(|n| self.keys.recovery_hash(user_id, &n))
             .collect();
+        (codes, hashes)
+    }
+
+    /// A new set that replaces the old one (explicit regeneration).
+    async fn new_recovery_codes(&self, user_id: &str) -> Result<Vec<String>> {
+        let (codes, hashes) = self.make_recovery_codes(user_id);
         self.ports
             .store()
             .replace_recovery_codes(user_id, &hashes, self.now())
             .await?;
         Ok(codes)
+    }
+
+    /// A first set, when the user has no unused code; `None` when a set
+    /// exists (or another request stored one first).
+    pub(crate) async fn first_recovery_codes(
+        &self,
+        user_id: &str,
+        client: &Client,
+    ) -> Result<Option<Vec<String>>> {
+        let (codes, hashes) = self.make_recovery_codes(user_id);
+        if !self
+            .ports
+            .store()
+            .init_recovery_codes(user_id, &hashes, self.now())
+            .await?
+        {
+            return Ok(None);
+        }
+        self.event(user_id, EventKind::RecoveryCodesCreated, client)
+            .await?;
+        Ok(Some(codes))
     }
 
     async fn send_link(&self, user: &UserRecord, purpose: Purpose, to: &str) -> Result<()> {
@@ -1284,14 +1311,7 @@ impl<P: Ports> Accounts<P> {
         rec.enabled = true;
         rec.last_step = step;
         store.put_totp(&rec).await?;
-        let codes = if store.recovery_codes_left(&user.id).await? == 0 {
-            let c = self.new_recovery_codes(&user.id).await?;
-            self.event(&user.id, EventKind::RecoveryCodesCreated, client)
-                .await?;
-            Some(c)
-        } else {
-            None
-        };
+        let codes = self.first_recovery_codes(&user.id, client).await?;
         s.level = 2;
         store.update_session(&s).await?;
         // Adding a factor raises the epoch (other devices sign in again with
