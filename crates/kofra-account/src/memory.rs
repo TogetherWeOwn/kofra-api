@@ -10,12 +10,13 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     model::{
-        EmailToken, InviteRecord, MemberRecord, Purpose, SecurityEvent, SessionRecord, TotpRecord,
-        UserRecord, WorkspaceRecord, WorkspaceState,
+        ChallengePurpose, ChallengeRecord, EmailToken, InviteRecord, MemberRecord, PasskeyRecord,
+        Purpose, SecurityEvent, SessionRecord, TotpRecord, UserRecord, WorkspaceRecord,
+        WorkspaceState,
     },
     ports::{
-        BreachCheck, CreatePrincipal, CreateTenant, Env, InsertUser, Mail, Mailer, PortError,
-        PortResult, Ports, Store, Tenancy, TenancyError, Throttle,
+        BreachCheck, CreatePrincipal, CreateTenant, Env, InsertPasskey, InsertUser, Mail, Mailer,
+        PortError, PortResult, Ports, Store, Tenancy, TenancyError, Throttle,
     },
 };
 
@@ -34,6 +35,8 @@ pub struct MemoryStore {
     workspaces: RefCell<Vec<WorkspaceRecord>>,
     members: RefCell<Vec<MemberRecord>>,
     events: RefCell<Vec<SecurityEvent>>,
+    passkeys: RefCell<Vec<PasskeyRecord>>,
+    challenges: RefCell<Vec<ChallengeRecord>>,
     /// When set, every call fails with this error (to test outages).
     pub fail: Cell<Option<PortError>>,
     /// Calls of `equalise`, for tests.
@@ -64,6 +67,11 @@ impl MemoryStore {
     /// Every workspace row, for assertions.
     pub fn all_workspaces(&self) -> Vec<WorkspaceRecord> {
         self.workspaces.borrow().clone()
+    }
+
+    /// Stored WebAuthn challenges, for assertions.
+    pub fn challenge_count(&self) -> usize {
+        self.challenges.borrow().len()
     }
 
     /// The user's stored TOTP row, for assertions.
@@ -566,6 +574,121 @@ impl Store for MemoryStore {
         v.sort_by(|a, b| b.at.cmp(&a.at).then(b.id.cmp(&a.id)));
         v.truncate(limit);
         Ok(v)
+    }
+    async fn insert_passkey(
+        &self,
+        passkey: &PasskeyRecord,
+        expected_epoch: u64,
+    ) -> PortResult<InsertPasskey> {
+        self.check()?;
+        if !self
+            .users
+            .borrow()
+            .iter()
+            .any(|u| u.id == passkey.user_id && u.epoch == expected_epoch)
+        {
+            return Ok(InsertPasskey::Stale);
+        }
+        let mut all = self.passkeys.borrow_mut();
+        if all.iter().any(|p| p.credential_id == passkey.credential_id) {
+            return Ok(InsertPasskey::Duplicate);
+        }
+        all.push(passkey.clone());
+        Ok(InsertPasskey::Created)
+    }
+
+    async fn passkey_by_credential(
+        &self,
+        credential_id: &[u8],
+    ) -> PortResult<Option<PasskeyRecord>> {
+        self.check()?;
+        Ok(self
+            .passkeys
+            .borrow()
+            .iter()
+            .find(|p| p.credential_id == credential_id)
+            .cloned())
+    }
+
+    async fn passkeys(&self, user_id: &str) -> PortResult<Vec<PasskeyRecord>> {
+        self.check()?;
+        Ok(self
+            .passkeys
+            .borrow()
+            .iter()
+            .filter(|p| p.user_id == user_id)
+            .cloned()
+            .collect())
+    }
+
+    async fn record_passkey_use(
+        &self,
+        id: &str,
+        expected_count: u32,
+        sign_count: u32,
+        backed_up: bool,
+        now_ms: u64,
+    ) -> PortResult<bool> {
+        self.check()?;
+        let mut all = self.passkeys.borrow_mut();
+        let Some(p) = all
+            .iter_mut()
+            .find(|p| p.id == id && p.sign_count == expected_count)
+        else {
+            return Ok(false);
+        };
+        p.sign_count = sign_count;
+        p.backed_up = backed_up;
+        p.last_used_at = Some(now_ms);
+        Ok(true)
+    }
+
+    async fn rename_passkey(&self, user_id: &str, id: &str, name: &str) -> PortResult<bool> {
+        self.check()?;
+        let mut all = self.passkeys.borrow_mut();
+        let Some(p) = all.iter_mut().find(|p| p.user_id == user_id && p.id == id) else {
+            return Ok(false);
+        };
+        name.clone_into(&mut p.name);
+        Ok(true)
+    }
+
+    async fn delete_passkey(&self, user_id: &str, id: &str) -> PortResult<bool> {
+        self.check()?;
+        let mut all = self.passkeys.borrow_mut();
+        let before = all.len();
+        all.retain(|p| !(p.user_id == user_id && p.id == id));
+        Ok(all.len() != before)
+    }
+
+    async fn insert_challenge(&self, challenge: &ChallengeRecord) -> PortResult<()> {
+        self.check()?;
+        self.challenges.borrow_mut().push(challenge.clone());
+        Ok(())
+    }
+
+    async fn delete_expired_challenges(&self, now_ms: u64) -> PortResult<()> {
+        self.check()?;
+        self.challenges
+            .borrow_mut()
+            .retain(|c| c.expires_at > now_ms);
+        Ok(())
+    }
+
+    async fn take_challenge(
+        &self,
+        id: &str,
+        purpose: ChallengePurpose,
+        now_ms: u64,
+    ) -> PortResult<Option<ChallengeRecord>> {
+        self.check()?;
+        let mut all = self.challenges.borrow_mut();
+        let Some(i) = all.iter().position(|c| c.id == id) else {
+            return Ok(None);
+        };
+        // Taken whether or not it fits, so a wrong guess also spends it.
+        let c = all.remove(i);
+        Ok((c.purpose == purpose && c.expires_at > now_ms).then_some(c))
     }
 }
 

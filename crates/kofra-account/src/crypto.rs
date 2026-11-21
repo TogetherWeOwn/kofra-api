@@ -28,6 +28,7 @@ pub struct Keys {
     csrf: [u8; 32],
     recovery: [u8; 32],
     seal: [u8; 32],
+    handle: [u8; 32],
 }
 
 impl std::fmt::Debug for Keys {
@@ -53,12 +54,19 @@ impl Keys {
             csrf: derive(root, b"csrf"),
             recovery: derive(root, b"recovery-code"),
             seal: derive(root, b"totp-seal"),
+            handle: derive(root, b"webauthn-user-handle"),
         }
     }
 
     /// The CSRF token of a session: a MAC of its ID.
     pub fn csrf(&self, session_id: &str) -> String {
         codec::b64url(&mac(&self.csrf, &[b"csrf\0", session_id.as_bytes()]))
+    }
+
+    /// The WebAuthn user handle of a user: opaque, stable, and not the user
+    /// ID, so an authenticator never stores anything that names the account.
+    pub fn user_handle(&self, user_id: &str) -> [u8; 32] {
+        mac(&self.handle, &[b"user-handle\0", user_id.as_bytes()])
     }
 
     /// The stored form of a recovery code, bound to its user.

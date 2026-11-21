@@ -8,8 +8,8 @@
 #![allow(async_fn_in_trait)]
 
 use crate::model::{
-    EmailToken, InviteRecord, MemberRecord, Purpose, Role, SecurityEvent, SessionRecord,
-    TotpRecord, UserRecord, WorkspaceRecord,
+    ChallengePurpose, ChallengeRecord, EmailToken, InviteRecord, MemberRecord, PasskeyRecord,
+    Purpose, Role, SecurityEvent, SessionRecord, TotpRecord, UserRecord, WorkspaceRecord,
 };
 
 /// A port could not answer.
@@ -197,6 +197,62 @@ pub trait Store {
     async fn insert_event(&self, event: &SecurityEvent) -> PortResult<()>;
     /// The user's newest events.
     async fn events(&self, user_id: &str, limit: usize) -> PortResult<Vec<SecurityEvent>>;
+
+    /// Stores a passkey, only while the user's epoch is still
+    /// `expected_epoch` (the one that authorised the enrolment) and its
+    /// credential ID is not registered to anyone.
+    async fn insert_passkey(
+        &self,
+        passkey: &PasskeyRecord,
+        expected_epoch: u64,
+    ) -> PortResult<InsertPasskey>;
+    /// A passkey by credential ID.
+    async fn passkey_by_credential(
+        &self,
+        credential_id: &[u8],
+    ) -> PortResult<Option<PasskeyRecord>>;
+    /// The user's passkeys, oldest first.
+    async fn passkeys(&self, user_id: &str) -> PortResult<Vec<PasskeyRecord>>;
+    /// Records a use: the new counter, backup state and time. Atomically
+    /// refuses (returns `false`) if the stored counter is no longer
+    /// `expected_count`, so two racing assertions cannot both pass.
+    async fn record_passkey_use(
+        &self,
+        id: &str,
+        expected_count: u32,
+        sign_count: u32,
+        backed_up: bool,
+        now_ms: u64,
+    ) -> PortResult<bool>;
+    /// Renames one of the user's passkeys; `false` if there is none.
+    async fn rename_passkey(&self, user_id: &str, id: &str, name: &str) -> PortResult<bool>;
+    /// Deletes one of the user's passkeys; `false` if there is none.
+    async fn delete_passkey(&self, user_id: &str, id: &str) -> PortResult<bool>;
+
+    /// Stores a WebAuthn challenge.
+    async fn insert_challenge(&self, challenge: &ChallengeRecord) -> PortResult<()>;
+    /// Deletes every challenge that expired before `now_ms`.
+    async fn delete_expired_challenges(&self, now_ms: u64) -> PortResult<()>;
+    /// Atomically removes the challenge, whatever its purpose or age (a
+    /// guess at the wrong endpoint spends it too), and returns it only if it
+    /// has this purpose and has not expired at `now_ms`.
+    async fn take_challenge(
+        &self,
+        id: &str,
+        purpose: ChallengePurpose,
+        now_ms: u64,
+    ) -> PortResult<Option<ChallengeRecord>>;
+}
+
+/// The outcome of [`Store::insert_passkey`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsertPasskey {
+    /// Stored.
+    Created,
+    /// The credential ID is registered already; nothing written.
+    Duplicate,
+    /// The user's epoch changed; nothing written.
+    Stale,
 }
 
 /// The outcome of [`Store::insert_user`].

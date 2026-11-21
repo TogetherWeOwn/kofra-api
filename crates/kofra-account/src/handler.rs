@@ -221,8 +221,24 @@ struct Reset {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Change {
-    current: String,
+    current: Option<String>,
     password: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PasskeyRegister {
+    challenge_id: String,
+    name: String,
+    credential: crate::passkeys::RegistrationCredential,
+    password: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PasskeyAssert {
+    challenge_id: String,
+    credential: crate::passkeys::AuthenticationCredential,
 }
 
 #[derive(Deserialize)]
@@ -249,7 +265,7 @@ fn user(u: &UserView) -> Value {
         "email": u.user.email,
         "email_verified": u.user.email_verified_at.is_some(),
         "totp": u.totp,
-        "passkeys": 0,
+        "passkeys": u.passkeys,
         "recovery_codes_left": u.recovery_codes_left,
         "created_at": rfc3339(u.user.created_at),
     })
@@ -417,7 +433,7 @@ async fn route<P: Ports>(acc: &Accounts<P>, req: &Request) -> Result<Response, A
         ("POST", ["password", "change"]) => {
             let b: Change = body(req)?;
             let i = acc
-                .change_password(token, &b.current, &b.password, &c)
+                .change_password(token, b.current.as_deref(), &b.password, &c)
                 .await?;
             Ok(Response::json(200, &issued(&i)))
         }
@@ -469,6 +485,75 @@ async fn route<P: Ports>(acc: &Accounts<P>, req: &Request) -> Result<Response, A
                 })
                 .collect();
             Ok(Response::json(200, &json!({ "data": data })))
+        }
+        ("POST", ["passkeys", "register", "begin"]) => {
+            no_body(req)?;
+            let (id, options) = acc.passkey_register_begin(token).await?;
+            Ok(Response::json(
+                200,
+                &json!({ "challenge_id": id, "options": options }),
+            ))
+        }
+        ("POST", ["passkeys", "register", "finish"]) => {
+            let b: PasskeyRegister = body(req)?;
+            let (pk, codes) = acc
+                .passkey_register_finish(
+                    token,
+                    &b.challenge_id,
+                    &b.name,
+                    &b.credential,
+                    b.password.as_deref(),
+                    &c,
+                )
+                .await?;
+            Ok(Response::json(
+                201,
+                &json!({ "passkey": crate::passkeys::view(&pk), "recovery_codes": codes }),
+            ))
+        }
+        ("POST", ["passkeys", "login", "begin"]) => {
+            no_body(req)?;
+            let (id, options) = acc.passkey_login_begin(token, &c).await?;
+            Ok(Response::json(
+                200,
+                &json!({ "challenge_id": id, "options": options }),
+            ))
+        }
+        ("POST", ["passkeys", "login", "finish"]) => {
+            let b: PasskeyAssert = body(req)?;
+            let i = acc
+                .passkey_login_finish(token, &b.challenge_id, &b.credential, &c)
+                .await?;
+            Ok(Response::json(200, &issued(&i)))
+        }
+        ("POST", ["reauth", "passkey", "begin"]) => {
+            no_body(req)?;
+            let (id, options) = acc.passkey_reauth_begin(token).await?;
+            Ok(Response::json(
+                200,
+                &json!({ "challenge_id": id, "options": options }),
+            ))
+        }
+        ("POST", ["reauth", "passkey", "finish"]) => {
+            let b: PasskeyAssert = body(req)?;
+            let at = acc
+                .passkey_reauth_finish(token, &b.challenge_id, &b.credential, &c)
+                .await?;
+            Ok(Response::json(200, &json!({ "step_at": rfc3339(at) })))
+        }
+        ("GET", ["passkeys"]) => {
+            let all = acc.passkey_list(token).await?;
+            let data: Vec<Value> = all.iter().map(crate::passkeys::view).collect();
+            Ok(Response::json(200, &json!({ "data": data })))
+        }
+        ("PATCH", ["passkeys", id]) => {
+            let b: NameOnly = body(req)?;
+            let pk = acc.passkey_rename(token, id, &b.name).await?;
+            Ok(Response::json(200, &crate::passkeys::view(&pk)))
+        }
+        ("DELETE", ["passkeys", id]) => {
+            acc.passkey_delete(token, id, &c).await?;
+            Ok(Response::empty(204))
         }
         _ => Err(Code::NotFound.into()),
     }

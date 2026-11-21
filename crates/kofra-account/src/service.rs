@@ -76,8 +76,10 @@ pub struct Config {
     pub signup: SignupMode,
     /// The console's origin, for links in mail, e.g. `https://console.kofra.app`.
     pub console_origin: String,
-    /// Issuer shown in authenticator apps.
+    /// Issuer shown in authenticator apps, and the passkey RP name.
     pub issuer: String,
+    /// The passkey RP ID: the console's host.
+    pub rp_id: String,
     /// Workspaces one user may own.
     pub max_owned_workspaces: u32,
     /// The plan a new tenant starts on.
@@ -89,10 +91,14 @@ pub struct Config {
 impl Config {
     /// Defaults for a console origin: invite-only sign-up, 2 workspaces.
     pub fn new(console_origin: &str) -> Self {
+        let origin = console_origin.trim_end_matches('/');
+        let host = origin.split_once("://").map_or(origin, |(_, h)| h);
+        let rp_id = host.split(':').next().unwrap_or(host).to_owned();
         Self {
             signup: SignupMode::Invite,
-            console_origin: console_origin.trim_end_matches('/').to_owned(),
+            console_origin: origin.to_owned(),
             issuer: "Kofra".to_owned(),
+            rp_id,
             max_owned_workspaces: 2,
             signup_plan: "free".to_owned(),
             jurisdiction: "us".to_owned(),
@@ -154,6 +160,8 @@ pub struct UserView {
     pub totp: bool,
     /// Unused recovery codes.
     pub recovery_codes_left: u32,
+    /// Registered passkeys.
+    pub passkeys: u32,
 }
 
 /// The answer to `session/resolve`.
@@ -205,7 +213,7 @@ pub struct TotpSetup {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Want {
+pub(crate) enum Want {
     Any,
     SecondStep,
     Full,
@@ -213,12 +221,12 @@ enum Want {
 
 /// The account service.
 pub struct Accounts<P: Ports> {
-    ports: P,
-    keys: Keys,
-    config: Config,
+    pub(crate) ports: P,
+    pub(crate) keys: Keys,
+    pub(crate) config: Config,
 }
 
-fn clean_name(name: &str) -> Result<String> {
+pub(crate) fn clean_name(name: &str) -> Result<String> {
     let n = name.trim();
     let count = n.chars().count();
     if count == 0 || count > MAX_NAME_CHARS || n.chars().any(char::is_control) {
@@ -253,21 +261,21 @@ impl<P: Ports> Accounts<P> {
         &self.config
     }
 
-    fn now(&self) -> u64 {
+    pub(crate) fn now(&self) -> u64 {
         self.ports.env().now_ms()
     }
 
-    fn random<const N: usize>(&self) -> [u8; N] {
+    pub(crate) fn random<const N: usize>(&self) -> [u8; N] {
         let mut b = [0u8; N];
         self.ports.env().fill(&mut b);
         b
     }
 
-    fn id(&self, prefix: &str) -> String {
+    pub(crate) fn id(&self, prefix: &str) -> String {
         codec::time_id(prefix, self.now(), self.random())
     }
 
-    async fn limit(&self, key: &str, limit: u32, window_ms: u64) -> Result<()> {
+    pub(crate) async fn limit(&self, key: &str, limit: u32, window_ms: u64) -> Result<()> {
         match self
             .ports
             .throttle()
@@ -281,7 +289,7 @@ impl<P: Ports> Accounts<P> {
 
     /// Like [`Self::limit`], but says only whether the limit was passed, for
     /// paths that must answer the same either way.
-    async fn within(&self, key: &str, limit: u32, window_ms: u64) -> Result<bool> {
+    pub(crate) async fn within(&self, key: &str, limit: u32, window_ms: u64) -> Result<bool> {
         Ok(self
             .ports
             .throttle()
@@ -290,13 +298,18 @@ impl<P: Ports> Accounts<P> {
             .is_none())
     }
 
-    async fn send(&self, m: Mail) {
+    pub(crate) async fn send(&self, m: Mail) {
         // Never reported: see the module notes on enumeration. The shell's
         // mailer logs its own failures.
         let _ = self.ports.mailer().send(&m).await;
     }
 
-    async fn event(&self, user_id: &str, kind: EventKind, client: &Client) -> Result<()> {
+    pub(crate) async fn event(
+        &self,
+        user_id: &str,
+        kind: EventKind,
+        client: &Client,
+    ) -> Result<()> {
         let e = SecurityEvent {
             id: self.id("sev"),
             user_id: user_id.to_owned(),
@@ -312,7 +325,7 @@ impl<P: Ports> Accounts<P> {
         Ok(())
     }
 
-    fn link(&self, path: &str, token: &str) -> String {
+    pub(crate) fn link(&self, path: &str, token: &str) -> String {
         format!("{}{path}?token={token}", self.config.console_origin)
     }
 
@@ -336,11 +349,11 @@ impl<P: Ports> Accounts<P> {
         Ok(())
     }
 
-    fn hash_password(&self, pw: &str) -> Result<String> {
+    pub(crate) fn hash_password(&self, pw: &str) -> Result<String> {
         password::hash(pw, self.random()).ok_or_else(|| AccountError::new(Code::Internal))
     }
 
-    async fn issue(
+    pub(crate) async fn issue(
         &self,
         user: &UserRecord,
         stage: Stage,
@@ -377,7 +390,7 @@ impl<P: Ports> Accounts<P> {
         })
     }
 
-    async fn session(
+    pub(crate) async fn session(
         &self,
         token: Option<&str>,
         want: Want,
@@ -417,7 +430,10 @@ impl<P: Ports> Accounts<P> {
         Ok((s, user))
     }
 
-    async fn full_verified(&self, token: Option<&str>) -> Result<(SessionRecord, UserRecord)> {
+    pub(crate) async fn full_verified(
+        &self,
+        token: Option<&str>,
+    ) -> Result<(SessionRecord, UserRecord)> {
         let (s, u) = self.session(token, Want::Full).await?;
         if u.email_verified_at.is_none() {
             return Err(Code::EmailUnverified.into());
@@ -425,7 +441,7 @@ impl<P: Ports> Accounts<P> {
         Ok((s, u))
     }
 
-    async fn fresh(&self, token: Option<&str>) -> Result<(SessionRecord, UserRecord)> {
+    pub(crate) async fn fresh(&self, token: Option<&str>) -> Result<(SessionRecord, UserRecord)> {
         let (s, u) = self.full_verified(token).await?;
         if self.now().saturating_sub(s.step_at) > FRESH_STEP_MS {
             return Err(Code::StepRequired.into());
@@ -438,7 +454,7 @@ impl<P: Ports> Accounts<P> {
         Ok((s, u))
     }
 
-    async fn totp_enabled(&self, user_id: &str) -> Result<Option<TotpRecord>> {
+    pub(crate) async fn totp_enabled(&self, user_id: &str) -> Result<Option<TotpRecord>> {
         Ok(self
             .ports
             .store()
@@ -449,7 +465,7 @@ impl<P: Ports> Accounts<P> {
 
     /// When the user has no second factor yet, the current password must
     /// come with the request that adds the first one.
-    async fn check_first_factor_password(
+    pub(crate) async fn check_first_factor_password(
         &self,
         user: &UserRecord,
         password: Option<&str>,
@@ -469,14 +485,20 @@ impl<P: Ports> Accounts<P> {
     }
 
     /// Whether the user has a second factor.
-    async fn has_second_factor(&self, user_id: &str) -> Result<bool> {
-        Ok(self.totp_enabled(user_id).await?.is_some())
+    pub(crate) async fn has_second_factor(&self, user_id: &str) -> Result<bool> {
+        Ok(self.totp_enabled(user_id).await?.is_some()
+            || !self.ports.store().passkeys(user_id).await?.is_empty())
     }
 
     /// Checks a second-factor code: six digits are read as an
     /// authenticator-app code, anything else as a recovery code. Spends what
     /// it accepts. `false` if neither matches.
-    async fn second_factor(&self, user: &UserRecord, code: &str, client: &Client) -> Result<bool> {
+    pub(crate) async fn second_factor(
+        &self,
+        user: &UserRecord,
+        code: &str,
+        client: &Client,
+    ) -> Result<bool> {
         self.charge_second(&user.id).await?;
         self.check_second_factor(user, code, client).await
     }
@@ -484,14 +506,14 @@ impl<P: Ports> Accounts<P> {
     /// Takes one code attempt from the user's bucket. One bucket serves every
     /// code attempt (sign-in, re-authentication, reset, set-up), so they
     /// cannot be spread over several allowances.
-    async fn charge_second(&self, user_id: &str) -> Result<()> {
+    pub(crate) async fn charge_second(&self, user_id: &str) -> Result<()> {
         self.limit(&format!("second:{user_id}"), 10, 15 * MINUTE)
             .await
     }
 
     /// [`Self::second_factor`] without the charge, for a caller that charged
     /// before an irreversible step.
-    async fn check_second_factor(
+    pub(crate) async fn check_second_factor(
         &self,
         user: &UserRecord,
         code: &str,
@@ -547,7 +569,7 @@ impl<P: Ports> Accounts<P> {
     }
 
     /// A new set that replaces the old one (explicit regeneration).
-    async fn new_recovery_codes(&self, user_id: &str) -> Result<Vec<String>> {
+    pub(crate) async fn new_recovery_codes(&self, user_id: &str) -> Result<Vec<String>> {
         let (codes, hashes) = self.make_recovery_codes(user_id);
         self.ports
             .store()
@@ -846,7 +868,7 @@ impl<P: Ports> Accounts<P> {
                 .await?;
             return Err(invalid_credentials());
         }
-        if self.totp_enabled(&user.id).await?.is_some() {
+        if self.has_second_factor(&user.id).await? {
             return self.issue(&user, Stage::SecondStep, 1, None, client).await;
         }
         self.event(&user.id, EventKind::SignIn, client).await?;
@@ -926,6 +948,8 @@ impl<P: Ports> Accounts<P> {
         }
         let totp = self.totp_enabled(&user.id).await?.is_some();
         let recovery_codes_left = store.recovery_codes_left(&user.id).await?;
+        let passkeys =
+            u32::try_from(self.ports.store().passkeys(&user.id).await?.len()).unwrap_or(u32::MAX);
         let needs = if session.stage == Stage::SecondStep {
             Some(Needs::SecondStep)
         } else if user.email_verified_at.is_none() {
@@ -941,6 +965,7 @@ impl<P: Ports> Accounts<P> {
                 user,
                 totp,
                 recovery_codes_left,
+                passkeys,
             },
             session,
             workspaces,
@@ -1017,7 +1042,7 @@ impl<P: Ports> Accounts<P> {
                 .await?;
             return Err(invalid_credentials());
         }
-        if self.totp_enabled(&user.id).await?.is_some() {
+        if self.has_second_factor(&user.id).await? {
             let ok = match code {
                 Some(c) => self.second_factor(&user, c, client).await?,
                 None => false,
@@ -1076,7 +1101,7 @@ impl<P: Ports> Accounts<P> {
     /// `POST /password/reset/check`: whether the reset will ask for a code.
     pub async fn reset_check(&self, token: &str) -> Result<bool> {
         let (_, user) = self.reset_user(token).await?;
-        Ok(self.totp_enabled(&user.id).await?.is_some())
+        self.has_second_factor(&user.id).await
     }
 
     /// `POST /password/reset`. A reset never removes two-step verification:
@@ -1152,18 +1177,24 @@ impl<P: Ports> Accounts<P> {
     }
 
     /// `POST /password/change`. Ends every other session and issues a new
-    /// token for this one.
+    /// token for this one. `current` may be left out only by a session that
+    /// used two factors (a passkey sign-in) within the fresh-step window, so
+    /// that a person who signs in with a passkey can set a password.
     pub async fn change_password(
         &self,
         token: Option<&str>,
-        current: &str,
+        current: Option<&str>,
         new: &str,
         client: &Client,
     ) -> Result<Issued> {
         let (s, user) = self.fresh(token).await?;
         self.limit(&format!("reauth:{}", user.id), 10, 15 * MINUTE)
             .await?;
-        if !password::verify(current, &user.password_hash) {
+        let current_ok = match current {
+            Some(c) => password::verify(c, &user.password_hash),
+            None => s.level == 2,
+        };
+        if !current_ok {
             self.event(&user.id, EventKind::SignInFailed, client)
                 .await?;
             return Err(invalid_credentials());
@@ -1243,10 +1274,13 @@ impl<P: Ports> Accounts<P> {
             .await?;
         let totp = self.totp_enabled(&user.id).await?.is_some();
         let recovery_codes_left = self.ports.store().recovery_codes_left(&user.id).await?;
+        let passkeys =
+            u32::try_from(self.ports.store().passkeys(&user.id).await?.len()).unwrap_or(u32::MAX);
         Ok(UserView {
             user,
             totp,
             recovery_codes_left,
+            passkeys,
         })
     }
 
@@ -1336,14 +1370,16 @@ impl<P: Ports> Accounts<P> {
             return Err(Code::NotFound.into());
         }
         store.delete_totp(&user.id).await?;
-        store
-            .replace_recovery_codes(&user.id, &[], self.now())
-            .await?;
+        if store.passkeys(&user.id).await?.is_empty() {
+            store
+                .replace_recovery_codes(&user.id, &[], self.now())
+                .await?;
+            s.level = 1;
+        }
         store
             .void_email_tokens(&user.id, &ALL_PURPOSES, self.now())
             .await?;
         store.delete_sessions(&user.id, Some(&s.id)).await?;
-        s.level = 1;
         store.update_session(&s).await?;
         self.event(&user.id, EventKind::TotpDisabled, client)
             .await?;
@@ -1363,7 +1399,7 @@ impl<P: Ports> Accounts<P> {
         client: &Client,
     ) -> Result<Vec<String>> {
         let (_, user) = self.fresh(token).await?;
-        if self.totp_enabled(&user.id).await?.is_none() {
+        if !self.has_second_factor(&user.id).await? {
             return Err(AccountError::new(Code::InvalidRequest)
                 .detail("Turn on two-step verification first."));
         }

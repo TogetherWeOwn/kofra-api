@@ -91,6 +91,9 @@ pub enum Purpose {
 }
 
 impl Purpose {
+    /// Every purpose.
+    pub const ALL: [Self; 3] = [Self::Verify, Self::Reset, Self::EmailChange];
+
     /// The stored name.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -270,6 +273,12 @@ pub enum EventKind {
     SessionsRevoked,
     /// Signed out.
     SignedOut,
+    /// A passkey was added.
+    PasskeyAdded,
+    /// A passkey was removed.
+    PasskeyRemoved,
+    /// A passkey answered with a counter that did not grow.
+    PasskeyCounterRefused,
 }
 
 impl EventKind {
@@ -291,6 +300,9 @@ impl EventKind {
             Self::RecoveryCodeUsed => "recovery_code_used",
             Self::SessionsRevoked => "sessions_revoked",
             Self::SignedOut => "signed_out",
+            Self::PasskeyAdded => "passkey_added",
+            Self::PasskeyRemoved => "passkey_removed",
+            Self::PasskeyCounterRefused => "passkey_counter_refused",
         }
     }
 }
@@ -312,4 +324,70 @@ pub struct SecurityEvent {
     pub country: Option<String>,
     /// User agent, cut to 256 characters.
     pub user_agent: String,
+}
+
+/// A registered passkey. Nothing in it is secret.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PasskeyRecord {
+    /// `pk_...`
+    pub id: String,
+    /// The user.
+    pub user_id: String,
+    /// Credential ID; unique across all users.
+    pub credential_id: Vec<u8>,
+    /// COSE public key.
+    pub public_key: Vec<u8>,
+    /// COSE algorithm.
+    pub alg: i64,
+    /// Signature counter.
+    pub sign_count: u32,
+    /// May be synced.
+    pub backup_eligible: bool,
+    /// Synced at the last use.
+    pub backed_up: bool,
+    /// The person's name for it.
+    pub name: String,
+    /// Unix ms.
+    pub created_at: u64,
+    /// Unix ms.
+    pub last_used_at: Option<u64>,
+}
+
+/// What a passkey challenge is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChallengePurpose {
+    /// Adding a passkey.
+    Register,
+    /// Signing in, or the second step.
+    Login,
+    /// A fresh step for a signed-in user.
+    Reauth,
+}
+
+impl ChallengePurpose {
+    /// The stored name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Register => "register",
+            Self::Login => "login",
+            Self::Reauth => "reauth",
+        }
+    }
+}
+
+/// A WebAuthn challenge, used once.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChallengeRecord {
+    /// `chl_...`
+    pub id: String,
+    /// Purpose.
+    pub purpose: ChallengePurpose,
+    /// The user, when known at the start.
+    pub user_id: Option<String>,
+    /// 32 random bytes.
+    pub challenge: [u8; 32],
+    /// Unix ms.
+    pub created_at: u64,
+    /// Unix ms.
+    pub expires_at: u64,
 }
