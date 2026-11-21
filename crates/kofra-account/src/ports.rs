@@ -244,7 +244,7 @@ pub struct CreatePrincipal {
     pub idempotency_key: String,
 }
 
-/// The storage tenancy plane, as `kofra-api` reaches it (W6's management
+/// The storage tenancy plane, as `kofra-api` reaches it (the storage management
 /// plane through the confirmed token in production; a stub until then).
 pub trait Tenancy {
     /// Creates (or, on a retry, finds) the tenant; returns its ID.
