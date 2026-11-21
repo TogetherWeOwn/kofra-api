@@ -44,6 +44,9 @@ pub struct MemoryStore {
     /// When set, the next `take_email_token` finds nothing, as if the link
     /// expired between the first read and the take (for tests).
     pub expire_next_take: Cell<bool>,
+    /// When set, the next `insert_passkey` first raises the user's epoch, as
+    /// if a password reset committed while the enrolment ran (for tests).
+    pub bump_epoch_before_passkey_insert: Cell<bool>,
 }
 
 impl MemoryStore {
@@ -582,6 +585,13 @@ impl Store for MemoryStore {
         expected_epoch: u64,
     ) -> PortResult<InsertPasskey> {
         self.check()?;
+        if self.bump_epoch_before_passkey_insert.replace(false) {
+            for u in self.users.borrow_mut().iter_mut() {
+                if u.id == passkey.user_id {
+                    u.epoch += 1;
+                }
+            }
+        }
         if !self
             .users
             .borrow()

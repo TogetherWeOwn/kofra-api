@@ -1130,3 +1130,30 @@ fn a_passkey_insert_under_an_old_epoch_is_refused() {
     let me = h.call("GET", "passkeys", Some(&s), None);
     assert_eq!(me.body["data"].as_array().unwrap().len(), 0);
 }
+
+#[test]
+fn a_credential_change_during_enrolment_refuses_the_passkey() {
+    use kofra_account::ports::Store;
+    let h = Harness::new();
+    let s = h.signed_up("ada");
+    let me = h.call("POST", "session/resolve", Some(&s), None);
+    let user_id = me.body["user"]["id"].as_str().unwrap().to_owned();
+    let store = &h.acc.ports().store;
+    // The session checks pass; a reset then commits before the passkey is
+    // written, so the write under the epoch the request read is refused.
+    store.bump_epoch_before_passkey_insert.set(true);
+    let mut a = Authenticator::es256(51);
+    let r = h.register(&s, &mut a);
+    assert_eq!(r.body["code"], "session_invalid", "{}", r.body);
+    assert_eq!(r.status, 401);
+    assert!(!store.bump_epoch_before_passkey_insert.get());
+    assert!(
+        pollster::block_on(store.passkeys(&user_id))
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        pollster::block_on(store.recovery_codes_left(&user_id)).unwrap(),
+        0
+    );
+}
