@@ -85,7 +85,7 @@ interface SecurityEvent { at: string; kind: string; user_agent: string; country:
 |---|---|---|---|
 | `POST /account/v1/signup` | none | `{ invite?: string, email, name, password }` | `202 { "state": "verify_email" }` whether or not the address had an account |
 | `POST /account/v1/email/resend` | none | `{ email }` | `202 {}` always |
-| `POST /account/v1/email/verify` | none | `{ token }` | `200 { "state": "verified", "what": "address" \| "email_changed" }`. A link never signs anyone in: after a sign-up link, send the person to sign in. The first confirmation ends every session of the account and voids the other confirmation links. |
+| `POST /account/v1/email/verify` | none | `{ token, password? }` (`password` is required for a sign-up link: the person who confirms must know the account's password) | `200 { "state": "verified", "what": "address" \| "email_changed" }`. A link never signs anyone in: after a sign-up link, send the person to sign in. The first confirmation ends every session of the account and voids the other confirmation links. A wrong or missing password answers `invalid_credentials` and leaves the link usable. |
 | `POST /account/v1/login/password` | none | `{ email, password }` | `200 SignInAnswer` |
 | `POST /account/v1/login/totp` | second step | `{ code }` | `200 SignInAnswer` (a new token) |
 | `POST /account/v1/login/recovery` | second step | `{ code }` | `200 SignInAnswer` (a new token) |
@@ -97,7 +97,7 @@ interface SecurityEvent { at: string; kind: string; user_agent: string; country:
 | `POST /account/v1/reauth` | full | `{ password, code? }` (`code` = TOTP or recovery code, needed when the user has one) | `200 { "step_at" }` |
 | `POST /account/v1/password/forgot` | none | `{ email }` | `202 {}` always |
 | `POST /account/v1/password/reset/check` | none | `{ token }` | `200 { "second_factor": boolean }` |
-| `POST /account/v1/password/reset` | none | `{ token, password, code? }` | `200 {}`; every session of the user ends |
+| `POST /account/v1/password/reset` | none | `{ token, password, code? }` | `200 {}`; every session of the user ends. The link is spent before the code is checked: a wrong code means asking for a new link. |
 | `POST /account/v1/password/change` | full, fresh step | `{ current, password }` | `200 SignInAnswer`; every other session ends |
 | `POST /account/v1/email/change` | full, fresh step | `{ email }` | `202 {}` |
 | `PATCH /account/v1/profile` | full | `{ name }` | `200 User` |
@@ -113,4 +113,9 @@ interface SecurityEvent { at: string; kind: string; user_agent: string; country:
 `resolve` answer lists no workspaces.
 
 A password reset, a password change, an address change and turning two-step
-verification off void every e-mail link sent before them.
+verification off void every e-mail link sent before them, and a password reset
+or change ends every session (including one still being issued).
+
+Once a user has a second factor, the calls marked "fresh step" need a session
+that used it within 10 minutes (sign-in with the code, or `reauth` with it);
+otherwise they answer `step_required`.

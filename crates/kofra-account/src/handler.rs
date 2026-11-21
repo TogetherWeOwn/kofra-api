@@ -178,6 +178,13 @@ struct TokenOnly {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct Verify {
+    token: String,
+    password: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Login {
     email: String,
     password: String,
@@ -303,8 +310,11 @@ async fn route<P: Ports>(acc: &Accounts<P>, req: &Request) -> Result<Response, A
             Ok(Response::json(202, &json!({})))
         }
         ("POST", ["email", "verify"]) => {
-            let b: TokenOnly = body(req)?;
-            let what = match acc.verify_email(&b.token, &c).await? {
+            let b: Verify = body(req)?;
+            let what = match acc
+                .verify_email(&b.token, b.password.as_deref(), &c)
+                .await?
+            {
                 Verified::Address => "address",
                 Verified::EmailChanged => "email_changed",
             };

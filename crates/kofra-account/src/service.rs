@@ -27,8 +27,8 @@ use crate::{
     },
     password,
     ports::{
-        BreachCheck, CreatePrincipal, CreateTenant, Env, Mail, Mailer, Ports, Store, Tenancy,
-        Throttle,
+        BreachCheck, CreatePrincipal, CreateTenant, Env, InsertUser, Mail, Mailer, Ports, Store,
+        Tenancy, TenancyError, Throttle,
     },
     recovery, totp,
 };
@@ -320,7 +320,7 @@ impl<P: Ports> Accounts<P> {
 
     async fn issue(
         &self,
-        user_id: &str,
+        user: &UserRecord,
         stage: Stage,
         level: u8,
         client: &Client,
@@ -333,7 +333,8 @@ impl<P: Ports> Accounts<P> {
         };
         let s = SessionRecord {
             id: self.id("ses"),
-            user_id: user_id.to_owned(),
+            user_id: user.id.clone(),
+            epoch: user.epoch,
             token_hash: hash,
             stage,
             level,
@@ -382,6 +383,10 @@ impl<P: Ports> Accounts<P> {
             return Err(invalid());
         }
         let user = store.user(&s.user_id).await?.ok_or_else(invalid)?;
+        if s.epoch != user.epoch {
+            store.delete_session(&s.user_id, &s.id).await?;
+            return Err(invalid());
+        }
         if now.saturating_sub(s.last_seen_at) >= TOUCH_MS {
             s.last_seen_at = now;
             store.update_session(&s).await?;
@@ -402,6 +407,11 @@ impl<P: Ports> Accounts<P> {
         if self.now().saturating_sub(s.step_at) > FRESH_STEP_MS {
             return Err(Code::StepRequired.into());
         }
+        // Once a second factor exists, credential changes need a session
+        // that used it: a password-only session cannot remove it.
+        if s.level < 2 && self.has_second_factor(&u.id).await? {
+            return Err(Code::StepRequired.into());
+        }
         Ok((s, u))
     }
 
@@ -412,6 +422,11 @@ impl<P: Ports> Accounts<P> {
             .totp(user_id)
             .await?
             .filter(|t| t.enabled))
+    }
+
+    /// Whether the user has a second factor.
+    async fn has_second_factor(&self, user_id: &str) -> Result<bool> {
+        Ok(self.totp_enabled(user_id).await?.is_some())
     }
 
     /// Checks a second-factor code: six digits are read as an
@@ -555,6 +570,11 @@ impl<P: Ports> Accounts<P> {
         };
         self.check_new_password(pw, &email.key, &name).await?;
         if let Some(existing) = store.user_by_email(&email.key).await? {
+            // The same work as a new account (Argon2, two writes), so that
+            // timing does not tell.
+            let _ = self.hash_password(pw)?;
+            store.equalise().await?;
+            store.equalise().await?;
             if self
                 .within(&format!("signup:mail:{}", email.key), 3, HOUR)
                 .await?
@@ -569,11 +589,6 @@ impl<P: Ports> Accounts<P> {
             }
             return Ok(());
         }
-        if let Some(h) = invite_hash
-            && !store.take_invite(&h, now).await?
-        {
-            return Err(Code::InviteInvalid.into());
-        }
         let user = UserRecord {
             id: self.id("usr"),
             email: email.display.clone(),
@@ -581,12 +596,15 @@ impl<P: Ports> Accounts<P> {
             name,
             password_hash: self.hash_password(pw)?,
             email_verified_at: None,
+            epoch: 0,
             created_at: now,
             updated_at: now,
         };
-        if !store.insert_user(&user).await? {
+        match store.insert_user(&user, invite_hash.as_ref(), now).await? {
+            InsertUser::Created => {}
             // Another request created the account in between: same answer.
-            return Ok(());
+            InsertUser::AddressTaken => return Ok(()),
+            InsertUser::InviteUnusable => return Err(Code::InviteInvalid.into()),
         }
         self.send_link(&user, Purpose::Verify, &user.email).await
     }
@@ -602,10 +620,11 @@ impl<P: Ports> Accounts<P> {
         {
             return Ok(());
         }
-        if let Some(u) = self.ports.store().user_by_email(&email.key).await?
-            && u.email_verified_at.is_none()
-        {
-            self.send_link(&u, Purpose::Verify, &u.email).await?;
+        match self.ports.store().user_by_email(&email.key).await? {
+            Some(u) if u.email_verified_at.is_none() => {
+                self.send_link(&u, Purpose::Verify, &u.email).await?;
+            }
+            _ => self.ports.store().equalise().await?,
         }
         Ok(())
     }
@@ -614,7 +633,17 @@ impl<P: Ports> Accounts<P> {
     /// first confirmation every session of the account ends and every other
     /// confirmation link is voided: whoever created the account before the
     /// owner of the address confirmed it keeps nothing.
-    pub async fn verify_email(&self, token: &str, client: &Client) -> Result<Verified> {
+    ///
+    /// A sign-up link also needs the account's password: whoever confirms
+    /// the address must be the person who chose the password, so that an
+    /// account created by someone else for this address cannot be activated
+    /// by its owner clicking the link (they reset the password instead).
+    pub async fn verify_email(
+        &self,
+        token: &str,
+        password: Option<&str>,
+        client: &Client,
+    ) -> Result<Verified> {
         if !crypto::token_shape_ok(token) {
             return Err(Code::TokenInvalid.into());
         }
@@ -623,9 +652,21 @@ impl<P: Ports> Accounts<P> {
         let store = self.ports.store();
         let now = self.now();
         let hash = crypto::token_hash(token);
-        if let Some(t) = store.take_email_token(&hash, Purpose::Verify, now).await? {
+        if let Some(t) = store.email_token(&hash, Purpose::Verify, now).await? {
             let user = store.user(&t.user_id).await?.ok_or(Code::TokenInvalid)?;
             if user.email != t.email {
+                return Err(Code::TokenInvalid.into());
+            }
+            self.limit(&format!("verify:{}", user.id), 10, 15 * MINUTE)
+                .await?;
+            if !password.is_some_and(|p| password::verify(p, &user.password_hash)) {
+                return Err(invalid_credentials());
+            }
+            if store
+                .take_email_token(&hash, Purpose::Verify, now)
+                .await?
+                .is_none()
+            {
                 return Err(Code::TokenInvalid.into());
             }
             if store.mark_email_verified(&user.id, now).await? {
@@ -680,8 +721,21 @@ impl<P: Ports> Accounts<P> {
     ) -> Result<Issued> {
         self.limit(&Self::ip_key("login", client), 50, 15 * MINUTE)
             .await?;
-        let key = email_in.trim().to_ascii_lowercase();
-        self.limit(&format!("login:mail:{key}"), 10, 15 * MINUTE)
+        let key: String = email_in
+            .trim()
+            .to_ascii_lowercase()
+            .chars()
+            .take(email::MAX_LEN)
+            .collect();
+        // Per address and network, so that strangers elsewhere cannot lock
+        // the owner out; and a wider per-address cap against spread guessing.
+        self.limit(
+            &format!("login:mail:{key}:{}", Self::ip_key("", client)),
+            10,
+            15 * MINUTE,
+        )
+        .await?;
+        self.limit(&format!("login:mail:{key}"), 100, 15 * MINUTE)
             .await?;
         let user = match email::parse(email_in) {
             Some(e) => self.ports.store().user_by_email(&e.key).await?,
@@ -698,10 +752,10 @@ impl<P: Ports> Accounts<P> {
             return Err(invalid_credentials());
         }
         if self.totp_enabled(&user.id).await?.is_some() {
-            return self.issue(&user.id, Stage::SecondStep, 1, client).await;
+            return self.issue(&user, Stage::SecondStep, 1, client).await;
         }
         self.event(&user.id, EventKind::SignIn, client).await?;
-        self.issue(&user.id, Stage::Full, 1, client).await
+        self.issue(&user, Stage::Full, 1, client).await
     }
 
     async fn finish_second_step(
@@ -722,9 +776,12 @@ impl<P: Ports> Accounts<P> {
                 .await?;
             return Err(Code::CodeInvalid.into());
         }
-        self.ports.store().delete_session(&user.id, &s.id).await?;
+        // Revoked meanwhile (a reset ended every session): no sign-in.
+        if !self.ports.store().delete_session(&user.id, &s.id).await? {
+            return Err(Code::SessionInvalid.into());
+        }
         self.event(&user.id, EventKind::SignIn, client).await?;
-        self.issue(&user.id, Stage::Full, 2, client).await
+        self.issue(&user, Stage::Full, 2, client).await
     }
 
     /// `POST /login/totp`.
@@ -806,7 +863,19 @@ impl<P: Ports> Accounts<P> {
     /// `GET /sessions`: the sessions, and which one is the caller's.
     pub async fn sessions(&self, token: Option<&str>) -> Result<(String, Vec<SessionRecord>)> {
         let (s, user) = self.session(token, Want::Full).await?;
-        let all = self.ports.store().sessions(&user.id, self.now()).await?;
+        let now = self.now();
+        let all = self
+            .ports
+            .store()
+            .sessions(&user.id, now)
+            .await?
+            .into_iter()
+            .filter(|x| {
+                x.epoch == user.epoch
+                    && !(x.stage == Stage::Full
+                        && now.saturating_sub(x.last_seen_at) >= SESSION_IDLE_MS)
+            })
+            .collect();
         Ok((s.id, all))
     }
 
@@ -884,8 +953,9 @@ impl<P: Ports> Accounts<P> {
         {
             return Ok(());
         }
-        if let Some(u) = self.ports.store().user_by_email(&email.key).await? {
-            self.send_link(&u, Purpose::Reset, &u.email).await?;
+        match self.ports.store().user_by_email(&email.key).await? {
+            Some(u) => self.send_link(&u, Purpose::Reset, &u.email).await?,
+            None => self.ports.store().equalise().await?,
         }
         Ok(())
     }
@@ -926,7 +996,21 @@ impl<P: Ports> Accounts<P> {
             .await?;
         self.check_new_password(pw, &user.email_key, &user.name)
             .await?;
-        if self.totp_enabled(&user.id).await?.is_some() {
+        let needs_factor = self.has_second_factor(&user.id).await?;
+        if needs_factor && code.is_none() {
+            return Err(Code::CodeInvalid.into());
+        }
+        let store = self.ports.store();
+        // The link is spent before any second factor is, so that a link
+        // expiring mid-request can never cost the person a recovery code.
+        if store
+            .take_email_token(&t.token_hash, Purpose::Reset, self.now())
+            .await?
+            .is_none()
+        {
+            return Err(Code::TokenInvalid.into());
+        }
+        if needs_factor {
             let ok = match code {
                 Some(c) => self.second_factor(&user, c, client).await?,
                 None => false,
@@ -934,18 +1018,11 @@ impl<P: Ports> Accounts<P> {
             if !ok {
                 self.event(&user.id, EventKind::SecondStepFailed, client)
                     .await?;
-                return Err(Code::CodeInvalid.into());
+                return Err(AccountError::new(Code::CodeInvalid)
+                    .detail("The code was wrong, and the link is now used. Ask for a new one."));
             }
         }
-        let store = self.ports.store();
         let now = self.now();
-        if store
-            .take_email_token(&t.token_hash, Purpose::Reset, now)
-            .await?
-            .is_none()
-        {
-            return Err(Code::TokenInvalid.into());
-        }
         store
             .set_password_hash(&user.id, &self.hash_password(pw)?, now)
             .await?;
@@ -987,7 +1064,7 @@ impl<P: Ports> Accounts<P> {
             .await?;
         let store = self.ports.store();
         let now = self.now();
-        store
+        let epoch = store
             .set_password_hash(&user.id, &self.hash_password(new)?, now)
             .await?;
         store
@@ -1002,7 +1079,8 @@ impl<P: Ports> Accounts<P> {
             "Your password was changed, and your other devices were signed out.",
         ))
         .await;
-        self.issue(&user.id, Stage::Full, s.level, client).await
+        let user = UserRecord { epoch, ..user };
+        self.issue(&user, Stage::Full, s.level, client).await
     }
 
     // ----- profile and address -----------------------------------------
@@ -1245,7 +1323,7 @@ impl<P: Ports> Accounts<P> {
             return Ok(());
         }
         let tenancy = self.ports.tenancy();
-        let Ok(tenant_id) = tenancy
+        let tenant_id = match tenancy
             .create_tenant(&CreateTenant {
                 external_ref: workspace_id.to_owned(),
                 idempotency_key: workspace_id.to_owned(),
@@ -1253,8 +1331,11 @@ impl<P: Ports> Accounts<P> {
                 jurisdiction: self.config.jurisdiction.clone(),
             })
             .await
-        else {
-            return Ok(());
+        {
+            Ok(t) => t,
+            Err(TenancyError::Retry) => return Ok(()),
+            // Never retried: the workspace leaves the queue and frees its slot.
+            Err(TenancyError::Gone) => return Ok(store.close_workspace(workspace_id).await?),
         };
         for owner in store.owners(workspace_id).await? {
             let req = CreatePrincipal {

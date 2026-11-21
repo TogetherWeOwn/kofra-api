@@ -33,14 +33,24 @@ pub trait Store {
     async fn user(&self, id: &str) -> PortResult<Option<UserRecord>>;
     /// A user by normalised address.
     async fn user_by_email(&self, email_key: &str) -> PortResult<Option<UserRecord>>;
-    /// Inserts a user; `false` (nothing written) if the address is taken.
-    async fn insert_user(&self, user: &UserRecord) -> PortResult<bool>;
+    /// Inserts a user and, when `invite` is given, spends that invite, in
+    /// one batch: either both happen or neither.
+    async fn insert_user(
+        &self,
+        user: &UserRecord,
+        invite: Option<&[u8; 32]>,
+        now_ms: u64,
+    ) -> PortResult<InsertUser>;
     /// Sets the display name. Each user write touches only its own columns,
     /// so two requests that race never put back a value the other replaced
     /// (a stale password hash above all).
     async fn set_name(&self, user_id: &str, name: &str, now_ms: u64) -> PortResult<()>;
-    /// Sets the password hash.
-    async fn set_password_hash(&self, user_id: &str, hash: &str, now_ms: u64) -> PortResult<()>;
+    /// Sets the password hash and raises the credential epoch in the same
+    /// statement; returns the new epoch.
+    async fn set_password_hash(&self, user_id: &str, hash: &str, now_ms: u64) -> PortResult<u64>;
+    /// Raises the credential epoch (a second factor was removed); returns
+    /// the new epoch.
+    async fn bump_epoch(&self, user_id: &str, now_ms: u64) -> PortResult<u64>;
     /// Marks the address confirmed if it is not yet; `true` if this call did
     /// it (`UPDATE ... WHERE email_verified_at IS NULL`).
     async fn mark_email_verified(&self, user_id: &str, now_ms: u64) -> PortResult<bool>;
@@ -95,8 +105,6 @@ pub trait Store {
 
     /// An invite by token hash.
     async fn invite(&self, hash: &[u8; 32]) -> PortResult<Option<InviteRecord>>;
-    /// Atomically marks the invite used if it is unused and unexpired.
-    async fn take_invite(&self, hash: &[u8; 32], now_ms: u64) -> PortResult<bool>;
 
     /// The user's authenticator-app credential, enabled or pending.
     async fn totp(&self, user_id: &str) -> PortResult<Option<TotpRecord>>;
@@ -148,15 +156,35 @@ pub trait Store {
     ) -> PortResult<bool>;
     /// Stores the tenant and makes the workspace active.
     async fn set_tenant(&self, workspace_id: &str, tenant_id: &str) -> PortResult<()>;
+    /// Closes a workspace whose tenant can never be created (the reference
+    /// is gone), so it leaves the retry queue and frees its slot.
+    async fn close_workspace(&self, workspace_id: &str) -> PortResult<()>;
     /// Workspaces still setting up, oldest first, for the retry job.
     async fn workspaces_setting_up(&self, limit: usize) -> PortResult<Vec<WorkspaceRecord>>;
     /// Owners of a workspace (for the principal step of provisioning).
     async fn owners(&self, workspace_id: &str) -> PortResult<Vec<String>>;
 
+    /// One write of the same cost as an e-mail link insert, made on the
+    /// branches that would otherwise write nothing (unknown address), so
+    /// that response time does not tell whether an account exists. The D1
+    /// adapter updates a one-row table.
+    async fn equalise(&self) -> PortResult<()>;
+
     /// Appends to the security log.
     async fn insert_event(&self, event: &SecurityEvent) -> PortResult<()>;
     /// The user's newest events.
     async fn events(&self, user_id: &str, limit: usize) -> PortResult<Vec<SecurityEvent>>;
+}
+
+/// The outcome of [`Store::insert_user`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsertUser {
+    /// Created (and the invite spent).
+    Created,
+    /// Another user has the address; nothing written.
+    AddressTaken,
+    /// The invite is used, expired or unknown; nothing written.
+    InviteUnusable,
 }
 
 /// One message to one address.
@@ -174,7 +202,9 @@ pub struct Mail {
 
 /// Sends mail (Email Service `send_email` binding in the Workers shell).
 pub trait Mailer {
-    /// Sends one message.
+    /// Hands one message over for delivery. The shell must not wait for
+    /// delivery on the request path (it uses `waitUntil`), so that sending
+    /// takes the same short time whoever the recipient is.
     async fn send(&self, mail: &Mail) -> PortResult<()>;
 }
 

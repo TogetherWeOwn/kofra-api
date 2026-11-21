@@ -12,6 +12,7 @@ CREATE TABLE users (
   name              TEXT NOT NULL,
   password_hash     TEXT NOT NULL,                 -- Argon2id PHC string
   email_verified_at INTEGER,
+  epoch             INTEGER NOT NULL DEFAULT 0,    -- raised by credential changes
   created_at        INTEGER NOT NULL,
   updated_at        INTEGER NOT NULL
 ) STRICT;
@@ -19,6 +20,7 @@ CREATE TABLE users (
 CREATE TABLE sessions (
   id           TEXT PRIMARY KEY,                   -- ses_...
   user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  epoch        INTEGER NOT NULL,                   -- must equal users.epoch
   token_hash   BLOB NOT NULL UNIQUE,               -- SHA-256 of the token
   stage        TEXT NOT NULL CHECK (stage IN ('full', 'second_step')),
   level        INTEGER NOT NULL CHECK (level IN (1, 2)),
@@ -99,3 +101,11 @@ CREATE TABLE security_events (
   user_agent TEXT NOT NULL DEFAULT ''
 ) STRICT;
 CREATE INDEX security_events_user ON security_events(user_id, at);
+
+-- One row, updated on the branches that would otherwise write nothing, so
+-- that response time does not tell whether an address has an account.
+CREATE TABLE equalise (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  n  INTEGER NOT NULL
+) STRICT;
+INSERT INTO equalise (id, n) VALUES (1, 0);

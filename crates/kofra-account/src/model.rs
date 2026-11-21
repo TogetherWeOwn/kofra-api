@@ -16,6 +16,11 @@ pub struct UserRecord {
     pub password_hash: String,
     /// When the address was confirmed.
     pub email_verified_at: Option<u64>,
+    /// Credential epoch: raised by every password reset or change and by
+    /// removing a second factor. A session is valid only while it carries
+    /// the user's current epoch, which closes the race between a sign-in
+    /// already past its password check and the revocation of all sessions.
+    pub epoch: u64,
     /// Unix ms.
     pub created_at: u64,
     /// Unix ms.
@@ -48,6 +53,8 @@ pub struct SessionRecord {
     pub id: String,
     /// The user.
     pub user_id: String,
+    /// The user's credential epoch when the session was issued.
+    pub epoch: u64,
     /// SHA-256 of the token.
     pub token_hash: [u8; 32],
     /// Stage.

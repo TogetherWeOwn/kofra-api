@@ -14,8 +14,8 @@ use crate::{
         UserRecord, WorkspaceRecord, WorkspaceState,
     },
     ports::{
-        BreachCheck, CreatePrincipal, CreateTenant, Env, Mail, Mailer, PortError, PortResult,
-        Ports, Store, Tenancy, TenancyError, Throttle,
+        BreachCheck, CreatePrincipal, CreateTenant, Env, InsertUser, Mail, Mailer, PortError,
+        PortResult, Ports, Store, Tenancy, TenancyError, Throttle,
     },
 };
 
@@ -36,6 +36,8 @@ pub struct MemoryStore {
     events: RefCell<Vec<SecurityEvent>>,
     /// When set, every call fails with this error (to test outages).
     pub fail: Cell<Option<PortError>>,
+    /// Calls of `equalise`, for tests.
+    pub equalised: Cell<u32>,
 }
 
 impl MemoryStore {
@@ -83,14 +85,29 @@ impl Store for MemoryStore {
             .cloned())
     }
 
-    async fn insert_user(&self, user: &UserRecord) -> PortResult<bool> {
+    async fn insert_user(
+        &self,
+        user: &UserRecord,
+        invite: Option<&[u8; 32]>,
+        now_ms: u64,
+    ) -> PortResult<InsertUser> {
         self.check()?;
         let mut users = self.users.borrow_mut();
         if users.iter().any(|u| u.email_key == user.email_key) {
-            return Ok(false);
+            return Ok(InsertUser::AddressTaken);
+        }
+        if let Some(hash) = invite {
+            let mut invites = self.invites.borrow_mut();
+            let Some(i) = invites
+                .iter_mut()
+                .find(|i| &i.token_hash == hash && i.used_at.is_none() && i.expires_at > now_ms)
+            else {
+                return Ok(InsertUser::InviteUnusable);
+            };
+            i.used_at = Some(now_ms);
         }
         users.push(user.clone());
-        Ok(true)
+        Ok(InsertUser::Created)
     }
 
     async fn set_name(&self, user_id: &str, name: &str, now_ms: u64) -> PortResult<()> {
@@ -102,13 +119,27 @@ impl Store for MemoryStore {
         Ok(())
     }
 
-    async fn set_password_hash(&self, user_id: &str, hash: &str, now_ms: u64) -> PortResult<()> {
+    async fn set_password_hash(&self, user_id: &str, hash: &str, now_ms: u64) -> PortResult<u64> {
         self.check()?;
-        if let Some(u) = self.users.borrow_mut().iter_mut().find(|u| u.id == user_id) {
-            hash.clone_into(&mut u.password_hash);
-            u.updated_at = now_ms;
-        }
-        Ok(())
+        let mut users = self.users.borrow_mut();
+        let Some(u) = users.iter_mut().find(|u| u.id == user_id) else {
+            return Ok(0);
+        };
+        hash.clone_into(&mut u.password_hash);
+        u.epoch += 1;
+        u.updated_at = now_ms;
+        Ok(u.epoch)
+    }
+
+    async fn bump_epoch(&self, user_id: &str, now_ms: u64) -> PortResult<u64> {
+        self.check()?;
+        let mut users = self.users.borrow_mut();
+        let Some(u) = users.iter_mut().find(|u| u.id == user_id) else {
+            return Ok(0);
+        };
+        u.epoch += 1;
+        u.updated_at = now_ms;
+        Ok(u.epoch)
     }
 
     async fn mark_email_verified(&self, user_id: &str, now_ms: u64) -> PortResult<bool> {
@@ -277,19 +308,6 @@ impl Store for MemoryStore {
             .cloned())
     }
 
-    async fn take_invite(&self, hash: &[u8; 32], now_ms: u64) -> PortResult<bool> {
-        self.check()?;
-        let mut invites = self.invites.borrow_mut();
-        let Some(i) = invites
-            .iter_mut()
-            .find(|i| &i.token_hash == hash && i.used_at.is_none() && i.expires_at > now_ms)
-        else {
-            return Ok(false);
-        };
-        i.used_at = Some(now_ms);
-        Ok(true)
-    }
-
     async fn totp(&self, user_id: &str) -> PortResult<Option<TotpRecord>> {
         self.check()?;
         Ok(self.totp.borrow().get(user_id).cloned())
@@ -438,6 +456,19 @@ impl Store for MemoryStore {
         Ok(())
     }
 
+    async fn close_workspace(&self, workspace_id: &str) -> PortResult<()> {
+        self.check()?;
+        if let Some(w) = self
+            .workspaces
+            .borrow_mut()
+            .iter_mut()
+            .find(|w| w.id == workspace_id)
+        {
+            w.state = WorkspaceState::Closed;
+        }
+        Ok(())
+    }
+
     async fn workspaces_setting_up(&self, limit: usize) -> PortResult<Vec<WorkspaceRecord>> {
         self.check()?;
         let mut v: Vec<WorkspaceRecord> = self
@@ -463,6 +494,12 @@ impl Store for MemoryStore {
             })
             .map(|m| m.user_id.clone())
             .collect())
+    }
+
+    async fn equalise(&self) -> PortResult<()> {
+        self.check()?;
+        self.equalised.set(self.equalised.get() + 1);
+        Ok(())
     }
 
     async fn insert_event(&self, event: &SecurityEvent) -> PortResult<()> {
@@ -529,6 +566,8 @@ pub struct StubTenancy {
     pub principals: RefCell<Vec<(String, String)>>,
     /// Answers `Retry` this many more times before succeeding.
     pub fail_next: Cell<u32>,
+    /// When set, answers `Gone`.
+    pub gone: Cell<bool>,
 }
 
 impl StubTenancy {
@@ -541,6 +580,9 @@ impl StubTenancy {
 
 impl Tenancy for StubTenancy {
     async fn create_tenant(&self, req: &CreateTenant) -> Result<String, TenancyError> {
+        if self.gone.get() {
+            return Err(TenancyError::Gone);
+        }
         if self.fail_next.get() > 0 {
             self.fail_next.set(self.fail_next.get() - 1);
             return Err(TenancyError::Retry);
