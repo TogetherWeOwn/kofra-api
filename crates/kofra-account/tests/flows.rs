@@ -1725,3 +1725,31 @@ fn bodies_over_the_limit_are_refused_on_every_route() {
     let res = pollster::block_on(handle(&h.acc, &req));
     assert_eq!(res.status, 400);
 }
+
+#[test]
+fn a_second_first_set_of_recovery_codes_keeps_the_first() {
+    use kofra_account::ports::Store;
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    let me = h.call("POST", "session/resolve", Some(&s), None);
+    let user_id = me.body["user"]["id"].as_str().unwrap().to_owned();
+    let store = &h.ports().store;
+    let first = [[1u8; 32], [2u8; 32]];
+    let second = [[3u8; 32], [4u8; 32]];
+    assert!(pollster::block_on(store.init_recovery_codes(&user_id, &first, T0)).unwrap());
+    // A concurrent enrolment that lost the race stores nothing.
+    assert!(!pollster::block_on(store.init_recovery_codes(&user_id, &second, T0)).unwrap());
+    assert_eq!(
+        pollster::block_on(store.recovery_codes_left(&user_id)).unwrap(),
+        2
+    );
+    assert!(!pollster::block_on(store.take_recovery_code(&user_id, &second[0], T0)).unwrap());
+    assert!(pollster::block_on(store.take_recovery_code(&user_id, &first[0], T0)).unwrap());
+    // One unused code left: a first set is still refused.
+    assert!(!pollster::block_on(store.init_recovery_codes(&user_id, &second, T0)).unwrap());
+    assert!(pollster::block_on(store.take_recovery_code(&user_id, &first[1], T0)).unwrap());
+    assert_eq!(
+        pollster::block_on(store.recovery_codes_left(&user_id)).unwrap(),
+        0
+    );
+}
