@@ -91,8 +91,11 @@ pub(super) async fn delete<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Prob
     let name = bucket_param(ctx)?;
     let storage = ctx.api.ports.storage();
     let tenant = ctx.tenant_id()?;
-    let b = storage.bucket(tenant, &name).await?;
+    // Only a dry run looks the bucket up first: the delete itself answers
+    // a missing bucket, and a retry of a delete that already ran gets its
+    // first answer from storage's own deduplication instead of a 404.
     if ctx.dry_run {
+        let b = storage.bucket(tenant, &name).await?;
         if b.object_count > 0 {
             return Err(Problem::new("bucket_not_empty").detail(format!(
                 "Bucket \"{name}\" still holds {} objects.",

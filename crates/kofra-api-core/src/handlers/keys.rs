@@ -120,8 +120,12 @@ pub(super) async fn update<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Prob
         return Err(Problem::new("internal_error"));
     };
     let storage = ctx.api.ports.storage();
-    let current = storage.key(ctx.tenant_id()?, &id).await?;
-    check_key(&ctx.principal, &current)?;
+    // Looked up only to hold a bucket-limited token to its buckets; without a
+    // limit a retried update gets its first answer from storage.
+    if ctx.principal.buckets.is_some() {
+        let current = storage.key(ctx.tenant_id()?, &id).await?;
+        check_key(&ctx.principal, &current)?;
+    }
     if let Some(grants) = body.grants() {
         for g in grants.as_slice() {
             ctx.principal.check_bucket(g.bucket.as_str())?;
@@ -141,9 +145,15 @@ pub(super) async fn update<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Prob
 pub(super) async fn revoke<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Problem> {
     let id = key_param(ctx)?;
     let storage = ctx.api.ports.storage();
-    let k = storage.key(ctx.tenant_id()?, &id).await?;
-    check_key(&ctx.principal, &k)?;
-    if ctx.dry_run {
+    // Looked up for a dry run and for a bucket-limited token only; otherwise
+    // a retried revoke gets its first answer from storage, not a 404.
+    if ctx.dry_run || ctx.principal.buckets.is_some() {
+        let k = storage.key(ctx.tenant_id()?, &id).await?;
+        check_key(&ctx.principal, &k)?;
+        if !ctx.dry_run {
+            storage.revoke_key(ctx.acting()?, &id).await?;
+            return Ok(Reply::empty(204));
+        }
         let label = k
             .name
             .as_ref()

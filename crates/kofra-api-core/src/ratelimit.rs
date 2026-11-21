@@ -74,6 +74,15 @@ pub const CREDENTIAL_REFUSALS: Policy = Policy {
     window_secs: 60,
 };
 
+/// Per workspace, refusal rows in the audit log: 60 a minute. A refusal past
+/// it is still answered, without a row, so many tokens of one workspace
+/// cannot flood its log.
+pub const WORKSPACE_REFUSAL_ROWS: Policy = Policy {
+    name: "refusal-rows",
+    quota: 60,
+    window_secs: 60,
+};
+
 /// Per workspace, creating access keys and API tokens: 30 per hour (design
 /// §2.4; tenancy design §6.3).
 pub const WORKSPACE_CREDENTIALS: Policy = Policy {

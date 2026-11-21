@@ -806,7 +806,7 @@ impl MemoryStorage {
         Some(if first == request {
             Ok(created.clone())
         } else {
-            Err(StorageError::Upstream)
+            Err(StorageError::IdempotencyKeyReused)
         })
     }
 
@@ -1629,7 +1629,7 @@ mod tests {
             // never gets the first answer.
             assert_eq!(
                 store.create_bucket(bucket_act, "second").await.unwrap_err(),
-                StorageError::Upstream
+                StorageError::IdempotencyKeyReused
             );
             let stranger = Acting {
                 principal: "usr_stranger",
@@ -1671,7 +1671,7 @@ mod tests {
                     )
                     .await
                     .unwrap_err(),
-                StorageError::Upstream
+                StorageError::IdempotencyKeyReused
             );
             assert_eq!(
                 serde_json::to_value(key).unwrap(),

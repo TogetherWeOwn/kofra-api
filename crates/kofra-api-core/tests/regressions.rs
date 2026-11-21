@@ -442,3 +442,88 @@ fn a_presign_target_is_cleaned_before_it_is_logged() {
         "{target:?}"
     );
 }
+
+#[test]
+fn an_address_refused_key_creation_is_in_the_audit_log() {
+    let h = setup();
+    let (tok, _) = h.token(Tok {
+        ips: Some(&["203.0.113.0/24"]),
+        ..Tok::default()
+    });
+    let r = h.call(
+        "POST",
+        "/v1/keys",
+        &tok,
+        Some(json!({ "grants": [{ "bucket": "photos", "access": "read" }] })),
+    );
+    assert_eq!(code(&r), "ip_not_allowed");
+    let rows = h.api.ports.audit.rows();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        (rows[0].operation.as_str(), rows[0].outcome.as_str()),
+        ("keys.create", "refused")
+    );
+}
+
+#[test]
+fn a_retried_key_revoke_after_a_lost_record_answers_its_first_result() {
+    let h = setup();
+    let owner = h.owner();
+    let k = h.call(
+        "POST",
+        "/v1/keys",
+        &owner,
+        Some(json!({ "grants": [{ "bucket": "photos", "access": "read" }] })),
+    );
+    let id = k.json_body()["id"].as_str().expect("id").to_owned();
+    let revoke = || {
+        let mut r = h.req("DELETE", &format!("/v1/keys/{id}"), Some(&owner));
+        r.headers.push(("Idempotency-Key".into(), "rk".into()));
+        h.send(r)
+    };
+    assert_eq!(revoke().status, 204);
+    h.api.ports.idempotency.forget("ws_a", "rk");
+    assert_eq!(revoke().status, 204);
+}
+
+#[test]
+fn hidden_token_pages_are_read_past() {
+    let h = setup();
+    let (limited, _) = h.token(Tok {
+        user: "usr_admin",
+        buckets: Some(&["photos"]),
+        ..Tok::default()
+    });
+    // Twelve newer tokens it cannot see fill the first pages (newest first).
+    for _ in 0..12 {
+        h.token(Tok {
+            user: "usr_member",
+            buckets: Some(&["backups"]),
+            ..Tok::default()
+        });
+    }
+    let r = h.call("GET", "/v1/tokens?limit=5", &limited, None);
+    assert_eq!(r.json_body()["data"].as_array().expect("data").len(), 1);
+    assert!(r.json_body()["next_cursor"].is_null());
+}
+
+#[test]
+fn many_tokens_of_one_workspace_cannot_flood_its_audit_log() {
+    let h = setup();
+    let tokens: Vec<String> = (0..30)
+        .map(|_| {
+            h.token(Tok {
+                user: "usr_viewer",
+                scopes: &["buckets:read"],
+                ..Tok::default()
+            })
+            .0
+        })
+        .collect();
+    for tok in &tokens {
+        for _ in 0..10 {
+            h.call("POST", "/v1/buckets", tok, Some(json!({ "name": "nope" })));
+        }
+    }
+    assert_eq!(h.api.ports.audit.rows().len(), 60);
+}

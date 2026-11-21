@@ -17,12 +17,15 @@
 //! scope, rate limit, validation) claims no key. A `5xx` or `429` releases
 //! the key, so the retry runs again.
 //!
-//! A change must not run twice when a retry follows a lost record (a
-//! takeover after the lease): every storage write deduplicates by
-//! (principal, key, request) for 24 hours (the [`crate::ports::Storage`]
-//! contract), token creation by (workspace, member, key, fingerprint), and
-//! the Workers shell writes each directory change in one D1 batch with its
-//! idempotency record, so neither lands without the other.
+//! A retry that follows a lost record (a takeover after the lease) must not
+//! apply a change twice. Storage writes deduplicate by (principal, key,
+//! request) for 24 hours (the [`crate::ports::Storage`] contract), and token
+//! creation by (workspace, member, key, fingerprint). Not yet covered: the
+//! other directory writes (token revocation, deletion requests and their
+//! cancellation) take no key; a retry of one of them after a lost record
+//! can answer differently or act on a newer request. The Workers shell
+//! closes this by making each of them and its idempotency record one D1
+//! batch, which needs `finish` to move into those port calls.
 //!
 //! A pending claim older than [`LEASE_MS`] is taken over. The lease is twice
 //! the handler deadline ([`HANDLER_DEADLINE_MS`]), which the Workers shell

@@ -227,8 +227,17 @@ impl<P: Ports> Api<P> {
         row.outcome = Outcome::Refused;
         row.status = Some(problem.status());
         row.code = Some(problem.code.to_owned());
-        // Best effort: the request is refused whether or not the row lands.
-        let _ = self.ports.audit().begin(&row).await;
+        // Bounded per workspace: past the allowance the refusal is answered
+        // without a row. Best effort: the request is refused either way.
+        let key = format!("ws:{}", principal.workspace.id);
+        let room = self
+            .ports
+            .rate()
+            .take(&key, &ratelimit::WORKSPACE_REFUSAL_ROWS, ctx.now_ms)
+            .await;
+        if matches!(room, Ok(d) if d.allowed) {
+            let _ = self.ports.audit().begin(&row).await;
+        }
     }
 
     /// Takes from each allowance in `plan`, in order, stopping at the first
@@ -481,11 +490,15 @@ impl<P: Ports> Api<P> {
             }
         };
 
-        if creates_credential(op.id)
-            && let Err(p) = match handlers::precheck(op.id, &principal) {
-                Ok(()) => self.take_creation(&principal, now_ms, limits).await,
-                Err(p) => Err(p),
+        if let Err(p) = handlers::precheck(op.id, &principal) {
+            if let Some((key, fp, at)) = &claim {
+                let _ = self.ports.idempotency().release(&ws_id, key, fp, *at).await;
             }
+            self.audit_refusal(&principal, audit_ctx.clone(), &p).await;
+            return Err(p);
+        }
+        if creates_credential(op.id)
+            && let Err(p) = self.take_creation(&principal, now_ms, limits).await
         {
             if let Some((key, fp, at)) = &claim {
                 let _ = self.ports.idempotency().release(&ws_id, key, fp, *at).await;

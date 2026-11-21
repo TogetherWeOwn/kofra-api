@@ -131,9 +131,9 @@ pub type After = (u64, String);
 
 /// The API's own database: workspaces, members, API tokens.
 ///
-/// In the Workers shell, a write made under an idempotency claim (token
-/// revocation, deletion requests) goes in one D1 batch with the claim's
-/// `done` record, so a lost record cannot lead to the change running twice.
+/// Token revocation and deletion requests take no idempotency key yet (see
+/// [`crate::idempotency`]): the Workers shell is to write each of them in
+/// one D1 batch with the claim's `done` record.
 pub trait Directory {
     /// A token by ID, revoked ones included.
     async fn token(&self, id: &str) -> Result<Option<TokenRecord>, PortError>;
@@ -274,6 +274,8 @@ pub enum StorageError {
     GrantLimitReached,
     /// `feed_reset`
     FeedReset,
+    /// `idempotency_key_reused`: storage saw the key with another request.
+    IdempotencyKeyReused,
     /// `deletion_already_requested`
     DeletionAlreadyRequested,
     /// `deletion_not_requested`
@@ -310,6 +312,7 @@ impl StorageError {
             Self::GrantNarrowingRefused => "grant_narrowing_refused",
             Self::GrantLimitReached => "grant_limit_reached",
             Self::FeedReset => "feed_reset",
+            Self::IdempotencyKeyReused => "idempotency_key_reused",
             Self::DeletionAlreadyRequested => "deletion_already_requested",
             Self::DeletionNotRequested => "deletion_not_requested",
             Self::DeletionFinal => "deletion_final",

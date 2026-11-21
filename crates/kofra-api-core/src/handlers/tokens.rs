@@ -45,32 +45,42 @@ fn invalid(pointer: &str, detail: &str) -> Problem {
 
 pub(super) async fn list<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Problem> {
     let limit = ctx.query.limit()?;
-    let after = match open_cursor(ctx, "")? {
+    let mut after = match open_cursor(ctx, "")? {
         Some(pos) => Some(parse_time_position(&pos).ok_or_else(|| Problem::new("invalid_cursor"))?),
         None => None,
     };
     let p = &ctx.principal;
     let only = (!p.role.manages_credentials()).then_some(p.user_id.as_str());
-    let mut rows = ctx
-        .api
-        .ports
-        .directory()
-        .list_tokens(&p.workspace.id, only, after.as_ref(), limit + 1)
-        .await?;
-    let next = if rows.len() > limit {
-        rows.truncate(limit);
-        rows.last().map(|t| time_position(t.created_at_ms, &t.id))
-    } else {
-        None
-    };
-    // A bucket-limited caller sees only tokens limited to buckets it can
-    // see itself, so no answer names a bucket hidden from it.
-    let visible = rows.iter().filter(|t| match (&p.buckets, &t.buckets) {
+    // A bucket-limited caller sees only tokens limited to buckets it can see
+    // itself, so no answer names a bucket hidden from it. Pages it cannot see
+    // are read past, bounded like the other lists.
+    let shown = |t: &TokenRecord| match (&p.buckets, &t.buckets) {
         (None, _) => true,
         (Some(_), None) => false,
         (Some(_), Some(list)) => list.iter().all(|b| p.bucket_allowed(b)),
-    });
-    page(ctx, "", visible.map(to_json).collect(), next)
+    };
+    let mut data = Vec::new();
+    let mut next = None;
+    for _ in 0..super::SCAN_PAGES {
+        let mut rows = ctx
+            .api
+            .ports
+            .directory()
+            .list_tokens(&p.workspace.id, only, after.as_ref(), limit + 1)
+            .await?;
+        next = if rows.len() > limit {
+            rows.truncate(limit);
+            rows.last().map(|t| (t.created_at_ms, t.id.clone()))
+        } else {
+            None
+        };
+        data.extend(rows.iter().filter(|t| shown(t)).map(to_json));
+        if !data.is_empty() || next.is_none() {
+            break;
+        }
+        after.clone_from(&next);
+    }
+    page(ctx, "", data, next.map(|(ms, id)| time_position(ms, &id)))
 }
 
 pub(super) async fn create<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Problem> {

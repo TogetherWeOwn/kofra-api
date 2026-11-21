@@ -36,8 +36,10 @@ interface Page<T> {
 /**
  * Every item of a cursor-paged list:
  * `for await (const b of paginate((a) => kofra.buckets.list(a))) ...`.
- * Stops at the end of the list, or when a page comes back empty (the event
- * feed always returns a cursor to poll from).
+ * Stops at the end of the list (`next_cursor: null`), or at an empty page
+ * that hands back the cursor it was fetched with (the end of the event feed,
+ * which always returns a cursor to poll from). An empty page with a new
+ * cursor is read past: a token limited to some buckets can get one.
  */
 export async function* paginate<T, A extends { cursor?: string }>(
 	list: (args: A) => Promise<Page<T>>,
@@ -53,7 +55,7 @@ export async function* paginate<T, A extends { cursor?: string }>(
 				'Kofra: the list returned the same cursor again; stopping instead of looping.'
 			);
 		yield* page.data;
-		if (!page.next_cursor || page.data.length === 0) return;
+		if (!page.next_cursor || (page.data.length === 0 && page.next_cursor === cursor)) return;
 		cursor = page.next_cursor;
 	}
 }

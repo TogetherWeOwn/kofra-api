@@ -106,6 +106,9 @@ def test_paginate_refuses_a_repeated_cursor_but_ends_on_empty_feed_pages():
     assert sent == [None, "c1"]
     feed, _ = scripted([Page(["a"], "c1"), Page([], "c1")])
     assert list(paginate(feed)) == ["a"]
+    # An empty page with a new cursor (a bucket limit hid it) is read past.
+    hidden, _ = scripted([Page([], "c1"), Page(["b"], None)])
+    assert list(paginate(hidden)) == ["b"]
 
 
 def test_a_missing_token_is_refused(monkeypatch, base_url):
