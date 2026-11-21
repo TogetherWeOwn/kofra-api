@@ -330,6 +330,11 @@ impl<P: Ports> Accounts<P> {
             Some(u) => self.ports.store().passkeys(u).await?,
             None => Vec::new(),
         };
+        // An empty list would let the browser offer any passkey of the site;
+        // a second step for a user without passkeys has nothing to offer.
+        if user_id.is_some() && allow.is_empty() {
+            return Err(Code::NotFound.into());
+        }
         let c = self
             .new_challenge(ChallengePurpose::Login, user_id.as_deref())
             .await?;
@@ -402,7 +407,9 @@ impl<P: Ports> Accounts<P> {
         credential: &AuthenticationCredential,
         client: &Client,
     ) -> Result<Issued> {
-        self.limit(&Self::ip_key("passkey", client), 60, 15 * 60_000)
+        // Its own bucket, so a ceremony begun on the last begin of a window
+        // can still finish.
+        self.limit(&Self::ip_key("passkey-finish", client), 60, 15 * 60_000)
             .await?;
         let half = self.half_session(token).await?.map(|(s, _)| s);
         let c = self.take(challenge_id, ChallengePurpose::Login).await?;
@@ -522,6 +529,8 @@ impl<P: Ports> Accounts<P> {
                 .await?;
             store.delete_sessions(&user.id, Some(&s.id)).await?;
             s.level = 1;
+            // A sign-in already past its checks cannot outlive this change.
+            s.epoch = store.bump_epoch(&user.id, self.now()).await?;
             store.update_session(&s).await?;
         }
         self.event(&user.id, EventKind::PasskeyRemoved, client)

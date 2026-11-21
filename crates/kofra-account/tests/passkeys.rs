@@ -949,3 +949,151 @@ fn truncated_and_malformed_inputs_fail_without_panic() {
         assert!(webauthn::verify_assertion(&RP, &CH, &cdj, &ad, &sig, &junk).is_err());
     }
 }
+
+#[test]
+fn a_second_step_without_passkeys_offers_none() {
+    let h = Harness::new();
+    let s = h.signed_up("ada");
+    let b = h.call("POST", "totp/begin", Some(&s), None);
+    assert_eq!(b.status, 200);
+    // Turn the app on with the code the service expects.
+    let raw = {
+        const A: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+        let mut out = Vec::new();
+        let (mut buf, mut bits) = (0u32, 0u32);
+        for c in b.body["secret"].as_str().unwrap().bytes() {
+            buf = (buf << 5) | A.iter().position(|&x| x == c).unwrap() as u32;
+            bits += 5;
+            if bits >= 8 {
+                bits -= 8;
+                out.push((buf >> bits) as u8);
+            }
+        }
+        out
+    };
+    let code = format!(
+        "{:06}",
+        kofra_account::totp::hotp(
+            &raw,
+            kofra_account::totp::step(h.acc.ports().env.now.get()),
+            6
+        )
+    );
+    let c = h.call(
+        "POST",
+        "totp/confirm",
+        Some(&s),
+        Some(json!({"code": code, "password": PW})),
+    );
+    assert_eq!(c.status, 200, "{}", c.body);
+    let half = h
+        .call(
+            "POST",
+            "login/password",
+            None,
+            Some(json!({"email": addr("ada"), "password": PW})),
+        )
+        .token();
+    let begin = h.call("POST", "passkeys/login/begin", Some(&half), None);
+    assert_eq!(begin.code(), "not_found");
+}
+
+#[test]
+fn removing_the_last_passkey_ends_sign_ins_in_flight() {
+    use kofra_account::model::{SessionRecord, Stage};
+    let h = Harness::new();
+    let s = h.signed_up("ada");
+    let mut a = Authenticator::es256(40);
+    h.register(&s, &mut a);
+    let me = h.call("POST", "session/resolve", Some(&s), None);
+    let user_id = me.body["user"]["id"].as_str().unwrap().to_owned();
+    let id = h.call("GET", "passkeys", Some(&s), None).body["data"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(
+        h.call("DELETE", &format!("passkeys/{id}"), Some(&s), None)
+            .status,
+        204
+    );
+    assert_eq!(
+        h.call("POST", "session/resolve", Some(&s), None).status,
+        200,
+        "this device stays signed in"
+    );
+    // A session written by a sign-in that read the old epoch.
+    let (late, hash) = crypto::new_token([4; 32]);
+    pollster::block_on(kofra_account::ports::Store::insert_session(
+        &h.acc.ports().store,
+        &SessionRecord {
+            id: "ses_late".into(),
+            user_id,
+            epoch: 0,
+            token_hash: hash,
+            stage: Stage::Full,
+            level: 2,
+            step_at: T0,
+            created_at: T0,
+            last_seen_at: T0,
+            expires_at: T0 + 86_400_000,
+            ip: None,
+            country: None,
+            user_agent: String::new(),
+        },
+    ))
+    .unwrap();
+    assert_eq!(
+        h.call("POST", "session/resolve", Some(&late), None).code(),
+        "session_invalid"
+    );
+}
+
+#[test]
+fn a_ceremony_begun_on_the_last_begin_can_finish() {
+    let h = Harness::new();
+    let s = h.signed_up("ada");
+    let mut a = Authenticator::ed25519(41);
+    h.register(&s, &mut a);
+    for _ in 0..59 {
+        h.call("POST", "passkeys/login/begin", None, None);
+    }
+    let l = h.login(None, &mut a);
+    assert_eq!(l.status, 200, "{}", l.body);
+}
+
+#[test]
+fn a_passkey_only_account_resets_with_a_recovery_code() {
+    let h = Harness::new();
+    let s = h.signed_up("ada");
+    let mut a = Authenticator::es256(42);
+    let r = h.register(&s, &mut a);
+    let codes: Vec<String> = r.body["recovery_codes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c.as_str().unwrap().to_owned())
+        .collect();
+    h.call(
+        "POST",
+        "password/forgot",
+        None,
+        Some(json!({"email": addr("ada")})),
+    );
+    let m = h.acc.ports().mailer.last_to(&addr("ada")).unwrap();
+    let i = m.text.find("token=").unwrap() + 6;
+    let t = m.text[i..].split_whitespace().next().unwrap().to_owned();
+    let check = h.call(
+        "POST",
+        "password/reset/check",
+        None,
+        Some(json!({"token": t})),
+    );
+    assert_eq!(check.body["second_factor"], true);
+    let ok = h.call(
+        "POST",
+        "password/reset",
+        None,
+        Some(json!({"token": t, "password": "a brand new pass phrase", "code": codes[0]})),
+    );
+    assert_eq!(ok.status, 200, "{}", ok.body);
+}

@@ -236,6 +236,7 @@ impl Store for MemoryStore {
             s.last_seen_at = session.last_seen_at;
             s.step_at = session.step_at;
             s.level = session.level;
+            s.epoch = session.epoch;
         }
         Ok(())
     }

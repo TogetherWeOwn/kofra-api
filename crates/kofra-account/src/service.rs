@@ -1370,12 +1370,15 @@ impl<P: Ports> Accounts<P> {
             return Err(Code::NotFound.into());
         }
         store.delete_totp(&user.id).await?;
-        if store.passkeys(&user.id).await?.is_empty() {
+        let last_factor = store.passkeys(&user.id).await?.is_empty();
+        if last_factor {
             store
                 .replace_recovery_codes(&user.id, &[], self.now())
                 .await?;
             s.level = 1;
         }
+        // A sign-in already past its checks cannot outlive this change.
+        s.epoch = store.bump_epoch(&user.id, self.now()).await?;
         store
             .void_email_tokens(&user.id, &ALL_PURPOSES, self.now())
             .await?;
@@ -1383,12 +1386,12 @@ impl<P: Ports> Accounts<P> {
         store.update_session(&s).await?;
         self.event(&user.id, EventKind::TotpDisabled, client)
             .await?;
-        self.send(mail::notice(
-            &user.email,
-            &user.name,
-            "Two-step verification was turned off for your account, and your other devices were signed out.",
-        ))
-        .await;
+        let what = if last_factor {
+            "Two-step verification was turned off for your account, and your other devices were signed out."
+        } else {
+            "The authenticator app was removed from your account; your passkeys still protect it. Your other devices were signed out."
+        };
+        self.send(mail::notice(&user.email, &user.name, what)).await;
         Ok(())
     }
 
