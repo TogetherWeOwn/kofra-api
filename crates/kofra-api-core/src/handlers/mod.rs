@@ -238,12 +238,19 @@ fn param<P: Ports>(ctx: &Ctx<'_, P>, name: &str) -> Result<String, Problem> {
         .ok_or_else(|| Problem::new("internal_error"))
 }
 
-/// The cursor binding of the current list.
-fn binding<'a, P: Ports>(ctx: &'a Ctx<'_, P>, filters: &'a str) -> Binding<'a> {
+/// What a cursor of the current list is bound to besides the workspace and
+/// the operation: the request path, so a cursor of one bucket cannot be
+/// replayed on another, and the list's filters.
+fn bound_filters<P: Ports>(ctx: &Ctx<'_, P>, filters: &str) -> String {
+    format!("{}?{filters}", ctx.req.path)
+}
+
+/// The cursor binding of the current list; `bound` is from [`bound_filters`].
+fn binding<'a, P: Ports>(ctx: &'a Ctx<'_, P>, bound: &'a str) -> Binding<'a> {
     Binding {
         workspace: &ctx.principal.workspace.id,
         operation: ctx.matched.op.id,
-        filters,
+        filters: bound,
     }
 }
 
@@ -251,7 +258,10 @@ fn binding<'a, P: Ports>(ctx: &'a Ctx<'_, P>, filters: &'a str) -> Binding<'a> {
 fn open_cursor<P: Ports>(ctx: &Ctx<'_, P>, filters: &str) -> Result<Option<String>, Problem> {
     match ctx.query.cursor()? {
         None => Ok(None),
-        Some(c) => cursor::open(&ctx.api.config.cursor_key, &binding(ctx, filters), c).map(Some),
+        Some(c) => {
+            let bound = bound_filters(ctx, filters);
+            cursor::open(&ctx.api.config.cursor_key, &binding(ctx, &bound), c).map(Some)
+        }
     }
 }
 
@@ -277,8 +287,12 @@ fn page_with<P: Ports>(
 ) -> Result<Reply, Problem> {
     let next_cursor = match next {
         Some(pos) => Some(
-            cursor::seal(&ctx.api.config.cursor_key, &binding(ctx, filters), &pos)
-                .ok_or_else(|| Problem::new("internal_error"))?,
+            cursor::seal(
+                &ctx.api.config.cursor_key,
+                &binding(ctx, &bound_filters(ctx, filters)),
+                &pos,
+            )
+            .ok_or_else(|| Problem::new("internal_error"))?,
         ),
         None => None,
     };
@@ -287,7 +301,8 @@ fn page_with<P: Ports>(
     body.insert("next_cursor".into(), serde_json::json!(next_cursor));
     let mut reply = Reply::json(200, Value::Object(body));
     if let Some(c) = &next_cursor {
-        let mut link = format!("<{}?cursor={c}", ctx.matched.op.path);
+        // The request path, not the template: it carries the path parameters.
+        let mut link = format!("<{}?cursor={c}", ctx.req.path);
         if !filters.is_empty() {
             link.push('&');
             link.push_str(filters);

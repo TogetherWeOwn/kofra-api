@@ -1,7 +1,7 @@
 from enum import StrEnum
 
 class ObjectsListDelimiter(StrEnum):
-    VALUE_0 = "/"
+    SLASH = "/"
 
     def __str__(self) -> str:
         return str(self.value)

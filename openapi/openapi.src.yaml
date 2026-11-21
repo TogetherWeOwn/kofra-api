@@ -348,13 +348,13 @@ paths:
       parameters:
         - name: prefix
           in: query
-          description: Return only keys that start with this text.
+          description: Return only keys that start with this text, 1 to 1024 bytes of UTF-8.
           schema: { type: string, minLength: 1, maxLength: 1024 }
           example: 2026/11/
         - name: delimiter
           in: query
           description: Roll keys up into `prefixes` at this character. Only `/` is offered.
-          schema: { type: string, enum: ['/'] }
+          schema: { type: string, enum: ['/'], x-enum-varnames: [Slash] }
           example: /
       responses:
         '200':
@@ -966,7 +966,7 @@ components:
       type: string
       description: An opaque position in a list. Pass it back unchanged.
       minLength: 1
-      maxLength: 512
+      maxLength: 2048
 
     Account:
       type: object
@@ -1145,7 +1145,7 @@ components:
           type: string
           minLength: 1
           maxLength: 1024
-          description: The object key.
+          description: The object key, 1 to 1024 bytes of UTF-8.
         size_bytes: { type: integer, minimum: 0 }
         last_modified_at: { $ref: '#/components/schemas/Timestamp' }
 

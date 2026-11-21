@@ -191,6 +191,11 @@ fn pages_of_two_walk_the_whole_level_once_and_link_repeats_the_filters() {
             }
             Some(c) => {
                 let link = link.expect("Link header with a next cursor");
+                assert!(
+                    link.starts_with(&format!("</v1/buckets/backups/objects?cursor={c}&")),
+                    "{link}"
+                );
+                assert!(link.ends_with(">; rel=\"next\""), "{link}");
                 assert!(link.contains("prefix=2026%2F11%2F"), "{link}");
                 assert!(link.contains("delimiter=%2F"), "{link}");
                 assert!(link.contains("limit=2"), "{link}");
@@ -328,5 +333,61 @@ fn one_entry_per_page_resumes_after_prefixes_and_after_keys() {
             }
         }
         assert_eq!(got, want, "{filters}");
+    }
+}
+
+#[test]
+fn a_cursor_of_one_bucket_is_refused_on_another() {
+    let f = Fixture::new();
+    let t = reader(&f);
+    f.api.ports.storage.add_object(TENANT, "photos", "x.jpg", 1);
+    f.api.ports.storage.add_object(TENANT, "photos", "y.jpg", 1);
+    let (_, body, _) = f.get(&t, "/v1/buckets/backups/objects?limit=1");
+    let c = body["next_cursor"].as_str().expect("more").to_owned();
+    let (status, body, _) = f.get(
+        &t,
+        &format!("/v1/buckets/photos/objects?limit=1&cursor={c}"),
+    );
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["code"], "invalid_cursor");
+}
+
+#[test]
+fn keys_and_prefixes_of_1024_bytes_page_without_error() {
+    let f = Fixture::new();
+    let t = reader(&f);
+    let long_key = |c: char| c.to_string().repeat(1024);
+    // Three 1024-byte keys, and three 1024-byte keys in folders whose prefix
+    // is 1020 bytes.
+    for c in ['p', 'q', 'r'] {
+        f.api
+            .ports
+            .storage
+            .add_object(TENANT, "photos", &long_key(c), 1);
+        let folder = format!("{}/", c.to_ascii_uppercase().to_string().repeat(1019));
+        f.api
+            .ports
+            .storage
+            .add_object(TENANT, "photos", &format!("{folder}abcd"), 1);
+    }
+    for filters in ["", "&delimiter=/"] {
+        let mut seen = 0;
+        let mut cursor: Option<String> = None;
+        for _ in 0..10 {
+            let mut q = format!("limit=1{filters}");
+            if let Some(c) = &cursor {
+                q.push_str(&format!("&cursor={c}"));
+            }
+            let (status, body, _) = f.get(&t, &format!("/v1/buckets/photos/objects?{q}"));
+            assert_eq!(status, 200, "{filters}: {body}");
+            seen += keys(&body).len() + prefixes(&body).len();
+            cursor = body["next_cursor"].as_str().map(str::to_owned);
+            if let Some(c) = &cursor {
+                assert!(c.len() <= 2048, "{}", c.len());
+            } else {
+                break;
+            }
+        }
+        assert_eq!(seen, 6, "{filters}");
     }
 }
