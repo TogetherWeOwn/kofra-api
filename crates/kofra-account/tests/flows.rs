@@ -1683,24 +1683,33 @@ fn a_reset_link_made_before_a_factor_was_added_stops_working() {
     );
     let link = h.mailed_token(&addr("ada"));
     let (_, codes) = h.enable_totp(&s);
+    let check = h.call(
+        "POST",
+        "password/reset/check",
+        None,
+        Some(json!({"token": link})),
+    );
+    assert_eq!(check.code(), "token_invalid");
     let r = h.call(
         "POST",
         "password/reset",
         None,
         Some(json!({"token": link, "password": "a brand new pass phrase", "code": codes[0]})),
     );
-    assert!(
-        matches!(r.code(), "token_invalid" | "code_invalid"),
-        "{}",
-        r.body
-    );
+    assert_eq!(r.code(), "token_invalid", "{}", r.body);
+    // The recovery code was not spent on the stale link.
+    let me = h.call("POST", "session/resolve", Some(&s), None);
+    assert_eq!(me.body["user"]["recovery_codes_left"], 10);
     let old = h.call(
         "POST",
         "login/password",
         None,
         Some(json!({"email": addr("ada"), "password": PW})),
     );
-    assert_eq!(old.status, 200, "the password did not change");
+    assert_eq!(
+        old.body["state"], "second_step",
+        "the password did not change"
+    );
 }
 
 #[test]
