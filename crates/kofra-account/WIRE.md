@@ -36,7 +36,7 @@ ingress). Refused on the public host. JSON in, JSON out. Times are RFC 3339 UTC.
 | `not_found` | 404 | |
 | `workspace_limit_reached` | 409 | |
 | `rate_limited` | 429 | |
-| `service_unavailable` | 503 | a store or mail outage; as with `internal_error`, part of the change may already apply |
+| `service_unavailable` | 503 | a store outage (part of the change may already apply, as with `internal_error`), or `POST /workspaces` when the storage tenant could not be created (that workspace is closed; try again). Mail failures never surface: mail is sent best effort |
 | `internal_error` | 500 | anything else; part of the change may already apply (for example a new password), so read the state again before retrying |
 
 ## Shapes
