@@ -167,6 +167,16 @@ test('paginate refuses a non-empty page that repeats its cursor, and still ends 
 	const seen: string[] = [];
 	for await (const x of paginate(hidden.list)) seen.push(x);
 	assert.deepEqual(seen, ['b']);
+	// A page with no data but a new cursor (only folder prefixes) is read past.
+	const folders = pages([
+		{ data: ['a'], next_cursor: 'c1' },
+		{ data: [], next_cursor: 'c2' },
+		{ data: ['b'], next_cursor: null }
+	]);
+	const walked: string[] = [];
+	for await (const x of paginate(folders.list)) walked.push(x);
+	assert.deepEqual(walked, ['a', 'b']);
+	assert.deepEqual(folders.sent, [undefined, 'c1', 'c2']);
 });
 
 test('maxRetries and maxRetryWaitSeconds must be finite and non-negative', () => {

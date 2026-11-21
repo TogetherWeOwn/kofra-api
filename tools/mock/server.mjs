@@ -337,9 +337,23 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 					});
 				continue;
 			}
-			const value = coerce(raw, resolve(spec, p.schema));
+			const schema = resolve(spec, p.schema);
+			const value = coerce(raw, schema);
 			if (!p.validate(value))
 				paramErrors.push(...ajvToErrors(p.validate.errors, `#${p.in}/${p.name}`));
+			// The service counts a query text's length in UTF-8 bytes, as the
+			// contract says (`prefix`); JSON Schema counts characters.
+			else if (
+				p.in === 'query' &&
+				typeof value === 'string' &&
+				schema.maxLength !== undefined &&
+				Buffer.byteLength(value, 'utf8') > schema.maxLength
+			)
+				paramErrors.push({
+					pointer: `#query/${p.name}`,
+					code: 'invalid_value',
+					detail: `At most ${schema.maxLength} bytes of UTF-8.`
+				});
 			if (p.in === 'query') query[p.name] = value;
 		}
 		if (paramErrors.length)
@@ -469,8 +483,19 @@ export function createMock({ spec = loadSpec(), errors = loadErrors() } = {}) {
 			preferCode === undefined &&
 			preferExample === undefined
 		) {
-			const end = { data: [], next_cursor: null };
-			return reply(200, entry.page(end) ? end : { data: [], next_cursor: query.cursor }, headers);
+			// Every other list field of the page (such as `prefixes`) is empty too.
+			const sample = Object.values(pickExample(resp.content).examples ?? {})[0]?.value ?? {};
+			const lists = Object.fromEntries(
+				Object.entries(sample)
+					.filter(([, v]) => Array.isArray(v))
+					.map(([k]) => [k, []])
+			);
+			const end = { ...lists, data: [], next_cursor: null };
+			return reply(
+				200,
+				entry.page(end) ? end : { ...lists, data: [], next_cursor: query.cursor },
+				headers
+			);
 		}
 		const { examples } = pickExample(resp.content);
 		const name =

@@ -12,6 +12,7 @@ from ._generated.api.buckets import buckets_list as _buckets_list
 from ._generated.api.buckets import buckets_create as _buckets_create
 from ._generated.api.buckets import buckets_get as _buckets_get
 from ._generated.api.buckets import buckets_delete as _buckets_delete
+from ._generated.api.objects import objects_list as _objects_list
 from ._generated.api.access_keys import keys_list as _keys_list
 from ._generated.api.access_keys import keys_create as _keys_create
 from ._generated.api.access_keys import keys_update as _keys_update
@@ -68,6 +69,21 @@ class BucketsApi:
     def delete(self, bucket: str, **kwargs: Any) -> Any:
         """Delete a bucket. `buckets.delete`; pass dry_run=True to preview."""
         return self._core.call(_buckets_delete, bucket, **kwargs)
+
+
+class ObjectsApi:
+    """`objects` operations."""
+
+    def __init__(self, core: Core) -> None:
+        self._core = core
+
+    def list(self, bucket: str, **kwargs: Any) -> Any:
+        """List objects. `objects.list`."""
+        return self._core.call(_objects_list, bucket, **kwargs)
+
+    def presign(self, body: Any, **kwargs: Any) -> Any:
+        """Create a presigned URL. `objects.presign`."""
+        return self._core.call(_objects_presign, body=body, **kwargs)
 
 
 class KeysApi:
@@ -153,24 +169,13 @@ class AuditApi:
         return self._core.call(_audit_list, **kwargs)
 
 
-class ObjectsApi:
-    """`objects` operations."""
-
-    def __init__(self, core: Core) -> None:
-        self._core = core
-
-    def presign(self, body: Any, **kwargs: Any) -> Any:
-        """Create a presigned URL. `objects.presign`."""
-        return self._core.call(_objects_presign, body=body, **kwargs)
-
-
 RESOURCES = {
     "account": AccountApi,
     "buckets": BucketsApi,
+    "objects": ObjectsApi,
     "keys": KeysApi,
     "usage": UsageApi,
     "events": EventsApi,
     "tokens": TokensApi,
     "audit": AuditApi,
-    "objects": ObjectsApi,
 }

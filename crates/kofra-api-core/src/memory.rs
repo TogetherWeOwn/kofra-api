@@ -46,6 +46,7 @@ impl Memory {
             storage: MemoryStorage {
                 env: Rc::clone(&env),
                 tenants: RefCell::default(),
+                objects: RefCell::default(),
                 fail_next: Cell::default(),
                 fail_skip: Cell::default(),
             },
@@ -644,6 +645,87 @@ fn grant(input: &t::GrantInput) -> t::Grant {
     }
 }
 
+/// Where an object listing stopped: after an object key, or after a whole
+/// rolled-up prefix. Written as `k<key>` or `p<prefix>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ListPosition {
+    Key(String),
+    Prefix(String),
+}
+
+impl ListPosition {
+    fn parse(position: &str) -> Result<Self, StorageError> {
+        match position.split_at_checked(1) {
+            Some(("k", key)) => Ok(Self::Key(key.to_owned())),
+            Some(("p", prefix)) if !prefix.is_empty() => Ok(Self::Prefix(prefix.to_owned())),
+            _ => Err(StorageError::Upstream),
+        }
+    }
+
+    fn render(&self) -> String {
+        match self {
+            Self::Key(key) => format!("k{key}"),
+            Self::Prefix(prefix) => format!("p{prefix}"),
+        }
+    }
+}
+
+/// One page of an S3-style listing over `keys` (sorted by byte order).
+fn list_objects(
+    keys: &BTreeMap<String, t::ObjectSummary>,
+    prefix: &str,
+    delimiter: Option<&str>,
+    after: Option<&ListPosition>,
+    limit: usize,
+) -> ObjectPage {
+    let mut objects = Vec::new();
+    let mut prefixes: Vec<String> = Vec::new();
+    let mut last: Option<ListPosition> = None;
+    let mut more = false;
+    for (key, summary) in keys.range::<str, _>((
+        std::ops::Bound::Included(prefix),
+        std::ops::Bound::Unbounded,
+    )) {
+        if !key.starts_with(prefix) {
+            break;
+        }
+        match after {
+            Some(ListPosition::Key(k)) if key <= k => continue,
+            Some(ListPosition::Prefix(p)) if key.starts_with(p.as_str()) || key <= p => continue,
+            _ => {}
+        }
+        let rolled = delimiter.and_then(|d| {
+            key[prefix.len()..]
+                .find(d)
+                .map(|i| key[..prefix.len() + i + d.len()].to_owned())
+        });
+        if let Some(common) = &rolled
+            && prefixes.last() == Some(common)
+        {
+            continue;
+        }
+        if objects.len() + prefixes.len() == limit {
+            more = true;
+            break;
+        }
+        match rolled {
+            Some(common) => {
+                last = Some(ListPosition::Prefix(common.clone()));
+                prefixes.push(common);
+            }
+            None => {
+                last = Some(ListPosition::Key(key.clone()));
+                objects.push(summary.clone());
+            }
+        }
+    }
+    ObjectPage {
+        objects,
+        prefixes,
+        next: if more { last.map(|p| p.render()) } else { None },
+    }
+}
+
 /// In-memory storage management, usage and event feeds.
 pub struct MemoryStorage {
     /// Error returned and cleared by the next storage port call.
@@ -652,6 +734,8 @@ pub struct MemoryStorage {
     pub fail_skip: Cell<u32>,
     env: Rc<MemoryEnv>,
     tenants: RefCell<BTreeMap<String, TenantData>>,
+    /// Objects per (tenant, bucket), by key.
+    objects: RefCell<BTreeMap<(String, String), BTreeMap<String, t::ObjectSummary>>>,
 }
 
 impl MemoryStorage {
@@ -730,6 +814,45 @@ impl MemoryStorage {
                     object_count,
                 },
             );
+        }
+    }
+
+    /// Seeds an object in an existing bucket, and counts it in the bucket's
+    /// size. A key that is already there is replaced; a key the contract
+    /// refuses (empty, or over 1024 bytes) is ignored.
+    pub fn add_object(&self, tenant: &str, bucket: &str, key: &str, size_bytes: i64) {
+        let mut tenants = self.tenants.borrow_mut();
+        let Some(b) = tenants
+            .get_mut(tenant)
+            .and_then(|data| data.buckets.get_mut(bucket))
+        else {
+            return;
+        };
+        // The contract counts the 1024 in bytes; the generated type counts
+        // characters, so the byte length is checked here too.
+        if key.is_empty() || key.len() > 1024 {
+            return;
+        }
+        let Ok(key_type) = t::ObjectSummaryKey::try_from(key.to_owned()) else {
+            return;
+        };
+        let summary = t::ObjectSummary {
+            key: key_type,
+            size_bytes,
+            last_modified_at: self.timestamp(),
+        };
+        let old = self
+            .objects
+            .borrow_mut()
+            .entry((tenant.to_owned(), bucket.to_owned()))
+            .or_default()
+            .insert(key.to_owned(), summary);
+        match old {
+            Some(o) => b.stored_bytes += size_bytes - o.size_bytes,
+            None => {
+                b.stored_bytes += size_bytes;
+                b.object_count += 1;
+            }
         }
     }
 
@@ -1230,6 +1353,34 @@ impl Storage for MemoryStorage {
         }
         let end = start.saturating_add(limit).min(data.events.len());
         Ok((data.events[start..end].to_vec(), format!("e{end}")))
+    }
+
+    async fn objects(
+        &self,
+        acting: Acting<'_>,
+        bucket: &str,
+        prefix: Option<&str>,
+        delimiter: Option<&str>,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<ObjectPage, StorageError> {
+        let data = self.read(acting.tenant)?;
+        if !data.buckets.contains_key(bucket) {
+            return Err(StorageError::BucketNotFound);
+        }
+        let after = after.map(ListPosition::parse).transpose()?;
+        let objects = self.objects.borrow();
+        let empty = BTreeMap::new();
+        let keys = objects
+            .get(&(acting.tenant.to_owned(), bucket.to_owned()))
+            .unwrap_or(&empty);
+        Ok(list_objects(
+            keys,
+            prefix.unwrap_or(""),
+            delimiter,
+            after.as_ref(),
+            limit,
+        ))
     }
 
     async fn presign(

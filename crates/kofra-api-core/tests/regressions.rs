@@ -599,3 +599,39 @@ fn a_storage_key_conflict_is_not_stored_as_the_keys_answer() {
     // The first request's retry still reaches storage's first answer.
     assert_eq!(create("aaa").status, 201);
 }
+
+#[test]
+fn an_audit_link_keeps_a_time_offset_and_can_be_followed() {
+    let h = setup();
+    let owner = h.owner();
+    for i in 0..3 {
+        h.api.ports.env.advance(1000);
+        h.call(
+            "POST",
+            "/v1/buckets",
+            &owner,
+            Some(json!({ "name": format!("off-{i}") })),
+        );
+    }
+    // `+01:00` sent percent-encoded: a literal `+` in the Link would read
+    // back as a space and break the next page.
+    let first = "/v1/audit?limit=1&since=2000-01-01T01%3A00%3A00%2B01%3A00";
+    let r = h.call("GET", first, &owner, None);
+    assert_eq!(r.status, 200);
+    let link = r.header("Link").expect("Link").to_owned();
+    assert!(
+        link.contains("since=2000-01-01T01%3A00%3A00%2B01%3A00"),
+        "{link}"
+    );
+    let target = link
+        .strip_prefix('<')
+        .and_then(|l| l.split_once(">; rel=\"next\""))
+        .map(|(t, _)| t.to_owned())
+        .expect("Link target");
+    let next = h.call("GET", &target, &owner, None);
+    assert_eq!(next.status, 200, "{target}");
+    assert_ne!(
+        next.json_body()["data"][0]["id"],
+        r.json_body()["data"][0]["id"]
+    );
+}

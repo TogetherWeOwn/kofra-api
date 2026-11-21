@@ -231,6 +231,7 @@ fn check_schema(name: &str, v: &Value) {
         "Deletion" => round_trip::<t::Deletion>(name, v),
         "Plan" => round_trip::<t::Plan>(name, v),
         "BucketList" => round_trip::<t::BucketList>(name, v),
+        "ObjectList" => round_trip::<t::ObjectList>(name, v),
         "Bucket" => round_trip::<t::Bucket>(name, v),
         "AccessKeyList" => round_trip::<t::AccessKeyList>(name, v),
         "AccessKeyCreated" => round_trip::<t::AccessKeyCreated>(name, v),

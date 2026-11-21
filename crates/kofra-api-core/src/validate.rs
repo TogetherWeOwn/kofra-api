@@ -144,7 +144,7 @@ impl Query {
         }
     }
 
-    /// `cursor`: 1 to 512 characters.
+    /// `cursor`: 1 to 2048 characters.
     pub fn cursor(&self) -> Result<Option<&str>, Problem> {
         match self.get("cursor") {
             None => Ok(None),
