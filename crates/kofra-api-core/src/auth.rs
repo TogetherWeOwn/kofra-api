@@ -120,7 +120,9 @@ impl Principal {
     pub fn credential_key(&self) -> String {
         match &self.credential {
             Credential::Token { id, .. } => id.clone(),
-            Credential::Console { .. } => format!("console:{}", self.user_id),
+            Credential::Console { .. } => {
+                format!("console:{}:{}", self.workspace.id, self.user_id)
+            }
         }
     }
 
