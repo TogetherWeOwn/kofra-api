@@ -164,9 +164,12 @@ jobs:
       - run: cargo run --locked -q -p xtask -- check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo clippy --locked -p kofra-api-types --all-targets --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo clippy --locked -p kofra-account --all-targets --target wasm32-unknown-unknown -- -D warnings
       - run: cargo test --locked --workspace
       # The contract-derived types must build for the Workers target.
       - run: cargo build --locked -p kofra-api-types --target wasm32-unknown-unknown --release
+      # The account service must build for the Workers target too.
+      - run: cargo build --locked -p kofra-account --target wasm32-unknown-unknown --release
 
   sdk:
     name: sdk (regenerate, TypeScript, Python, Go, CLI cross-build)
