@@ -60,6 +60,51 @@ func (e AccountState) Valid() bool {
 	}
 }
 
+// Defines values for AuditEntryActorType.
+const (
+	AuditEntryActorTypeAgent AuditEntryActorType = "agent"
+	AuditEntryActorTypeToken AuditEntryActorType = "token"
+	AuditEntryActorTypeUser  AuditEntryActorType = "user"
+)
+
+// Valid indicates whether the value is a known member of the AuditEntryActorType enum.
+func (e AuditEntryActorType) Valid() bool {
+	switch e {
+	case AuditEntryActorTypeAgent:
+		return true
+	case AuditEntryActorTypeToken:
+		return true
+	case AuditEntryActorTypeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AuditEntryOutcome.
+const (
+	Failed    AuditEntryOutcome = "failed"
+	Pending   AuditEntryOutcome = "pending"
+	Refused   AuditEntryOutcome = "refused"
+	Succeeded AuditEntryOutcome = "succeeded"
+)
+
+// Valid indicates whether the value is a known member of the AuditEntryOutcome enum.
+func (e AuditEntryOutcome) Valid() bool {
+	switch e {
+	case Failed:
+		return true
+	case Pending:
+		return true
+	case Refused:
+		return true
+	case Succeeded:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DeletionReason.
 const (
 	DeletionReasonCustomer   DeletionReason = "customer"
@@ -173,6 +218,7 @@ const (
 	PlanEffectResourceAccount PlanEffectResource = "account"
 	PlanEffectResourceBucket  PlanEffectResource = "bucket"
 	PlanEffectResourceKey     PlanEffectResource = "key"
+	PlanEffectResourceToken   PlanEffectResource = "token"
 )
 
 // Valid indicates whether the value is a known member of the PlanEffectResource enum.
@@ -183,6 +229,8 @@ func (e PlanEffectResource) Valid() bool {
 	case PlanEffectResourceBucket:
 		return true
 	case PlanEffectResourceKey:
+		return true
+	case PlanEffectResourceToken:
 		return true
 	default:
 		return false
@@ -213,6 +261,57 @@ const (
 func (e PresignedUrlMethod) Valid() bool {
 	switch e {
 	case PresignedUrlMethodGET:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Scope.
+const (
+	AccountDelete Scope = "account:delete"
+	AccountRead   Scope = "account:read"
+	AuditRead     Scope = "audit:read"
+	BucketsDelete Scope = "buckets:delete"
+	BucketsRead   Scope = "buckets:read"
+	BucketsWrite  Scope = "buckets:write"
+	EventsRead    Scope = "events:read"
+	KeysRead      Scope = "keys:read"
+	KeysWrite     Scope = "keys:write"
+	ObjectsRead   Scope = "objects:read"
+	TokensRead    Scope = "tokens:read"
+	TokensWrite   Scope = "tokens:write"
+	UsageRead     Scope = "usage:read"
+)
+
+// Valid indicates whether the value is a known member of the Scope enum.
+func (e Scope) Valid() bool {
+	switch e {
+	case AccountDelete:
+		return true
+	case AccountRead:
+		return true
+	case AuditRead:
+		return true
+	case BucketsDelete:
+		return true
+	case BucketsRead:
+		return true
+	case BucketsWrite:
+		return true
+	case EventsRead:
+		return true
+	case KeysRead:
+		return true
+	case KeysWrite:
+		return true
+	case ObjectsRead:
+		return true
+	case TokensRead:
+		return true
+	case TokensWrite:
+		return true
+	case UsageRead:
 		return true
 	default:
 		return false
@@ -385,6 +484,156 @@ type AccountLimits struct {
 	Upload24hBytes *int64 `json:"upload_24h_bytes"`
 }
 
+// AllowedIps The only client addresses the token is accepted from. Each entry at most once.
+type AllowedIps = []IpRange
+
+// ApiToken defines model for ApiToken.
+type ApiToken struct {
+	// Agent The token is used by an AI agent. Shown as such in the audit log; an agent token cannot create tokens.
+	Agent bool `json:"agent"`
+
+	// AllowedIps The only client addresses the token is accepted from; `null` for any address.
+	AllowedIps *[]IpRange `json:"allowed_ips"`
+
+	// Buckets The only buckets the token can reach; `null` for every bucket the member can reach.
+	Buckets *[]BucketName `json:"buckets"`
+
+	// CreatedAt RFC 3339 timestamp in UTC.
+	CreatedAt Timestamp `json:"created_at"`
+
+	// CreatedBy A member's user ID.
+	//
+	// Examples: usr_01jd3k9v6q2m8x4t7r5n0b1c3e
+	CreatedBy UserId `json:"created_by"`
+
+	// ExpiresAt RFC 3339 timestamp in UTC.
+	ExpiresAt Timestamp `json:"expires_at"`
+
+	// Id The API token ID. The token itself is `kofra_tok_`, this ID without `tok_`, `_` and the secret.
+	//
+	// Examples: tok_01jd3p5d9v1n6z8r0t2v4x6y8a
+	Id TokenId `json:"id"`
+
+	// LastUsedAt Last accepted request, to within an hour. `null` if never used.
+	LastUsedAt *Timestamp `json:"last_used_at"`
+
+	// Name A label for people; not used for access.
+	Name   TokenName `json:"name"`
+	Scopes []Scope   `json:"scopes"`
+}
+
+// ApiTokenCreate defines model for ApiTokenCreate.
+type ApiTokenCreate struct {
+	// Agent Mark the token as used by an AI agent.
+	Agent *bool `json:"agent,omitempty"`
+
+	// AllowedIps The only client addresses the token is accepted from. Each entry at most once.
+	AllowedIps *AllowedIps `json:"allowed_ips,omitempty"`
+
+	// Buckets The only buckets the token can reach. Each bucket at most once.
+	Buckets *TokenBuckets `json:"buckets,omitempty"`
+
+	// ExpiresInDays Days until the token expires. Default 90.
+	ExpiresInDays *TokenLifetimeDays `json:"expires_in_days,omitempty"`
+
+	// Name A label for people; not used for access.
+	Name TokenName `json:"name"`
+
+	// Scopes The scopes of a token. Each scope at most once.
+	Scopes TokenScopes `json:"scopes"`
+}
+
+// ApiTokenCreated An API token with its secret. The secret appears in this response only.
+type ApiTokenCreated struct {
+	// Agent The token is used by an AI agent. Shown as such in the audit log; an agent token cannot create tokens.
+	Agent bool `json:"agent"`
+
+	// AllowedIps The only client addresses the token is accepted from; `null` for any address.
+	AllowedIps *[]IpRange `json:"allowed_ips"`
+
+	// Buckets The only buckets the token can reach; `null` for every bucket the member can reach.
+	Buckets *[]BucketName `json:"buckets"`
+
+	// CreatedAt RFC 3339 timestamp in UTC.
+	CreatedAt Timestamp `json:"created_at"`
+
+	// CreatedBy A member's user ID.
+	//
+	// Examples: usr_01jd3k9v6q2m8x4t7r5n0b1c3e
+	CreatedBy UserId `json:"created_by"`
+
+	// ExpiresAt RFC 3339 timestamp in UTC.
+	ExpiresAt Timestamp `json:"expires_at"`
+
+	// Id The API token ID. The token itself is `kofra_tok_`, this ID without `tok_`, `_` and the secret.
+	//
+	// Examples: tok_01jd3p5d9v1n6z8r0t2v4x6y8a
+	Id TokenId `json:"id"`
+
+	// LastUsedAt Last accepted request, to within an hour. `null` if never used.
+	LastUsedAt *Timestamp `json:"last_used_at"`
+
+	// Name A label for people; not used for access.
+	Name   TokenName `json:"name"`
+	Scopes []Scope   `json:"scopes"`
+
+	// Token The token to send as `Authorization: Bearer <token>`. `null` when this is a replay of an earlier request.
+	Token *string `json:"token"`
+}
+
+// ApiTokenList defines model for ApiTokenList.
+type ApiTokenList struct {
+	Data       []ApiToken `json:"data"`
+	NextCursor *Cursor    `json:"next_cursor"`
+}
+
+// AuditActorId A member's user ID (`usr_...`) or an API token ID (`tok_...`).
+type AuditActorId = string
+
+// AuditEntry defines model for AuditEntry.
+type AuditEntry struct {
+	ActorId *UserId `json:"actor_id"`
+
+	// ActorType `user`: a member in the console. `token`: an API token. `agent`: an API token marked `agent`.
+	ActorType AuditEntryActorType `json:"actor_type"`
+
+	// Code The error code of a refused or failed request.
+	Code *string `json:"code"`
+
+	// CreatedAt RFC 3339 timestamp in UTC.
+	CreatedAt Timestamp `json:"created_at"`
+
+	// CredentialId The API token used, if any.
+	CredentialId *TokenId `json:"credential_id"`
+	DryRun       bool     `json:"dry_run"`
+	Id           string   `json:"id"`
+	Ip           *string  `json:"ip"`
+
+	// Operation An operation of this API, for example `buckets.create`.
+	Operation OperationId `json:"operation"`
+
+	// Outcome `pending`: the request never finished. `refused`: answered with a 4xx. `failed`: answered with a 5xx.
+	Outcome   AuditEntryOutcome `json:"outcome"`
+	RequestId string            `json:"request_id"`
+	Status    *int              `json:"status"`
+
+	// Target The bucket, key or token the operation named, if any.
+	Target    *string `json:"target"`
+	UserAgent *string `json:"user_agent"`
+}
+
+// AuditEntryActorType `user`: a member in the console. `token`: an API token. `agent`: an API token marked `agent`.
+type AuditEntryActorType string
+
+// AuditEntryOutcome `pending`: the request never finished. `refused`: answered with a 4xx. `failed`: answered with a 5xx.
+type AuditEntryOutcome string
+
+// AuditList defines model for AuditList.
+type AuditList struct {
+	Data       []AuditEntry `json:"data"`
+	NextCursor *Cursor      `json:"next_cursor"`
+}
+
 // Bucket defines model for Bucket.
 type Bucket struct {
 	// CreatedAt RFC 3339 timestamp in UTC.
@@ -538,6 +787,11 @@ type GrantInputAccess string
 // Grants 1 to 32 grants, each bucket at most once; a bucket listed twice is refused with `validation_failed`.
 type Grants = []GrantInput
 
+// IpRange An IPv4 or IPv6 address, or a CIDR block such as `203.0.113.0/24`.
+//
+// Examples: 203.0.113.0/24
+type IpRange = string
+
 // KeyName A label for people; not used for access.
 type KeyName = string
 
@@ -546,6 +800,9 @@ type OpenUploads struct {
 	Count int64 `json:"count"`
 	Limit int64 `json:"limit"`
 }
+
+// OperationId An operation of this API, for example `buckets.create`.
+type OperationId = string
 
 // OverLimit Set while stored bytes are above the storage limit.
 type OverLimit struct {
@@ -659,6 +916,9 @@ type Problem struct {
 	Type string `json:"type"`
 }
 
+// Scope A permission an API token can carry, as `resource:verb`.
+type Scope string
+
 // Suspension defines model for Suspension.
 type Suspension struct {
 	Mode   SuspensionMode   `json:"mode"`
@@ -676,6 +936,23 @@ type SuspensionReason string
 
 // Timestamp RFC 3339 timestamp in UTC.
 type Timestamp = time.Time
+
+// TokenBuckets The only buckets the token can reach. Each bucket at most once.
+type TokenBuckets = []BucketName
+
+// TokenId The API token ID. The token itself is `kofra_tok_`, this ID without `tok_`, `_` and the secret.
+//
+// Examples: tok_01jd3p5d9v1n6z8r0t2v4x6y8a
+type TokenId = string
+
+// TokenLifetimeDays Days until the token expires. Default 90.
+type TokenLifetimeDays = int
+
+// TokenName A label for people; not used for access.
+type TokenName = string
+
+// TokenScopes The scopes of a token. Each scope at most once.
+type TokenScopes = []Scope
 
 // Upload24h Uploads in the current 24-hour window.
 type Upload24h struct {
@@ -727,6 +1004,11 @@ type UsageDayList struct {
 	NextCursor *Cursor    `json:"next_cursor"`
 }
 
+// UserId A member's user ID.
+//
+// Examples: usr_01jd3k9v6q2m8x4t7r5n0b1c3e
+type UserId = string
+
 // BucketPath 3 to 63 lowercase letters, digits or hyphens; starts and ends with a letter or digit.
 //
 // Examples: backups
@@ -746,6 +1028,11 @@ type KeyIdPath = AccessKeyId
 // Limit defines model for Limit.
 type Limit = int
 
+// TokenIdPath The API token ID. The token itself is `kofra_tok_`, this ID without `tok_`, `_` and the secret.
+//
+// Examples: tok_01jd3p5d9v1n6z8r0t2v4x6y8a
+type TokenIdPath = TokenId
+
 // AccountDeleteParams defines parameters for AccountDelete.
 type AccountDeleteParams struct {
 	// DryRun When `true`, answer `200` with the plan of what would change, and change nothing.
@@ -759,6 +1046,27 @@ type AccountDeleteParams struct {
 type AccountCancelDeletionParams struct {
 	// IdempotencyKey Makes a retry safe: the same key and the same request within 24 hours return the first answer. The key is bound to the method, the path, the query and the body of its first request: `dry_run=true` and a request without it (or with `dry_run=false`, which is the same request) are different requests and need different keys. 1 to 255 printable ASCII characters; a UUID is a good choice.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// AuditListParams defines parameters for AuditList.
+type AuditListParams struct {
+	// Actor Only rows made by this member (`usr_...`) or with this API token (`tok_...`).
+	Actor *AuditActorId `form:"actor,omitempty" json:"actor,omitempty"`
+
+	// Operation Only rows of this operation, for example `buckets.delete`.
+	Operation *OperationId `form:"operation,omitempty" json:"operation,omitempty"`
+
+	// Since Only rows at or after this time.
+	Since *Timestamp `form:"since,omitempty" json:"since,omitempty"`
+
+	// Until Only rows before this time.
+	Until *Timestamp `form:"until,omitempty" json:"until,omitempty"`
+
+	// Limit Items per page, 1 to 200.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor The `next_cursor` from the previous page. Omit for the first page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // BucketsListParams defines parameters for BucketsList.
@@ -830,6 +1138,30 @@ type ObjectsPresignParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// TokensListParams defines parameters for TokensList.
+type TokensListParams struct {
+	// Limit Items per page, 1 to 200.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor The `next_cursor` from the previous page. Omit for the first page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// TokensCreateParams defines parameters for TokensCreate.
+type TokensCreateParams struct {
+	// IdempotencyKey Makes a retry safe: the same key and the same request within 24 hours return the first answer. The key is bound to the method, the path, the query and the body of its first request: `dry_run=true` and a request without it (or with `dry_run=false`, which is the same request) are different requests and need different keys. 1 to 255 printable ASCII characters; a UUID is a good choice.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// TokensRevokeParams defines parameters for TokensRevoke.
+type TokensRevokeParams struct {
+	// DryRun When `true`, answer `200` with the plan of what would change, and change nothing.
+	DryRun *DryRun `form:"dry_run,omitempty" json:"dry_run,omitempty"`
+
+	// IdempotencyKey Makes a retry safe: the same key and the same request within 24 hours return the first answer. The key is bound to the method, the path, the query and the body of its first request: `dry_run=true` and a request without it (or with `dry_run=false`, which is the same request) are different requests and need different keys. 1 to 255 printable ASCII characters; a UUID is a good choice.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // UsageBucketsParams defines parameters for UsageBuckets.
 type UsageBucketsParams struct {
 	// Limit Items per page, 1 to 200.
@@ -862,6 +1194,9 @@ type KeysUpdateJSONRequestBody = AccessKeyUpdate
 
 // ObjectsPresignJSONRequestBody defines body for ObjectsPresign for application/json ContentType.
 type ObjectsPresignJSONRequestBody = PresignRequest
+
+// TokensCreateJSONRequestBody defines body for TokensCreate for application/json ContentType.
+type TokensCreateJSONRequestBody = ApiTokenCreate
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -971,6 +1306,19 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /v1/account/deletion/cancel (the `AccountCancelDeletion` operationId).
 	AccountCancelDeletion(ctx context.Context, params *AccountCancelDeletionParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuditList Read the audit log
+	//
+	// Every change made through the API or the console, newest first, and
+	// every attempt refused for lack of permission (scope, role, client
+	// address or bucket limit). A row is written before the change runs;
+	// `outcome: pending` means its result was not recorded. Dry runs are
+	// recorded with `dry_run: true`. Reads are not recorded.
+	//
+	// Scopes: `audit:read`.
+	//
+	// Corresponds with GET /v1/audit (the `AuditList` operationId).
+	AuditList(ctx context.Context, params *AuditListParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// BucketsList List buckets
 	//
@@ -1157,6 +1505,77 @@ type ClientInterface interface {
 	// Corresponds with POST /v1/objects/presign (the `ObjectsPresign` operationId).
 	ObjectsPresign(ctx context.Context, params *ObjectsPresignParams, body ObjectsPresignJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// TokensList List API tokens
+	//
+	// Lists API tokens that are not revoked, newest first. An Owner or Admin
+	// sees every token of the workspace; any other member sees only their
+	// own. The token secrets are never returned.
+	//
+	// Scopes: `tokens:read`.
+	//
+	// Corresponds with GET /v1/tokens (the `TokensList` operationId).
+	TokensList(ctx context.Context, params *TokensListParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// TokensCreateWithBody Create an API token
+	//
+	// Creates an API token for the member who makes the request. The token
+	// is in this response only; store it at once. A replay of the same
+	// request with the same `Idempotency-Key` returns the token with
+	// `token: null`: revoke that token and create a new one if it was lost.
+	//
+	// A token can never hold more than the credential that creates it: every
+	// scope must be one the caller holds (`insufficient_scope` otherwise),
+	// a bucket list must lie inside the caller's (`bucket_not_allowed`), an
+	// address list inside the caller's (`ip_not_allowed`), and the expiry
+	// must not be later than the caller's (without `expires_in_days`, the
+	// token gets 90 days or the caller's remaining life, whichever is
+	// shorter). A token marked `agent` cannot create or revoke tokens, and
+	// cannot be given `tokens:write`. The token's permission is also limited
+	// by the member's role at every request.
+	//
+	// Scopes: `tokens:write`.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/tokens (the `TokensCreate` operationId).
+	TokensCreateWithBody(ctx context.Context, params *TokensCreateParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// TokensCreate Create an API token
+	//
+	// Creates an API token for the member who makes the request. The token
+	// is in this response only; store it at once. A replay of the same
+	// request with the same `Idempotency-Key` returns the token with
+	// `token: null`: revoke that token and create a new one if it was lost.
+	//
+	// A token can never hold more than the credential that creates it: every
+	// scope must be one the caller holds (`insufficient_scope` otherwise),
+	// a bucket list must lie inside the caller's (`bucket_not_allowed`), an
+	// address list inside the caller's (`ip_not_allowed`), and the expiry
+	// must not be later than the caller's (without `expires_in_days`, the
+	// token gets 90 days or the caller's remaining life, whichever is
+	// shorter). A token marked `agent` cannot create or revoke tokens, and
+	// cannot be given `tokens:write`. The token's permission is also limited
+	// by the member's role at every request.
+	//
+	// Scopes: `tokens:write`.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/tokens (the `TokensCreate` operationId).
+	TokensCreate(ctx context.Context, params *TokensCreateParams, body TokensCreateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// TokensRevoke Revoke an API token
+	//
+	// Revokes the token at once; requests made with it are refused from then
+	// on. Members can revoke their own tokens; an Owner or Admin can revoke
+	// any token of the workspace. Revocation is final; the token disappears
+	// from the list, so a second revoke answers `token_not_found`.
+	//
+	// Scopes: `tokens:write`.
+	//
+	// Corresponds with DELETE /v1/tokens/{token_id} (the `TokensRevoke` operationId).
+	TokensRevoke(ctx context.Context, tokenId TokenIdPath, params *TokensRevokeParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// UsageGet Get current usage
 	//
 	// Current stored bytes, upload and download totals, and how close they are to the account's limits.
@@ -1242,6 +1661,29 @@ func (c *Client) AccountGet(ctx context.Context, reqEditors ...RequestEditorFn) 
 // Corresponds with POST /v1/account/deletion/cancel (the `AccountCancelDeletion` operationId).
 func (c *Client) AccountCancelDeletion(ctx context.Context, params *AccountCancelDeletionParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAccountCancelDeletionRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuditList Read the audit log
+//
+// Every change made through the API or the console, newest first, and
+// every attempt refused for lack of permission (scope, role, client
+// address or bucket limit). A row is written before the change runs;
+// `outcome: pending` means its result was not recorded. Dry runs are
+// recorded with `dry_run: true`. Reads are not recorded.
+//
+// Scopes: `audit:read`.
+//
+// Corresponds with GET /v1/audit (the `AuditList` operationId).
+func (c *Client) AuditList(ctx context.Context, params *AuditListParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuditListRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1577,6 +2019,117 @@ func (c *Client) ObjectsPresign(ctx context.Context, params *ObjectsPresignParam
 	return c.Client.Do(req)
 }
 
+// TokensList List API tokens
+//
+// Lists API tokens that are not revoked, newest first. An Owner or Admin
+// sees every token of the workspace; any other member sees only their
+// own. The token secrets are never returned.
+//
+// Scopes: `tokens:read`.
+//
+// Corresponds with GET /v1/tokens (the `TokensList` operationId).
+func (c *Client) TokensList(ctx context.Context, params *TokensListParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewTokensListRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// TokensCreateWithBody Create an API token
+//
+// Creates an API token for the member who makes the request. The token
+// is in this response only; store it at once. A replay of the same
+// request with the same `Idempotency-Key` returns the token with
+// `token: null`: revoke that token and create a new one if it was lost.
+//
+// A token can never hold more than the credential that creates it: every
+// scope must be one the caller holds (`insufficient_scope` otherwise),
+// a bucket list must lie inside the caller's (`bucket_not_allowed`), an
+// address list inside the caller's (`ip_not_allowed`), and the expiry
+// must not be later than the caller's (without `expires_in_days`, the
+// token gets 90 days or the caller's remaining life, whichever is
+// shorter). A token marked `agent` cannot create or revoke tokens, and
+// cannot be given `tokens:write`. The token's permission is also limited
+// by the member's role at every request.
+//
+// Scopes: `tokens:write`.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/tokens (the `TokensCreate` operationId).
+func (c *Client) TokensCreateWithBody(ctx context.Context, params *TokensCreateParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewTokensCreateRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// TokensCreate Create an API token
+//
+// Creates an API token for the member who makes the request. The token
+// is in this response only; store it at once. A replay of the same
+// request with the same `Idempotency-Key` returns the token with
+// `token: null`: revoke that token and create a new one if it was lost.
+//
+// A token can never hold more than the credential that creates it: every
+// scope must be one the caller holds (`insufficient_scope` otherwise),
+// a bucket list must lie inside the caller's (`bucket_not_allowed`), an
+// address list inside the caller's (`ip_not_allowed`), and the expiry
+// must not be later than the caller's (without `expires_in_days`, the
+// token gets 90 days or the caller's remaining life, whichever is
+// shorter). A token marked `agent` cannot create or revoke tokens, and
+// cannot be given `tokens:write`. The token's permission is also limited
+// by the member's role at every request.
+//
+// Scopes: `tokens:write`.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/tokens (the `TokensCreate` operationId).
+func (c *Client) TokensCreate(ctx context.Context, params *TokensCreateParams, body TokensCreateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewTokensCreateRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// TokensRevoke Revoke an API token
+//
+// Revokes the token at once; requests made with it are refused from then
+// on. Members can revoke their own tokens; an Owner or Admin can revoke
+// any token of the workspace. Revocation is final; the token disappears
+// from the list, so a second revoke answers `token_not_found`.
+//
+// Scopes: `tokens:write`.
+//
+// Corresponds with DELETE /v1/tokens/{token_id} (the `TokensRevoke` operationId).
+func (c *Client) TokensRevoke(ctx context.Context, tokenId TokenIdPath, params *TokensRevokeParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewTokensRevokeRequest(c.Server, tokenId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // UsageGet Get current usage
 //
 // Current stored bytes, upload and download totals, and how close they are to the account's limits.
@@ -1769,6 +2322,120 @@ func NewAccountCancelDeletionRequest(server string, params *AccountCancelDeletio
 			req.Header.Set("Idempotency-Key", headerParam0)
 		}
 
+	}
+
+	return req, nil
+}
+
+// NewAuditListRequest constructs an http.Request for the AuditList method
+func NewAuditListRequest(server string, params *AuditListParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/audit")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Actor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "actor", *params.Actor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Operation != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "operation", *params.Operation, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Since != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "since", *params.Since, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: "date-time"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Until != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "until", *params.Until, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: "date-time"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Cursor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
 	}
 
 	return req, nil
@@ -2385,6 +3052,203 @@ func NewObjectsPresignRequestWithBody(server string, params *ObjectsPresignParam
 	return req, nil
 }
 
+// NewTokensListRequest constructs an http.Request for the TokensList method
+func NewTokensListRequest(server string, params *TokensListParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tokens")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Cursor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewTokensCreateRequest calls the generic TokensCreate builder with application/json body
+func NewTokensCreateRequest(server string, params *TokensCreateParams, body TokensCreateJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewTokensCreateRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewTokensCreateRequestWithBody constructs an http.Request for the TokensCreate method, with any body, and a specified content type
+func NewTokensCreateRequestWithBody(server string, params *TokensCreateParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tokens")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.IdempotencyKey != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", *params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Idempotency-Key", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewTokensRevokeRequest constructs an http.Request for the TokensRevoke method
+func NewTokensRevokeRequest(server string, tokenId TokenIdPath, params *TokensRevokeParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "token_id", tokenId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tokens/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.DryRun != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "dry_run", *params.DryRun, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.IdempotencyKey != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", *params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Idempotency-Key", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewUsageGetRequest constructs an http.Request for the UsageGet method
 func NewUsageGetRequest(server string) (*http.Request, error) {
 	var err error
@@ -2641,6 +3505,21 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /v1/account/deletion/cancel (the `AccountCancelDeletion` operationId).
 	AccountCancelDeletionWithResponse(ctx context.Context, params *AccountCancelDeletionParams, reqEditors ...RequestEditorFn) (*AccountCancelDeletionResponse, error)
 
+	// AuditListWithResponse Read the audit log
+	//
+	// Every change made through the API or the console, newest first, and
+	// every attempt refused for lack of permission (scope, role, client
+	// address or bucket limit). A row is written before the change runs;
+	// `outcome: pending` means its result was not recorded. Dry runs are
+	// recorded with `dry_run: true`. Reads are not recorded.
+	//
+	// Scopes: `audit:read`.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/audit (the `AuditList` operationId).
+	AuditListWithResponse(ctx context.Context, params *AuditListParams, reqEditors ...RequestEditorFn) (*AuditListResponse, error)
+
 	// BucketsListWithResponse List buckets
 	//
 	// Lists the workspace's buckets with their sizes, in name order.
@@ -2837,6 +3716,81 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /v1/objects/presign (the `ObjectsPresign` operationId).
 	ObjectsPresignWithResponse(ctx context.Context, params *ObjectsPresignParams, body ObjectsPresignJSONRequestBody, reqEditors ...RequestEditorFn) (*ObjectsPresignResponse, error)
+
+	// TokensListWithResponse List API tokens
+	//
+	// Lists API tokens that are not revoked, newest first. An Owner or Admin
+	// sees every token of the workspace; any other member sees only their
+	// own. The token secrets are never returned.
+	//
+	// Scopes: `tokens:read`.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/tokens (the `TokensList` operationId).
+	TokensListWithResponse(ctx context.Context, params *TokensListParams, reqEditors ...RequestEditorFn) (*TokensListResponse, error)
+
+	// TokensCreateWithBodyWithResponse Create an API token
+	//
+	// Creates an API token for the member who makes the request. The token
+	// is in this response only; store it at once. A replay of the same
+	// request with the same `Idempotency-Key` returns the token with
+	// `token: null`: revoke that token and create a new one if it was lost.
+	//
+	// A token can never hold more than the credential that creates it: every
+	// scope must be one the caller holds (`insufficient_scope` otherwise),
+	// a bucket list must lie inside the caller's (`bucket_not_allowed`), an
+	// address list inside the caller's (`ip_not_allowed`), and the expiry
+	// must not be later than the caller's (without `expires_in_days`, the
+	// token gets 90 days or the caller's remaining life, whichever is
+	// shorter). A token marked `agent` cannot create or revoke tokens, and
+	// cannot be given `tokens:write`. The token's permission is also limited
+	// by the member's role at every request.
+	//
+	// Scopes: `tokens:write`.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tokens (the `TokensCreate` operationId).
+	TokensCreateWithBodyWithResponse(ctx context.Context, params *TokensCreateParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*TokensCreateResponse, error)
+
+	// TokensCreateWithResponse Create an API token
+	//
+	// Creates an API token for the member who makes the request. The token
+	// is in this response only; store it at once. A replay of the same
+	// request with the same `Idempotency-Key` returns the token with
+	// `token: null`: revoke that token and create a new one if it was lost.
+	//
+	// A token can never hold more than the credential that creates it: every
+	// scope must be one the caller holds (`insufficient_scope` otherwise),
+	// a bucket list must lie inside the caller's (`bucket_not_allowed`), an
+	// address list inside the caller's (`ip_not_allowed`), and the expiry
+	// must not be later than the caller's (without `expires_in_days`, the
+	// token gets 90 days or the caller's remaining life, whichever is
+	// shorter). A token marked `agent` cannot create or revoke tokens, and
+	// cannot be given `tokens:write`. The token's permission is also limited
+	// by the member's role at every request.
+	//
+	// Scopes: `tokens:write`.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tokens (the `TokensCreate` operationId).
+	TokensCreateWithResponse(ctx context.Context, params *TokensCreateParams, body TokensCreateJSONRequestBody, reqEditors ...RequestEditorFn) (*TokensCreateResponse, error)
+
+	// TokensRevokeWithResponse Revoke an API token
+	//
+	// Revokes the token at once; requests made with it are refused from then
+	// on. Members can revoke their own tokens; an Owner or Admin can revoke
+	// any token of the workspace. Revocation is final; the token disappears
+	// from the list, so a second revoke answers `token_not_found`.
+	//
+	// Scopes: `tokens:write`.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /v1/tokens/{token_id} (the `TokensRevoke` operationId).
+	TokensRevokeWithResponse(ctx context.Context, tokenId TokenIdPath, params *TokensRevokeParams, reqEditors ...RequestEditorFn) (*TokensRevokeResponse, error)
 
 	// UsageGetWithResponse Get current usage
 	//
@@ -3397,6 +4351,156 @@ func (r AccountCancelDeletionResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r AccountCancelDeletionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// AuditListResponse200Headers the declared response headers of an HTTP 200 response for AuditList
+type AuditListResponse200Headers struct {
+	KofraRequestId  *string
+	Link            *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// AuditListResponse400Headers the declared response headers of an HTTP 400 response for AuditList
+type AuditListResponse400Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// AuditListResponse401Headers the declared response headers of an HTTP 401 response for AuditList
+type AuditListResponse401Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+	WWWAuthenticate *string
+}
+
+// AuditListResponse403Headers the declared response headers of an HTTP 403 response for AuditList
+type AuditListResponse403Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// AuditListResponse429Headers the declared response headers of an HTTP 429 response for AuditList
+type AuditListResponse429Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+	RetryAfter      *int
+}
+
+// AuditListResponse500Headers the declared response headers of an HTTP 500 response for AuditList
+type AuditListResponse500Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// AuditListResponse503Headers the declared response headers of an HTTP 503 response for AuditList
+type AuditListResponse503Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+	RetryAfter      *int
+}
+
+type AuditListResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *AuditList
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *Problem
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Problem
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Problem
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *Problem
+	// ApplicationproblemJSON500 the response for an HTTP 500 `application/problem+json` response
+	ApplicationproblemJSON500 *Problem
+	// ApplicationproblemJSON503 the response for an HTTP 503 `application/problem+json` response
+	ApplicationproblemJSON503 *Problem
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *AuditListResponse200Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *AuditListResponse400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *AuditListResponse401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *AuditListResponse403Headers
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *AuditListResponse429Headers
+	// Headers500 the parsed response headers for an HTTP 500 response
+	Headers500 *AuditListResponse500Headers
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *AuditListResponse503Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AuditListResponse) GetJSON200() *AuditList {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r AuditListResponse) GetApplicationproblemJSON400() *Problem {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r AuditListResponse) GetApplicationproblemJSON401() *Problem {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r AuditListResponse) GetApplicationproblemJSON403() *Problem {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r AuditListResponse) GetApplicationproblemJSON429() *Problem {
+	return r.ApplicationproblemJSON429
+}
+
+// GetApplicationproblemJSON500 returns the response for an HTTP 500 `application/problem+json` response
+func (r AuditListResponse) GetApplicationproblemJSON500() *Problem {
+	return r.ApplicationproblemJSON500
+}
+
+// GetApplicationproblemJSON503 returns the response for an HTTP 503 `application/problem+json` response
+func (r AuditListResponse) GetApplicationproblemJSON503() *Problem {
+	return r.ApplicationproblemJSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r AuditListResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AuditListResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuditListResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AuditListResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5352,6 +6456,577 @@ func (r ObjectsPresignResponse) ContentType() string {
 	return ""
 }
 
+// TokensListResponse200Headers the declared response headers of an HTTP 200 response for TokensList
+type TokensListResponse200Headers struct {
+	KofraRequestId  *string
+	Link            *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensListResponse400Headers the declared response headers of an HTTP 400 response for TokensList
+type TokensListResponse400Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensListResponse401Headers the declared response headers of an HTTP 401 response for TokensList
+type TokensListResponse401Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+	WWWAuthenticate *string
+}
+
+// TokensListResponse403Headers the declared response headers of an HTTP 403 response for TokensList
+type TokensListResponse403Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensListResponse429Headers the declared response headers of an HTTP 429 response for TokensList
+type TokensListResponse429Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+	RetryAfter      *int
+}
+
+// TokensListResponse500Headers the declared response headers of an HTTP 500 response for TokensList
+type TokensListResponse500Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensListResponse503Headers the declared response headers of an HTTP 503 response for TokensList
+type TokensListResponse503Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+	RetryAfter      *int
+}
+
+type TokensListResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ApiTokenList
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *Problem
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Problem
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Problem
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *Problem
+	// ApplicationproblemJSON500 the response for an HTTP 500 `application/problem+json` response
+	ApplicationproblemJSON500 *Problem
+	// ApplicationproblemJSON503 the response for an HTTP 503 `application/problem+json` response
+	ApplicationproblemJSON503 *Problem
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *TokensListResponse200Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *TokensListResponse400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *TokensListResponse401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *TokensListResponse403Headers
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *TokensListResponse429Headers
+	// Headers500 the parsed response headers for an HTTP 500 response
+	Headers500 *TokensListResponse500Headers
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *TokensListResponse503Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r TokensListResponse) GetJSON200() *ApiTokenList {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r TokensListResponse) GetApplicationproblemJSON400() *Problem {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r TokensListResponse) GetApplicationproblemJSON401() *Problem {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r TokensListResponse) GetApplicationproblemJSON403() *Problem {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r TokensListResponse) GetApplicationproblemJSON429() *Problem {
+	return r.ApplicationproblemJSON429
+}
+
+// GetApplicationproblemJSON500 returns the response for an HTTP 500 `application/problem+json` response
+func (r TokensListResponse) GetApplicationproblemJSON500() *Problem {
+	return r.ApplicationproblemJSON500
+}
+
+// GetApplicationproblemJSON503 returns the response for an HTTP 503 `application/problem+json` response
+func (r TokensListResponse) GetApplicationproblemJSON503() *Problem {
+	return r.ApplicationproblemJSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r TokensListResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r TokensListResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r TokensListResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r TokensListResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// TokensCreateResponse201Headers the declared response headers of an HTTP 201 response for TokensCreate
+type TokensCreateResponse201Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensCreateResponse400Headers the declared response headers of an HTTP 400 response for TokensCreate
+type TokensCreateResponse400Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensCreateResponse401Headers the declared response headers of an HTTP 401 response for TokensCreate
+type TokensCreateResponse401Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+	WWWAuthenticate *string
+}
+
+// TokensCreateResponse403Headers the declared response headers of an HTTP 403 response for TokensCreate
+type TokensCreateResponse403Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensCreateResponse409Headers the declared response headers of an HTTP 409 response for TokensCreate
+type TokensCreateResponse409Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+	RetryAfter      *int
+}
+
+// TokensCreateResponse413Headers the declared response headers of an HTTP 413 response for TokensCreate
+type TokensCreateResponse413Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensCreateResponse415Headers the declared response headers of an HTTP 415 response for TokensCreate
+type TokensCreateResponse415Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensCreateResponse422Headers the declared response headers of an HTTP 422 response for TokensCreate
+type TokensCreateResponse422Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensCreateResponse429Headers the declared response headers of an HTTP 429 response for TokensCreate
+type TokensCreateResponse429Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+	RetryAfter      *int
+}
+
+// TokensCreateResponse500Headers the declared response headers of an HTTP 500 response for TokensCreate
+type TokensCreateResponse500Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensCreateResponse503Headers the declared response headers of an HTTP 503 response for TokensCreate
+type TokensCreateResponse503Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+	RetryAfter      *int
+}
+
+type TokensCreateResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *ApiTokenCreated
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *Problem
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Problem
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Problem
+	// ApplicationproblemJSON409 the response for an HTTP 409 `application/problem+json` response
+	ApplicationproblemJSON409 *Problem
+	// ApplicationproblemJSON413 the response for an HTTP 413 `application/problem+json` response
+	ApplicationproblemJSON413 *Problem
+	// ApplicationproblemJSON415 the response for an HTTP 415 `application/problem+json` response
+	ApplicationproblemJSON415 *Problem
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Problem
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *Problem
+	// ApplicationproblemJSON500 the response for an HTTP 500 `application/problem+json` response
+	ApplicationproblemJSON500 *Problem
+	// ApplicationproblemJSON503 the response for an HTTP 503 `application/problem+json` response
+	ApplicationproblemJSON503 *Problem
+	// Headers201 the parsed response headers for an HTTP 201 response
+	Headers201 *TokensCreateResponse201Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *TokensCreateResponse400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *TokensCreateResponse401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *TokensCreateResponse403Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *TokensCreateResponse409Headers
+	// Headers413 the parsed response headers for an HTTP 413 response
+	Headers413 *TokensCreateResponse413Headers
+	// Headers415 the parsed response headers for an HTTP 415 response
+	Headers415 *TokensCreateResponse415Headers
+	// Headers422 the parsed response headers for an HTTP 422 response
+	Headers422 *TokensCreateResponse422Headers
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *TokensCreateResponse429Headers
+	// Headers500 the parsed response headers for an HTTP 500 response
+	Headers500 *TokensCreateResponse500Headers
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *TokensCreateResponse503Headers
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r TokensCreateResponse) GetJSON201() *ApiTokenCreated {
+	return r.JSON201
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r TokensCreateResponse) GetApplicationproblemJSON400() *Problem {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r TokensCreateResponse) GetApplicationproblemJSON401() *Problem {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r TokensCreateResponse) GetApplicationproblemJSON403() *Problem {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON409 returns the response for an HTTP 409 `application/problem+json` response
+func (r TokensCreateResponse) GetApplicationproblemJSON409() *Problem {
+	return r.ApplicationproblemJSON409
+}
+
+// GetApplicationproblemJSON413 returns the response for an HTTP 413 `application/problem+json` response
+func (r TokensCreateResponse) GetApplicationproblemJSON413() *Problem {
+	return r.ApplicationproblemJSON413
+}
+
+// GetApplicationproblemJSON415 returns the response for an HTTP 415 `application/problem+json` response
+func (r TokensCreateResponse) GetApplicationproblemJSON415() *Problem {
+	return r.ApplicationproblemJSON415
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r TokensCreateResponse) GetApplicationproblemJSON422() *Problem {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r TokensCreateResponse) GetApplicationproblemJSON429() *Problem {
+	return r.ApplicationproblemJSON429
+}
+
+// GetApplicationproblemJSON500 returns the response for an HTTP 500 `application/problem+json` response
+func (r TokensCreateResponse) GetApplicationproblemJSON500() *Problem {
+	return r.ApplicationproblemJSON500
+}
+
+// GetApplicationproblemJSON503 returns the response for an HTTP 503 `application/problem+json` response
+func (r TokensCreateResponse) GetApplicationproblemJSON503() *Problem {
+	return r.ApplicationproblemJSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r TokensCreateResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r TokensCreateResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r TokensCreateResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r TokensCreateResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// TokensRevokeResponse200Headers the declared response headers of an HTTP 200 response for TokensRevoke
+type TokensRevokeResponse200Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensRevokeResponse204Headers the declared response headers of an HTTP 204 response for TokensRevoke
+type TokensRevokeResponse204Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensRevokeResponse400Headers the declared response headers of an HTTP 400 response for TokensRevoke
+type TokensRevokeResponse400Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensRevokeResponse401Headers the declared response headers of an HTTP 401 response for TokensRevoke
+type TokensRevokeResponse401Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+	WWWAuthenticate *string
+}
+
+// TokensRevokeResponse403Headers the declared response headers of an HTTP 403 response for TokensRevoke
+type TokensRevokeResponse403Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensRevokeResponse404Headers the declared response headers of an HTTP 404 response for TokensRevoke
+type TokensRevokeResponse404Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensRevokeResponse409Headers the declared response headers of an HTTP 409 response for TokensRevoke
+type TokensRevokeResponse409Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+	RetryAfter      *int
+}
+
+// TokensRevokeResponse422Headers the declared response headers of an HTTP 422 response for TokensRevoke
+type TokensRevokeResponse422Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensRevokeResponse429Headers the declared response headers of an HTTP 429 response for TokensRevoke
+type TokensRevokeResponse429Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+	RetryAfter      *int
+}
+
+// TokensRevokeResponse500Headers the declared response headers of an HTTP 500 response for TokensRevoke
+type TokensRevokeResponse500Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+}
+
+// TokensRevokeResponse503Headers the declared response headers of an HTTP 503 response for TokensRevoke
+type TokensRevokeResponse503Headers struct {
+	KofraRequestId  *string
+	RateLimit       *string
+	RateLimitPolicy *string
+	RetryAfter      *int
+}
+
+type TokensRevokeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Plan
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *Problem
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Problem
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Problem
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *Problem
+	// ApplicationproblemJSON409 the response for an HTTP 409 `application/problem+json` response
+	ApplicationproblemJSON409 *Problem
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Problem
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *Problem
+	// ApplicationproblemJSON500 the response for an HTTP 500 `application/problem+json` response
+	ApplicationproblemJSON500 *Problem
+	// ApplicationproblemJSON503 the response for an HTTP 503 `application/problem+json` response
+	ApplicationproblemJSON503 *Problem
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *TokensRevokeResponse200Headers
+	// Headers204 the parsed response headers for an HTTP 204 response
+	Headers204 *TokensRevokeResponse204Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *TokensRevokeResponse400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *TokensRevokeResponse401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *TokensRevokeResponse403Headers
+	// Headers404 the parsed response headers for an HTTP 404 response
+	Headers404 *TokensRevokeResponse404Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *TokensRevokeResponse409Headers
+	// Headers422 the parsed response headers for an HTTP 422 response
+	Headers422 *TokensRevokeResponse422Headers
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *TokensRevokeResponse429Headers
+	// Headers500 the parsed response headers for an HTTP 500 response
+	Headers500 *TokensRevokeResponse500Headers
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *TokensRevokeResponse503Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r TokensRevokeResponse) GetJSON200() *Plan {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r TokensRevokeResponse) GetApplicationproblemJSON400() *Problem {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r TokensRevokeResponse) GetApplicationproblemJSON401() *Problem {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r TokensRevokeResponse) GetApplicationproblemJSON403() *Problem {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r TokensRevokeResponse) GetApplicationproblemJSON404() *Problem {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON409 returns the response for an HTTP 409 `application/problem+json` response
+func (r TokensRevokeResponse) GetApplicationproblemJSON409() *Problem {
+	return r.ApplicationproblemJSON409
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r TokensRevokeResponse) GetApplicationproblemJSON422() *Problem {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r TokensRevokeResponse) GetApplicationproblemJSON429() *Problem {
+	return r.ApplicationproblemJSON429
+}
+
+// GetApplicationproblemJSON500 returns the response for an HTTP 500 `application/problem+json` response
+func (r TokensRevokeResponse) GetApplicationproblemJSON500() *Problem {
+	return r.ApplicationproblemJSON500
+}
+
+// GetApplicationproblemJSON503 returns the response for an HTTP 503 `application/problem+json` response
+func (r TokensRevokeResponse) GetApplicationproblemJSON503() *Problem {
+	return r.ApplicationproblemJSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r TokensRevokeResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r TokensRevokeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r TokensRevokeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r TokensRevokeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // UsageGetResponse200Headers the declared response headers of an HTTP 200 response for UsageGet
 type UsageGetResponse200Headers struct {
 	KofraRequestId  *string
@@ -5860,6 +7535,27 @@ func (c *ClientWithResponses) AccountCancelDeletionWithResponse(ctx context.Cont
 	return ParseAccountCancelDeletionResponse(rsp)
 }
 
+// AuditListWithResponse Read the audit log
+//
+// Every change made through the API or the console, newest first, and
+// every attempt refused for lack of permission (scope, role, client
+// address or bucket limit). A row is written before the change runs;
+// `outcome: pending` means its result was not recorded. Dry runs are
+// recorded with `dry_run: true`. Reads are not recorded.
+//
+// Scopes: `audit:read`.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/audit (the `AuditList` operationId).
+func (c *ClientWithResponses) AuditListWithResponse(ctx context.Context, params *AuditListParams, reqEditors ...RequestEditorFn) (*AuditListResponse, error) {
+	rsp, err := c.AuditList(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuditListResponse(rsp)
+}
+
 // BucketsListWithResponse List buckets
 //
 // Lists the workspace's buckets with their sizes, in name order.
@@ -6139,6 +7835,105 @@ func (c *ClientWithResponses) ObjectsPresignWithResponse(ctx context.Context, pa
 		return nil, err
 	}
 	return ParseObjectsPresignResponse(rsp)
+}
+
+// TokensListWithResponse List API tokens
+//
+// Lists API tokens that are not revoked, newest first. An Owner or Admin
+// sees every token of the workspace; any other member sees only their
+// own. The token secrets are never returned.
+//
+// Scopes: `tokens:read`.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/tokens (the `TokensList` operationId).
+func (c *ClientWithResponses) TokensListWithResponse(ctx context.Context, params *TokensListParams, reqEditors ...RequestEditorFn) (*TokensListResponse, error) {
+	rsp, err := c.TokensList(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTokensListResponse(rsp)
+}
+
+// TokensCreateWithBodyWithResponse Create an API token
+//
+// Creates an API token for the member who makes the request. The token
+// is in this response only; store it at once. A replay of the same
+// request with the same `Idempotency-Key` returns the token with
+// `token: null`: revoke that token and create a new one if it was lost.
+//
+// A token can never hold more than the credential that creates it: every
+// scope must be one the caller holds (`insufficient_scope` otherwise),
+// a bucket list must lie inside the caller's (`bucket_not_allowed`), an
+// address list inside the caller's (`ip_not_allowed`), and the expiry
+// must not be later than the caller's (without `expires_in_days`, the
+// token gets 90 days or the caller's remaining life, whichever is
+// shorter). A token marked `agent` cannot create or revoke tokens, and
+// cannot be given `tokens:write`. The token's permission is also limited
+// by the member's role at every request.
+//
+// Scopes: `tokens:write`.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tokens (the `TokensCreate` operationId).
+func (c *ClientWithResponses) TokensCreateWithBodyWithResponse(ctx context.Context, params *TokensCreateParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*TokensCreateResponse, error) {
+	rsp, err := c.TokensCreateWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTokensCreateResponse(rsp)
+}
+
+// TokensCreateWithResponse Create an API token
+//
+// Creates an API token for the member who makes the request. The token
+// is in this response only; store it at once. A replay of the same
+// request with the same `Idempotency-Key` returns the token with
+// `token: null`: revoke that token and create a new one if it was lost.
+//
+// A token can never hold more than the credential that creates it: every
+// scope must be one the caller holds (`insufficient_scope` otherwise),
+// a bucket list must lie inside the caller's (`bucket_not_allowed`), an
+// address list inside the caller's (`ip_not_allowed`), and the expiry
+// must not be later than the caller's (without `expires_in_days`, the
+// token gets 90 days or the caller's remaining life, whichever is
+// shorter). A token marked `agent` cannot create or revoke tokens, and
+// cannot be given `tokens:write`. The token's permission is also limited
+// by the member's role at every request.
+//
+// Scopes: `tokens:write`.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tokens (the `TokensCreate` operationId).
+func (c *ClientWithResponses) TokensCreateWithResponse(ctx context.Context, params *TokensCreateParams, body TokensCreateJSONRequestBody, reqEditors ...RequestEditorFn) (*TokensCreateResponse, error) {
+	rsp, err := c.TokensCreate(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTokensCreateResponse(rsp)
+}
+
+// TokensRevokeWithResponse Revoke an API token
+//
+// Revokes the token at once; requests made with it are refused from then
+// on. Members can revoke their own tokens; an Owner or Admin can revoke
+// any token of the workspace. Revocation is final; the token disappears
+// from the list, so a second revoke answers `token_not_found`.
+//
+// Scopes: `tokens:write`.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /v1/tokens/{token_id} (the `TokensRevoke` operationId).
+func (c *ClientWithResponses) TokensRevokeWithResponse(ctx context.Context, tokenId TokenIdPath, params *TokensRevokeParams, reqEditors ...RequestEditorFn) (*TokensRevokeResponse, error) {
+	rsp, err := c.TokensRevoke(ctx, tokenId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTokensRevokeResponse(rsp)
 }
 
 // UsageGetWithResponse Get current usage
@@ -7109,6 +8904,273 @@ func ParseAccountCancelDeletionResponse(rsp *http.Response) (*AccountCancelDelet
 		response.Headers500 = &headers
 	case rsp.StatusCode == 503:
 		var headers AccountCancelDeletionResponse503Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseAuditListResponse parses an HTTP response from a AuditListWithResponse call
+func ParseAuditListResponse(rsp *http.Response) (*AuditListResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuditListResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AuditList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers AuditListResponse200Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("Link"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Link", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.Link = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 400:
+		var headers AuditListResponse400Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers AuditListResponse401Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		if values := rsp.Header.Values("WWW-Authenticate"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "WWW-Authenticate", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.WWWAuthenticate = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers AuditListResponse403Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 429:
+		var headers AuditListResponse429Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	case rsp.StatusCode == 500:
+		var headers AuditListResponse500Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers500 = &headers
+	case rsp.StatusCode == 503:
+		var headers AuditListResponse503Headers
 		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
 			var value string
 			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
@@ -10663,6 +12725,1051 @@ func ParseObjectsPresignResponse(rsp *http.Response) (*ObjectsPresignResponse, e
 		response.Headers500 = &headers
 	case rsp.StatusCode == 503:
 		var headers ObjectsPresignResponse503Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseTokensListResponse parses an HTTP response from a TokensListWithResponse call
+func ParseTokensListResponse(rsp *http.Response) (*TokensListResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &TokensListResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ApiTokenList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers TokensListResponse200Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("Link"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Link", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.Link = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 400:
+		var headers TokensListResponse400Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers TokensListResponse401Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		if values := rsp.Header.Values("WWW-Authenticate"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "WWW-Authenticate", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.WWWAuthenticate = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers TokensListResponse403Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 429:
+		var headers TokensListResponse429Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	case rsp.StatusCode == 500:
+		var headers TokensListResponse500Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers500 = &headers
+	case rsp.StatusCode == 503:
+		var headers TokensListResponse503Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseTokensCreateResponse parses an HTTP response from a TokensCreateWithResponse call
+func ParseTokensCreateResponse(rsp *http.Response) (*TokensCreateResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &TokensCreateResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest ApiTokenCreated
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 415:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON415 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 201:
+		var headers TokensCreateResponse201Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers201 = &headers
+	case rsp.StatusCode == 400:
+		var headers TokensCreateResponse400Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers TokensCreateResponse401Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		if values := rsp.Header.Values("WWW-Authenticate"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "WWW-Authenticate", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.WWWAuthenticate = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers TokensCreateResponse403Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 409:
+		var headers TokensCreateResponse409Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers409 = &headers
+	case rsp.StatusCode == 413:
+		var headers TokensCreateResponse413Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers413 = &headers
+	case rsp.StatusCode == 415:
+		var headers TokensCreateResponse415Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers415 = &headers
+	case rsp.StatusCode == 422:
+		var headers TokensCreateResponse422Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers422 = &headers
+	case rsp.StatusCode == 429:
+		var headers TokensCreateResponse429Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	case rsp.StatusCode == 500:
+		var headers TokensCreateResponse500Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers500 = &headers
+	case rsp.StatusCode == 503:
+		var headers TokensCreateResponse503Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseTokensRevokeResponse parses an HTTP response from a TokensRevokeWithResponse call
+func ParseTokensRevokeResponse(rsp *http.Response) (*TokensRevokeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &TokensRevokeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Plan
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers TokensRevokeResponse200Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 204:
+		var headers TokensRevokeResponse204Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers204 = &headers
+	case rsp.StatusCode == 400:
+		var headers TokensRevokeResponse400Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers TokensRevokeResponse401Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		if values := rsp.Header.Values("WWW-Authenticate"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "WWW-Authenticate", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.WWWAuthenticate = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers TokensRevokeResponse403Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 404:
+		var headers TokensRevokeResponse404Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers404 = &headers
+	case rsp.StatusCode == 409:
+		var headers TokensRevokeResponse409Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers409 = &headers
+	case rsp.StatusCode == 422:
+		var headers TokensRevokeResponse422Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers422 = &headers
+	case rsp.StatusCode == 429:
+		var headers TokensRevokeResponse429Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	case rsp.StatusCode == 500:
+		var headers TokensRevokeResponse500Headers
+		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.KofraRequestId = &value
+		}
+		if values := rsp.Header.Values("RateLimit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimit = &value
+		}
+		if values := rsp.Header.Values("RateLimit-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "RateLimit-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RateLimitPolicy = &value
+		}
+		response.Headers500 = &headers
+	case rsp.StatusCode == 503:
+		var headers TokensRevokeResponse503Headers
 		if values := rsp.Header.Values("Kofra-Request-Id"); len(values) > 0 {
 			var value string
 			if err := runtime.BindStyledParameterWithOptions("simple", "Kofra-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {

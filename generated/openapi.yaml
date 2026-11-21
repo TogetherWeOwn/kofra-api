@@ -56,6 +56,10 @@ tags:
     description: The workspace's event feed.
   - name: Objects
     description: Presigned URLs for the S3 endpoint.
+  - name: API tokens
+    description: Bearer tokens for this API, with scopes, bucket and address limits.
+  - name: Audit log
+    description: Who changed what, and every refused attempt.
 externalDocs:
   description: Kofra API documentation
   url: https://kofra.app/docs/api
@@ -176,7 +180,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`insufficient_scope`"
+          description: "`insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -199,6 +203,30 @@ paths:
                     detail: This operation needs the scope "buckets:write".
                     hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
                     docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                role_forbidden:
+                  summary: Your role does not allow this
+                  value:
+                    type: https://kofra.app/docs/errors/role_forbidden
+                    title: Your role does not allow this
+                    status: 403
+                    code: role_forbidden
+                    detail: The Viewer role cannot create buckets.
+                    hint: Ask a workspace Owner or Admin to change your role, or to perform the operation.
+                    docs_url: https://kofra.app/docs/errors/role_forbidden.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "429":
@@ -289,7 +317,9 @@ paths:
       x-kofra-errors:
         - insufficient_scope
         - internal_error
+        - ip_not_allowed
         - rate_limited
+        - role_forbidden
         - service_unavailable
         - token_expired
         - unauthenticated
@@ -318,6 +348,7 @@ paths:
         - idempotency_key_reused
         - insufficient_scope
         - internal_error
+        - ip_not_allowed
         - rate_limited
         - role_forbidden
         - service_unavailable
@@ -468,7 +499,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`account_unavailable`, `insufficient_scope`, `role_forbidden`"
+          description: "`account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -503,6 +534,18 @@ paths:
                     detail: This operation needs the scope "buckets:write".
                     hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
                     docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                 role_forbidden:
@@ -692,6 +735,7 @@ paths:
         - idempotency_key_reused
         - insufficient_scope
         - internal_error
+        - ip_not_allowed
         - rate_limited
         - role_forbidden
         - service_unavailable
@@ -817,7 +861,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`insufficient_scope`, `role_forbidden`"
+          description: "`insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -840,6 +884,18 @@ paths:
                     detail: This operation needs the scope "buckets:write".
                     hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
                     docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                 role_forbidden:
@@ -1162,7 +1218,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`account_unavailable`, `insufficient_scope`"
+          description: "`account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -1197,6 +1253,30 @@ paths:
                     detail: This operation needs the scope "buckets:write".
                     hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
                     docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                role_forbidden:
+                  summary: Your role does not allow this
+                  value:
+                    type: https://kofra.app/docs/errors/role_forbidden
+                    title: Your role does not allow this
+                    status: 403
+                    code: role_forbidden
+                    detail: The Viewer role cannot create buckets.
+                    hint: Ask a workspace Owner or Admin to change your role, or to perform the operation.
+                    docs_url: https://kofra.app/docs/errors/role_forbidden.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "429":
@@ -1292,7 +1372,9 @@ paths:
         - insufficient_scope
         - internal_error
         - invalid_cursor
+        - ip_not_allowed
         - rate_limited
+        - role_forbidden
         - service_unavailable
         - token_expired
         - unauthenticated
@@ -1313,11 +1395,13 @@ paths:
         - account_read_only
         - account_unavailable
         - bucket_already_exists
+        - bucket_not_allowed
         - idempotency_key_in_use
         - idempotency_key_reused
         - insufficient_scope
         - internal_error
         - invalid_bucket_name
+        - ip_not_allowed
         - payload_too_large
         - rate_limited
         - role_forbidden
@@ -1460,7 +1544,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`account_read_only`, `account_unavailable`, `insufficient_scope`, `role_forbidden`"
+          description: "`account_read_only`, `account_unavailable`, `bucket_not_allowed`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -1497,6 +1581,18 @@ paths:
                     docs_url: https://kofra.app/docs/errors/account_unavailable.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
+                bucket_not_allowed:
+                  summary: Token is limited to other buckets
+                  value:
+                    type: https://kofra.app/docs/errors/bucket_not_allowed
+                    title: Token is limited to other buckets
+                    status: 403
+                    code: bucket_not_allowed
+                    detail: The token is limited to other buckets than "photos".
+                    hint: Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.
+                    docs_url: https://kofra.app/docs/errors/bucket_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
                 insufficient_scope:
                   summary: Token lacks a required scope
                   value:
@@ -1507,6 +1603,18 @@ paths:
                     detail: This operation needs the scope "buckets:write".
                     hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
                     docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                 role_forbidden:
@@ -1742,10 +1850,13 @@ paths:
         - buckets:read
       x-kofra-errors:
         - account_unavailable
+        - bucket_not_allowed
         - bucket_not_found
         - insufficient_scope
         - internal_error
+        - ip_not_allowed
         - rate_limited
+        - role_forbidden
         - service_unavailable
         - token_expired
         - unauthenticated
@@ -1861,7 +1972,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`account_unavailable`, `insufficient_scope`"
+          description: "`account_unavailable`, `bucket_not_allowed`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -1886,6 +1997,18 @@ paths:
                     docs_url: https://kofra.app/docs/errors/account_unavailable.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
+                bucket_not_allowed:
+                  summary: Token is limited to other buckets
+                  value:
+                    type: https://kofra.app/docs/errors/bucket_not_allowed
+                    title: Token is limited to other buckets
+                    status: 403
+                    code: bucket_not_allowed
+                    detail: The token is limited to other buckets than "photos".
+                    hint: Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.
+                    docs_url: https://kofra.app/docs/errors/bucket_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
                 insufficient_scope:
                   summary: Token lacks a required scope
                   value:
@@ -1896,6 +2019,30 @@ paths:
                     detail: This operation needs the scope "buckets:write".
                     hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
                     docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                role_forbidden:
+                  summary: Your role does not allow this
+                  value:
+                    type: https://kofra.app/docs/errors/role_forbidden
+                    title: Your role does not allow this
+                    status: 403
+                    code: role_forbidden
+                    detail: The Viewer role cannot create buckets.
+                    hint: Ask a workspace Owner or Admin to change your role, or to perform the operation.
+                    docs_url: https://kofra.app/docs/errors/role_forbidden.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "404":
@@ -2024,12 +2171,14 @@ paths:
         - buckets:delete
       x-kofra-errors:
         - account_unavailable
+        - bucket_not_allowed
         - bucket_not_empty
         - bucket_not_found
         - idempotency_key_in_use
         - idempotency_key_reused
         - insufficient_scope
         - internal_error
+        - ip_not_allowed
         - rate_limited
         - role_forbidden
         - service_unavailable
@@ -2166,7 +2315,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`account_unavailable`, `insufficient_scope`, `role_forbidden`"
+          description: "`account_unavailable`, `bucket_not_allowed`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -2191,6 +2340,18 @@ paths:
                     docs_url: https://kofra.app/docs/errors/account_unavailable.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
+                bucket_not_allowed:
+                  summary: Token is limited to other buckets
+                  value:
+                    type: https://kofra.app/docs/errors/bucket_not_allowed
+                    title: Token is limited to other buckets
+                    status: 403
+                    code: bucket_not_allowed
+                    detail: The token is limited to other buckets than "photos".
+                    hint: Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.
+                    docs_url: https://kofra.app/docs/errors/bucket_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
                 insufficient_scope:
                   summary: Token lacks a required scope
                   value:
@@ -2201,6 +2362,18 @@ paths:
                     detail: This operation needs the scope "buckets:write".
                     hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
                     docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                 role_forbidden:
@@ -2537,7 +2710,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`account_unavailable`, `insufficient_scope`"
+          description: "`account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -2572,6 +2745,30 @@ paths:
                     detail: This operation needs the scope "buckets:write".
                     hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
                     docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                role_forbidden:
+                  summary: Your role does not allow this
+                  value:
+                    type: https://kofra.app/docs/errors/role_forbidden
+                    title: Your role does not allow this
+                    status: 403
+                    code: role_forbidden
+                    detail: The Viewer role cannot create buckets.
+                    hint: Ask a workspace Owner or Admin to change your role, or to perform the operation.
+                    docs_url: https://kofra.app/docs/errors/role_forbidden.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "429":
@@ -2667,7 +2864,9 @@ paths:
         - insufficient_scope
         - internal_error
         - invalid_cursor
+        - ip_not_allowed
         - rate_limited
+        - role_forbidden
         - service_unavailable
         - token_expired
         - unauthenticated
@@ -2699,11 +2898,13 @@ paths:
       x-kofra-errors:
         - account_read_only
         - account_unavailable
+        - bucket_not_allowed
         - bucket_not_found
         - idempotency_key_in_use
         - idempotency_key_reused
         - insufficient_scope
         - internal_error
+        - ip_not_allowed
         - key_limit_reached
         - payload_too_large
         - rate_limited
@@ -2843,7 +3044,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`account_read_only`, `account_unavailable`, `insufficient_scope`, `role_forbidden`"
+          description: "`account_read_only`, `account_unavailable`, `bucket_not_allowed`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -2880,6 +3081,18 @@ paths:
                     docs_url: https://kofra.app/docs/errors/account_unavailable.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
+                bucket_not_allowed:
+                  summary: Token is limited to other buckets
+                  value:
+                    type: https://kofra.app/docs/errors/bucket_not_allowed
+                    title: Token is limited to other buckets
+                    status: 403
+                    code: bucket_not_allowed
+                    detail: The token is limited to other buckets than "photos".
+                    hint: Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.
+                    docs_url: https://kofra.app/docs/errors/bucket_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
                 insufficient_scope:
                   summary: Token lacks a required scope
                   value:
@@ -2890,6 +3103,18 @@ paths:
                     detail: This operation needs the scope "buckets:write".
                     hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
                     docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                 role_forbidden:
@@ -3154,6 +3379,7 @@ paths:
       x-kofra-errors:
         - account_read_only
         - account_unavailable
+        - bucket_not_allowed
         - bucket_not_found
         - grant_limit_reached
         - grant_narrowing_refused
@@ -3161,6 +3387,7 @@ paths:
         - idempotency_key_reused
         - insufficient_scope
         - internal_error
+        - ip_not_allowed
         - key_not_found
         - payload_too_large
         - rate_limited
@@ -3299,7 +3526,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`account_read_only`, `account_unavailable`, `insufficient_scope`, `role_forbidden`"
+          description: "`account_read_only`, `account_unavailable`, `bucket_not_allowed`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -3336,6 +3563,18 @@ paths:
                     docs_url: https://kofra.app/docs/errors/account_unavailable.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
+                bucket_not_allowed:
+                  summary: Token is limited to other buckets
+                  value:
+                    type: https://kofra.app/docs/errors/bucket_not_allowed
+                    title: Token is limited to other buckets
+                    status: 403
+                    code: bucket_not_allowed
+                    detail: The token is limited to other buckets than "photos".
+                    hint: Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.
+                    docs_url: https://kofra.app/docs/errors/bucket_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
                 insufficient_scope:
                   summary: Token lacks a required scope
                   value:
@@ -3346,6 +3585,18 @@ paths:
                     detail: This operation needs the scope "buckets:write".
                     hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
                     docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                 role_forbidden:
@@ -3634,6 +3885,7 @@ paths:
         - idempotency_key_reused
         - insufficient_scope
         - internal_error
+        - ip_not_allowed
         - key_not_found
         - rate_limited
         - role_forbidden
@@ -3771,7 +4023,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`account_unavailable`, `insufficient_scope`, `role_forbidden`"
+          description: "`account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -3806,6 +4058,18 @@ paths:
                     detail: This operation needs the scope "buckets:write".
                     hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
                     docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                 role_forbidden:
@@ -4108,7 +4372,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`account_unavailable`, `insufficient_scope`"
+          description: "`account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -4143,6 +4407,30 @@ paths:
                     detail: This operation needs the scope "buckets:write".
                     hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
                     docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                role_forbidden:
+                  summary: Your role does not allow this
+                  value:
+                    type: https://kofra.app/docs/errors/role_forbidden
+                    title: Your role does not allow this
+                    status: 403
+                    code: role_forbidden
+                    detail: The Viewer role cannot create buckets.
+                    hint: Ask a workspace Owner or Admin to change your role, or to perform the operation.
+                    docs_url: https://kofra.app/docs/errors/role_forbidden.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "429":
@@ -4234,7 +4522,9 @@ paths:
         - account_unavailable
         - insufficient_scope
         - internal_error
+        - ip_not_allowed
         - rate_limited
+        - role_forbidden
         - service_unavailable
         - token_expired
         - unauthenticated
@@ -4398,7 +4688,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`account_unavailable`, `insufficient_scope`"
+          description: "`account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -4433,6 +4723,30 @@ paths:
                     detail: This operation needs the scope "buckets:write".
                     hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
                     docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                role_forbidden:
+                  summary: Your role does not allow this
+                  value:
+                    type: https://kofra.app/docs/errors/role_forbidden
+                    title: Your role does not allow this
+                    status: 403
+                    code: role_forbidden
+                    detail: The Viewer role cannot create buckets.
+                    hint: Ask a workspace Owner or Admin to change your role, or to perform the operation.
+                    docs_url: https://kofra.app/docs/errors/role_forbidden.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "429":
@@ -4525,7 +4839,9 @@ paths:
         - insufficient_scope
         - internal_error
         - invalid_cursor
+        - ip_not_allowed
         - rate_limited
+        - role_forbidden
         - service_unavailable
         - token_expired
         - unauthenticated
@@ -4674,7 +4990,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`account_unavailable`, `insufficient_scope`"
+          description: "`account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -4709,6 +5025,30 @@ paths:
                     detail: This operation needs the scope "buckets:write".
                     hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
                     docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                role_forbidden:
+                  summary: Your role does not allow this
+                  value:
+                    type: https://kofra.app/docs/errors/role_forbidden
+                    title: Your role does not allow this
+                    status: 403
+                    code: role_forbidden
+                    detail: The Viewer role cannot create buckets.
+                    hint: Ask a workspace Owner or Admin to change your role, or to perform the operation.
+                    docs_url: https://kofra.app/docs/errors/role_forbidden.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "429":
@@ -4804,7 +5144,9 @@ paths:
         - insufficient_scope
         - internal_error
         - invalid_cursor
+        - ip_not_allowed
         - rate_limited
+        - role_forbidden
         - service_unavailable
         - token_expired
         - unauthenticated
@@ -4836,7 +5178,9 @@ paths:
         - insufficient_scope
         - internal_error
         - invalid_cursor
+        - ip_not_allowed
         - rate_limited
+        - role_forbidden
         - service_unavailable
         - token_expired
         - unauthenticated
@@ -4969,7 +5313,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`account_unavailable`, `insufficient_scope`"
+          description: "`account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -5004,6 +5348,30 @@ paths:
                     detail: This operation needs the scope "buckets:write".
                     hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
                     docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                role_forbidden:
+                  summary: Your role does not allow this
+                  value:
+                    type: https://kofra.app/docs/errors/role_forbidden
+                    title: Your role does not allow this
+                    status: 403
+                    code: role_forbidden
+                    detail: The Viewer role cannot create buckets.
+                    hint: Ask a workspace Owner or Admin to change your role, or to perform the operation.
+                    docs_url: https://kofra.app/docs/errors/role_forbidden.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "409":
@@ -5120,6 +5488,1492 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
+  /v1/tokens:
+    get:
+      operationId: tokens.list
+      tags:
+        - API tokens
+      summary: List API tokens
+      description: |-
+        Lists API tokens that are not revoked, newest first. An Owner or Admin
+        sees every token of the workspace; any other member sees only their
+        own. The token secrets are never returned.
+
+        Scopes: `tokens:read`.
+      x-kofra-scopes:
+        - tokens:read
+      x-kofra-paginated: true
+      x-kofra-success: 200
+      responses:
+        "200":
+          description: One page of API tokens.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiTokenList"
+              examples:
+                page:
+                  summary: One token, last page
+                  value:
+                    data:
+                      - id: tok_01jd3p5d9v1n6z8r0t2v4x6y8a
+                        name: ci-deploy
+                        scopes:
+                          - buckets:read
+                          - keys:read
+                        buckets:
+                          - backups
+                        allowed_ips:
+                          - 203.0.113.0/24
+                        agent: false
+                        created_by: usr_01jd3k9v6q2m8x4t7r5n0b1c3e
+                        created_at: 2026-11-19T10:00:00Z
+                        expires_at: 2027-02-17T10:00:00Z
+                        last_used_at: 2026-11-19T11:30:00Z
+                    next_cursor: null
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            Link:
+              $ref: "#/components/headers/Link"
+        "400":
+          description: "`invalid_cursor`, `unknown_field`, `validation_failed`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                invalid_cursor:
+                  summary: Cursor is not valid
+                  value:
+                    type: https://kofra.app/docs/errors/invalid_cursor
+                    title: Cursor is not valid
+                    status: 400
+                    code: invalid_cursor
+                    detail: The cursor is not valid for this list.
+                    hint: Start again without `cursor`, then pass only the `next_cursor` values the API returns.
+                    docs_url: https://kofra.app/docs/errors/invalid_cursor.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                unknown_field:
+                  summary: Request has a field the API does not know
+                  value:
+                    type: https://kofra.app/docs/errors/unknown_field
+                    title: Request has a field the API does not know
+                    status: 400
+                    code: unknown_field
+                    detail: The query parameter "limt" is not accepted by this operation.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
+                    docs_url: https://kofra.app/docs/errors/unknown_field.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/limt"
+                        code: unknown_field
+                        detail: This parameter is not accepted.
+                validation_failed:
+                  summary: Request is not valid
+                  value:
+                    type: https://kofra.app/docs/errors/validation_failed
+                    title: Request is not valid
+                    status: 400
+                    code: validation_failed
+                    detail: The parameter "limit" is not valid.
+                    hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
+                    docs_url: https://kofra.app/docs/errors/validation_failed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/limit"
+                        code: invalid_value
+                        detail: Not a valid value.
+        "401":
+          description: "`token_expired`, `unauthenticated`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                token_expired:
+                  summary: API token has expired
+                  value:
+                    type: https://kofra.app/docs/errors/token_expired
+                    title: API token has expired
+                    status: 401
+                    code: token_expired
+                    detail: The API token expired at 2026-11-01T00:00:00Z.
+                    hint: Create a new API token in the console and use it in place of the expired one.
+                    docs_url: https://kofra.app/docs/errors/token_expired.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                unauthenticated:
+                  summary: Authentication required
+                  value:
+                    type: https://kofra.app/docs/errors/unauthenticated
+                    title: Authentication required
+                    status: 401
+                    code: unauthenticated
+                    detail: The request has no valid bearer token.
+                    hint: "Send `Authorization: Bearer <token>` with an API token from the console (Account, API tokens)."
+                    docs_url: https://kofra.app/docs/errors/unauthenticated.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+        "403":
+          description: "`account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                account_unavailable:
+                  summary: Account is not available
+                  value:
+                    type: https://kofra.app/docs/errors/account_unavailable
+                    title: Account is not available
+                    status: 403
+                    code: account_unavailable
+                    detail: The account is being deleted.
+                    hint: Open Account in the console to see the reason; a deletion can be cancelled there or with POST /v1/account/deletion/cancel.
+                    docs_url: https://kofra.app/docs/errors/account_unavailable.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                insufficient_scope:
+                  summary: Token lacks a required scope
+                  value:
+                    type: https://kofra.app/docs/errors/insufficient_scope
+                    title: Token lacks a required scope
+                    status: 403
+                    code: insufficient_scope
+                    detail: This operation needs the scope "buckets:write".
+                    hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
+                    docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                role_forbidden:
+                  summary: Your role does not allow this
+                  value:
+                    type: https://kofra.app/docs/errors/role_forbidden
+                    title: Your role does not allow this
+                    status: 403
+                    code: role_forbidden
+                    detail: The Viewer role cannot create buckets.
+                    hint: Ask a workspace Owner or Admin to change your role, or to perform the operation.
+                    docs_url: https://kofra.app/docs/errors/role_forbidden.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+        "429":
+          description: "`rate_limited`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                rate_limited:
+                  summary: Too many requests
+                  value:
+                    type: https://kofra.app/docs/errors/rate_limited
+                    title: Too many requests
+                    status: 429
+                    code: rate_limited
+                    detail: Write requests are limited to 2 per second.
+                    hint: Wait for the number of seconds in `Retry-After`, then retry; spread requests out to stay under the limit.
+                    docs_url: https://kofra.app/docs/errors/rate_limited.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: true
+        "500":
+          description: "`internal_error`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                internal_error:
+                  summary: Internal error
+                  value:
+                    type: https://kofra.app/docs/errors/internal_error
+                    title: Internal error
+                    status: 500
+                    code: internal_error
+                    detail: The request could not be completed.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
+                    docs_url: https://kofra.app/docs/errors/internal_error.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+        "503":
+          description: "`service_unavailable`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                service_unavailable:
+                  summary: Service is busy
+                  value:
+                    type: https://kofra.app/docs/errors/service_unavailable
+                    title: Service is busy
+                    status: 503
+                    code: service_unavailable
+                    detail: The service is busy; try again shortly.
+                    hint: Wait for the number of seconds in `Retry-After`, then send the same request again.
+                    docs_url: https://kofra.app/docs/errors/service_unavailable.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: true
+      security:
+        - bearerAuth:
+            - tokens:read
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      x-kofra-errors:
+        - account_unavailable
+        - insufficient_scope
+        - internal_error
+        - invalid_cursor
+        - ip_not_allowed
+        - rate_limited
+        - role_forbidden
+        - service_unavailable
+        - token_expired
+        - unauthenticated
+        - unknown_field
+        - validation_failed
+    post:
+      operationId: tokens.create
+      tags:
+        - API tokens
+      summary: Create an API token
+      description: |-
+        Creates an API token for the member who makes the request. The token
+        is in this response only; store it at once. A replay of the same
+        request with the same `Idempotency-Key` returns the token with
+        `token: null`: revoke that token and create a new one if it was lost.
+
+        A token can never hold more than the credential that creates it: every
+        scope must be one the caller holds (`insufficient_scope` otherwise),
+        a bucket list must lie inside the caller's (`bucket_not_allowed`), an
+        address list inside the caller's (`ip_not_allowed`), and the expiry
+        must not be later than the caller's (without `expires_in_days`, the
+        token gets 90 days or the caller's remaining life, whichever is
+        shorter). A token marked `agent` cannot create or revoke tokens, and
+        cannot be given `tokens:write`. The token's permission is also limited
+        by the member's role at every request.
+
+        Scopes: `tokens:write`.
+      x-kofra-scopes:
+        - tokens:write
+      x-kofra-errors:
+        - account_unavailable
+        - bucket_not_allowed
+        - idempotency_key_in_use
+        - idempotency_key_reused
+        - insufficient_scope
+        - internal_error
+        - ip_not_allowed
+        - payload_too_large
+        - rate_limited
+        - role_forbidden
+        - service_unavailable
+        - token_expired
+        - unauthenticated
+        - unknown_field
+        - unsupported_media_type
+        - validation_failed
+      x-kofra-success: 201
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiTokenCreate"
+            examples:
+              ci:
+                summary: A read-only token for one bucket
+                value:
+                  name: ci-deploy
+                  scopes:
+                    - buckets:read
+                    - keys:read
+                  buckets:
+                    - backups
+                  allowed_ips:
+                    - 203.0.113.0/24
+                  expires_in_days: 90
+                  agent: false
+      responses:
+        "201":
+          description: The token was created. It is shown once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiTokenCreated"
+              examples:
+                created:
+                  summary: New token
+                  value:
+                    id: tok_01jd3p5d9v1n6z8r0t2v4x6y8a
+                    name: ci-deploy
+                    scopes:
+                      - buckets:read
+                      - keys:read
+                    buckets:
+                      - backups
+                    allowed_ips:
+                      - 203.0.113.0/24
+                    agent: false
+                    created_by: usr_01jd3k9v6q2m8x4t7r5n0b1c3e
+                    created_at: 2026-11-19T10:00:00Z
+                    expires_at: 2027-02-17T10:00:00Z
+                    last_used_at: null
+                    token: kofra_tok_01jd3p5d9v1n6z8r0t2v4x6y8a_EXAMPLEtokenEXAMPLEtokenEXAMPLEtoken00000000
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+        "400":
+          description: "`unknown_field`, `validation_failed`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                unknown_field:
+                  summary: Request has a field the API does not know
+                  value:
+                    type: https://kofra.app/docs/errors/unknown_field
+                    title: Request has a field the API does not know
+                    status: 400
+                    code: unknown_field
+                    detail: The field "/nmae" is not accepted by this operation.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
+                    docs_url: https://kofra.app/docs/errors/unknown_field.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: /nmae
+                        code: unknown_field
+                        detail: This field is not accepted.
+                validation_failed:
+                  summary: Request is not valid
+                  value:
+                    type: https://kofra.app/docs/errors/validation_failed
+                    title: Request is not valid
+                    status: 400
+                    code: validation_failed
+                    detail: The request has 1 invalid field.
+                    hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
+                    docs_url: https://kofra.app/docs/errors/validation_failed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: /name
+                        code: invalid_value
+                        detail: Not a valid value.
+        "401":
+          description: "`token_expired`, `unauthenticated`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                token_expired:
+                  summary: API token has expired
+                  value:
+                    type: https://kofra.app/docs/errors/token_expired
+                    title: API token has expired
+                    status: 401
+                    code: token_expired
+                    detail: The API token expired at 2026-11-01T00:00:00Z.
+                    hint: Create a new API token in the console and use it in place of the expired one.
+                    docs_url: https://kofra.app/docs/errors/token_expired.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                unauthenticated:
+                  summary: Authentication required
+                  value:
+                    type: https://kofra.app/docs/errors/unauthenticated
+                    title: Authentication required
+                    status: 401
+                    code: unauthenticated
+                    detail: The request has no valid bearer token.
+                    hint: "Send `Authorization: Bearer <token>` with an API token from the console (Account, API tokens)."
+                    docs_url: https://kofra.app/docs/errors/unauthenticated.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+        "403":
+          description: "`account_unavailable`, `bucket_not_allowed`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                account_unavailable:
+                  summary: Account is not available
+                  value:
+                    type: https://kofra.app/docs/errors/account_unavailable
+                    title: Account is not available
+                    status: 403
+                    code: account_unavailable
+                    detail: The account is being deleted.
+                    hint: Open Account in the console to see the reason; a deletion can be cancelled there or with POST /v1/account/deletion/cancel.
+                    docs_url: https://kofra.app/docs/errors/account_unavailable.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                bucket_not_allowed:
+                  summary: Token is limited to other buckets
+                  value:
+                    type: https://kofra.app/docs/errors/bucket_not_allowed
+                    title: Token is limited to other buckets
+                    status: 403
+                    code: bucket_not_allowed
+                    detail: The token is limited to other buckets than "photos".
+                    hint: Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.
+                    docs_url: https://kofra.app/docs/errors/bucket_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                insufficient_scope:
+                  summary: Token lacks a required scope
+                  value:
+                    type: https://kofra.app/docs/errors/insufficient_scope
+                    title: Token lacks a required scope
+                    status: 403
+                    code: insufficient_scope
+                    detail: This operation needs the scope "buckets:write".
+                    hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
+                    docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                role_forbidden:
+                  summary: Your role does not allow this
+                  value:
+                    type: https://kofra.app/docs/errors/role_forbidden
+                    title: Your role does not allow this
+                    status: 403
+                    code: role_forbidden
+                    detail: The Viewer role cannot create buckets.
+                    hint: Ask a workspace Owner or Admin to change your role, or to perform the operation.
+                    docs_url: https://kofra.app/docs/errors/role_forbidden.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+        "409":
+          description: "`idempotency_key_in_use`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                idempotency_key_in_use:
+                  summary: Same request is still running
+                  value:
+                    type: https://kofra.app/docs/errors/idempotency_key_in_use
+                    title: Same request is still running
+                    status: 409
+                    code: idempotency_key_in_use
+                    detail: A request with this Idempotency-Key is still in progress.
+                    hint: Wait for the number of seconds in `Retry-After`, then send the identical request again with the same key.
+                    docs_url: https://kofra.app/docs/errors/idempotency_key_in_use.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: true
+        "413":
+          description: "`payload_too_large`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                payload_too_large:
+                  summary: Request body is too large
+                  value:
+                    type: https://kofra.app/docs/errors/payload_too_large
+                    title: Request body is too large
+                    status: 413
+                    code: payload_too_large
+                    detail: The request body is larger than 64 KiB.
+                    hint: Send a smaller body; upload object data through the S3 endpoint or a presigned URL instead.
+                    docs_url: https://kofra.app/docs/errors/payload_too_large.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+        "415":
+          description: "`unsupported_media_type`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                unsupported_media_type:
+                  summary: Body must be JSON
+                  value:
+                    type: https://kofra.app/docs/errors/unsupported_media_type
+                    title: Body must be JSON
+                    status: 415
+                    code: unsupported_media_type
+                    detail: The body was sent as text/plain.
+                    hint: "Send the body as JSON with the header `Content-Type: application/json`."
+                    docs_url: https://kofra.app/docs/errors/unsupported_media_type.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+        "422":
+          description: "`idempotency_key_reused`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                idempotency_key_reused:
+                  summary: Idempotency key used with another request
+                  value:
+                    type: https://kofra.app/docs/errors/idempotency_key_reused
+                    title: Idempotency key used with another request
+                    status: 422
+                    code: idempotency_key_reused
+                    detail: This Idempotency-Key was first used with a different body.
+                    hint: Use a new Idempotency-Key for a different request; reuse a key only to repeat the identical request.
+                    docs_url: https://kofra.app/docs/errors/idempotency_key_reused.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+        "429":
+          description: "`rate_limited`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                rate_limited:
+                  summary: Too many requests
+                  value:
+                    type: https://kofra.app/docs/errors/rate_limited
+                    title: Too many requests
+                    status: 429
+                    code: rate_limited
+                    detail: Write requests are limited to 2 per second.
+                    hint: Wait for the number of seconds in `Retry-After`, then retry; spread requests out to stay under the limit.
+                    docs_url: https://kofra.app/docs/errors/rate_limited.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: true
+        "500":
+          description: "`internal_error`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                internal_error:
+                  summary: Internal error
+                  value:
+                    type: https://kofra.app/docs/errors/internal_error
+                    title: Internal error
+                    status: 500
+                    code: internal_error
+                    detail: The request could not be completed.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
+                    docs_url: https://kofra.app/docs/errors/internal_error.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+        "503":
+          description: "`service_unavailable`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                service_unavailable:
+                  summary: Service is busy
+                  value:
+                    type: https://kofra.app/docs/errors/service_unavailable
+                    title: Service is busy
+                    status: 503
+                    code: service_unavailable
+                    detail: The service is busy; try again shortly.
+                    hint: Wait for the number of seconds in `Retry-After`, then send the same request again.
+                    docs_url: https://kofra.app/docs/errors/service_unavailable.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: true
+      security:
+        - bearerAuth:
+            - tokens:write
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+  /v1/tokens/{token_id}:
+    parameters:
+      - $ref: "#/components/parameters/TokenIdPath"
+    delete:
+      operationId: tokens.revoke
+      tags:
+        - API tokens
+      summary: Revoke an API token
+      description: |-
+        Revokes the token at once; requests made with it are refused from then
+        on. Members can revoke their own tokens; an Owner or Admin can revoke
+        any token of the workspace. Revocation is final; the token disappears
+        from the list, so a second revoke answers `token_not_found`.
+
+        Scopes: `tokens:write`.
+      x-kofra-scopes:
+        - tokens:write
+      x-kofra-errors:
+        - account_unavailable
+        - idempotency_key_in_use
+        - idempotency_key_reused
+        - insufficient_scope
+        - internal_error
+        - ip_not_allowed
+        - rate_limited
+        - role_forbidden
+        - service_unavailable
+        - token_expired
+        - token_not_found
+        - unauthenticated
+        - unknown_field
+        - validation_failed
+      x-kofra-dry-run: true
+      x-kofra-success: 204
+      responses:
+        "200":
+          description: Dry run. What the revocation would do; nothing was changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plan"
+              examples:
+                plan:
+                  summary: Dry run
+                  value:
+                    dry_run: true
+                    operation: tokens.revoke
+                    summary: Revokes the API token "ci-deploy". Requests made with it are refused from then on.
+                    reversible: false
+                    effects:
+                      - resource: token
+                        id: tok_01jd3p5d9v1n6z8r0t2v4x6y8a
+                        change: revoke
+                    totals:
+                      buckets: 0
+                      objects: 0
+                      stored_bytes: 0
+                      keys: 0
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+        "204":
+          description: The token was revoked.
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+        "400":
+          description: "`unknown_field`, `validation_failed`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                unknown_field:
+                  summary: Request has a field the API does not know
+                  value:
+                    type: https://kofra.app/docs/errors/unknown_field
+                    title: Request has a field the API does not know
+                    status: 400
+                    code: unknown_field
+                    detail: The query parameter "limt" is not accepted by this operation.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
+                    docs_url: https://kofra.app/docs/errors/unknown_field.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/limt"
+                        code: unknown_field
+                        detail: This parameter is not accepted.
+                validation_failed:
+                  summary: Request is not valid
+                  value:
+                    type: https://kofra.app/docs/errors/validation_failed
+                    title: Request is not valid
+                    status: 400
+                    code: validation_failed
+                    detail: The parameter "dry_run" is not valid.
+                    hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
+                    docs_url: https://kofra.app/docs/errors/validation_failed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/dry_run"
+                        code: invalid_value
+                        detail: Not a valid value.
+        "401":
+          description: "`token_expired`, `unauthenticated`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                token_expired:
+                  summary: API token has expired
+                  value:
+                    type: https://kofra.app/docs/errors/token_expired
+                    title: API token has expired
+                    status: 401
+                    code: token_expired
+                    detail: The API token expired at 2026-11-01T00:00:00Z.
+                    hint: Create a new API token in the console and use it in place of the expired one.
+                    docs_url: https://kofra.app/docs/errors/token_expired.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                unauthenticated:
+                  summary: Authentication required
+                  value:
+                    type: https://kofra.app/docs/errors/unauthenticated
+                    title: Authentication required
+                    status: 401
+                    code: unauthenticated
+                    detail: The request has no valid bearer token.
+                    hint: "Send `Authorization: Bearer <token>` with an API token from the console (Account, API tokens)."
+                    docs_url: https://kofra.app/docs/errors/unauthenticated.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+        "403":
+          description: "`account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                account_unavailable:
+                  summary: Account is not available
+                  value:
+                    type: https://kofra.app/docs/errors/account_unavailable
+                    title: Account is not available
+                    status: 403
+                    code: account_unavailable
+                    detail: The account is being deleted.
+                    hint: Open Account in the console to see the reason; a deletion can be cancelled there or with POST /v1/account/deletion/cancel.
+                    docs_url: https://kofra.app/docs/errors/account_unavailable.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                insufficient_scope:
+                  summary: Token lacks a required scope
+                  value:
+                    type: https://kofra.app/docs/errors/insufficient_scope
+                    title: Token lacks a required scope
+                    status: 403
+                    code: insufficient_scope
+                    detail: This operation needs the scope "buckets:write".
+                    hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
+                    docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                role_forbidden:
+                  summary: Your role does not allow this
+                  value:
+                    type: https://kofra.app/docs/errors/role_forbidden
+                    title: Your role does not allow this
+                    status: 403
+                    code: role_forbidden
+                    detail: The Viewer role cannot create buckets.
+                    hint: Ask a workspace Owner or Admin to change your role, or to perform the operation.
+                    docs_url: https://kofra.app/docs/errors/role_forbidden.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+        "404":
+          description: "`token_not_found`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                token_not_found:
+                  summary: API token not found
+                  value:
+                    type: https://kofra.app/docs/errors/token_not_found
+                    title: API token not found
+                    status: 404
+                    code: token_not_found
+                    detail: No API token "tok_01jd3p5d9v1n6z8r0t2v4x6y8a" exists.
+                    hint: List your API tokens with GET /v1/tokens and use one of the returned IDs.
+                    docs_url: https://kofra.app/docs/errors/token_not_found.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+        "409":
+          description: "`idempotency_key_in_use`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                idempotency_key_in_use:
+                  summary: Same request is still running
+                  value:
+                    type: https://kofra.app/docs/errors/idempotency_key_in_use
+                    title: Same request is still running
+                    status: 409
+                    code: idempotency_key_in_use
+                    detail: A request with this Idempotency-Key is still in progress.
+                    hint: Wait for the number of seconds in `Retry-After`, then send the identical request again with the same key.
+                    docs_url: https://kofra.app/docs/errors/idempotency_key_in_use.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: true
+        "422":
+          description: "`idempotency_key_reused`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                idempotency_key_reused:
+                  summary: Idempotency key used with another request
+                  value:
+                    type: https://kofra.app/docs/errors/idempotency_key_reused
+                    title: Idempotency key used with another request
+                    status: 422
+                    code: idempotency_key_reused
+                    detail: This Idempotency-Key was first used with a different body.
+                    hint: Use a new Idempotency-Key for a different request; reuse a key only to repeat the identical request.
+                    docs_url: https://kofra.app/docs/errors/idempotency_key_reused.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+        "429":
+          description: "`rate_limited`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                rate_limited:
+                  summary: Too many requests
+                  value:
+                    type: https://kofra.app/docs/errors/rate_limited
+                    title: Too many requests
+                    status: 429
+                    code: rate_limited
+                    detail: Write requests are limited to 2 per second.
+                    hint: Wait for the number of seconds in `Retry-After`, then retry; spread requests out to stay under the limit.
+                    docs_url: https://kofra.app/docs/errors/rate_limited.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: true
+        "500":
+          description: "`internal_error`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                internal_error:
+                  summary: Internal error
+                  value:
+                    type: https://kofra.app/docs/errors/internal_error
+                    title: Internal error
+                    status: 500
+                    code: internal_error
+                    detail: The request could not be completed.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
+                    docs_url: https://kofra.app/docs/errors/internal_error.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+        "503":
+          description: "`service_unavailable`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                service_unavailable:
+                  summary: Service is busy
+                  value:
+                    type: https://kofra.app/docs/errors/service_unavailable
+                    title: Service is busy
+                    status: 503
+                    code: service_unavailable
+                    detail: The service is busy; try again shortly.
+                    hint: Wait for the number of seconds in `Retry-After`, then send the same request again.
+                    docs_url: https://kofra.app/docs/errors/service_unavailable.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: true
+      security:
+        - bearerAuth:
+            - tokens:write
+      parameters:
+        - $ref: "#/components/parameters/DryRun"
+        - $ref: "#/components/parameters/IdempotencyKey"
+  /v1/audit:
+    get:
+      operationId: audit.list
+      tags:
+        - Audit log
+      summary: Read the audit log
+      description: |-
+        Every change made through the API or the console, newest first, and
+        every attempt refused for lack of permission (scope, role, client
+        address or bucket limit). A row is written before the change runs;
+        `outcome: pending` means its result was not recorded. Dry runs are
+        recorded with `dry_run: true`. Reads are not recorded.
+
+        Scopes: `audit:read`.
+      x-kofra-scopes:
+        - audit:read
+      x-kofra-paginated: true
+      x-kofra-success: 200
+      parameters:
+        - name: actor
+          in: query
+          description: Only rows made by this member (`usr_...`) or with this API token (`tok_...`).
+          schema:
+            $ref: "#/components/schemas/AuditActorId"
+        - name: operation
+          in: query
+          description: Only rows of this operation, for example `buckets.delete`.
+          schema:
+            $ref: "#/components/schemas/OperationId"
+        - name: since
+          in: query
+          description: Only rows at or after this time.
+          schema:
+            $ref: "#/components/schemas/Timestamp"
+        - name: until
+          in: query
+          description: Only rows before this time.
+          schema:
+            $ref: "#/components/schemas/Timestamp"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of audit rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditList"
+              examples:
+                page:
+                  summary: One bucket created with an API token
+                  value:
+                    data:
+                      - id: aud_01jd3q6e0w2p7a9s1u3w5y7z9b
+                        created_at: 2026-11-19T10:00:00Z
+                        actor_type: token
+                        actor_id: usr_01jd3k9v6q2m8x4t7r5n0b1c3e
+                        credential_id: tok_01jd3p5d9v1n6z8r0t2v4x6y8a
+                        operation: buckets.create
+                        target: backups
+                        dry_run: false
+                        outcome: succeeded
+                        status: 201
+                        code: null
+                        request_id: req_01jd3examplerequestid0000
+                        ip: 203.0.113.7
+                        user_agent: kofra-cli/1.0.0
+                    next_cursor: null
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            Link:
+              $ref: "#/components/headers/Link"
+        "400":
+          description: "`invalid_cursor`, `unknown_field`, `validation_failed`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                invalid_cursor:
+                  summary: Cursor is not valid
+                  value:
+                    type: https://kofra.app/docs/errors/invalid_cursor
+                    title: Cursor is not valid
+                    status: 400
+                    code: invalid_cursor
+                    detail: The cursor is not valid for this list.
+                    hint: Start again without `cursor`, then pass only the `next_cursor` values the API returns.
+                    docs_url: https://kofra.app/docs/errors/invalid_cursor.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                unknown_field:
+                  summary: Request has a field the API does not know
+                  value:
+                    type: https://kofra.app/docs/errors/unknown_field
+                    title: Request has a field the API does not know
+                    status: 400
+                    code: unknown_field
+                    detail: The query parameter "limt" is not accepted by this operation.
+                    hint: Remove or correct the field or parameter named by `errors[].pointer`; the API reference lists what each operation accepts.
+                    docs_url: https://kofra.app/docs/errors/unknown_field.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/limt"
+                        code: unknown_field
+                        detail: This parameter is not accepted.
+                validation_failed:
+                  summary: Request is not valid
+                  value:
+                    type: https://kofra.app/docs/errors/validation_failed
+                    title: Request is not valid
+                    status: 400
+                    code: validation_failed
+                    detail: The parameter "actor" is not valid.
+                    hint: Fix each field listed in `errors` (the `pointer` names it), then send the request again.
+                    docs_url: https://kofra.app/docs/errors/validation_failed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                    errors:
+                      - pointer: "#query/actor"
+                        code: invalid_value
+                        detail: Not a valid value.
+        "401":
+          description: "`token_expired`, `unauthenticated`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                token_expired:
+                  summary: API token has expired
+                  value:
+                    type: https://kofra.app/docs/errors/token_expired
+                    title: API token has expired
+                    status: 401
+                    code: token_expired
+                    detail: The API token expired at 2026-11-01T00:00:00Z.
+                    hint: Create a new API token in the console and use it in place of the expired one.
+                    docs_url: https://kofra.app/docs/errors/token_expired.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                unauthenticated:
+                  summary: Authentication required
+                  value:
+                    type: https://kofra.app/docs/errors/unauthenticated
+                    title: Authentication required
+                    status: 401
+                    code: unauthenticated
+                    detail: The request has no valid bearer token.
+                    hint: "Send `Authorization: Bearer <token>` with an API token from the console (Account, API tokens)."
+                    docs_url: https://kofra.app/docs/errors/unauthenticated.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+        "403":
+          description: "`account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                account_unavailable:
+                  summary: Account is not available
+                  value:
+                    type: https://kofra.app/docs/errors/account_unavailable
+                    title: Account is not available
+                    status: 403
+                    code: account_unavailable
+                    detail: The account is being deleted.
+                    hint: Open Account in the console to see the reason; a deletion can be cancelled there or with POST /v1/account/deletion/cancel.
+                    docs_url: https://kofra.app/docs/errors/account_unavailable.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                insufficient_scope:
+                  summary: Token lacks a required scope
+                  value:
+                    type: https://kofra.app/docs/errors/insufficient_scope
+                    title: Token lacks a required scope
+                    status: 403
+                    code: insufficient_scope
+                    detail: This operation needs the scope "buckets:write".
+                    hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
+                    docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                role_forbidden:
+                  summary: Your role does not allow this
+                  value:
+                    type: https://kofra.app/docs/errors/role_forbidden
+                    title: Your role does not allow this
+                    status: 403
+                    code: role_forbidden
+                    detail: The Viewer role cannot create buckets.
+                    hint: Ask a workspace Owner or Admin to change your role, or to perform the operation.
+                    docs_url: https://kofra.app/docs/errors/role_forbidden.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+        "429":
+          description: "`rate_limited`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                rate_limited:
+                  summary: Too many requests
+                  value:
+                    type: https://kofra.app/docs/errors/rate_limited
+                    title: Too many requests
+                    status: 429
+                    code: rate_limited
+                    detail: Write requests are limited to 2 per second.
+                    hint: Wait for the number of seconds in `Retry-After`, then retry; spread requests out to stay under the limit.
+                    docs_url: https://kofra.app/docs/errors/rate_limited.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: true
+        "500":
+          description: "`internal_error`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                internal_error:
+                  summary: Internal error
+                  value:
+                    type: https://kofra.app/docs/errors/internal_error
+                    title: Internal error
+                    status: 500
+                    code: internal_error
+                    detail: The request could not be completed.
+                    hint: Contact support and quote the `request_id`; repeating the same request is not expected to help.
+                    docs_url: https://kofra.app/docs/errors/internal_error.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+        "503":
+          description: "`service_unavailable`"
+          headers:
+            Kofra-Request-Id:
+              $ref: "#/components/headers/KofraRequestId"
+            RateLimit:
+              $ref: "#/components/headers/RateLimit"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                service_unavailable:
+                  summary: Service is busy
+                  value:
+                    type: https://kofra.app/docs/errors/service_unavailable
+                    title: Service is busy
+                    status: 503
+                    code: service_unavailable
+                    detail: The service is busy; try again shortly.
+                    hint: Wait for the number of seconds in `Retry-After`, then send the same request again.
+                    docs_url: https://kofra.app/docs/errors/service_unavailable.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: true
+      security:
+        - bearerAuth:
+            - audit:read
+      x-kofra-errors:
+        - account_unavailable
+        - insufficient_scope
+        - internal_error
+        - invalid_cursor
+        - ip_not_allowed
+        - rate_limited
+        - role_forbidden
+        - service_unavailable
+        - token_expired
+        - unauthenticated
+        - unknown_field
+        - validation_failed
   /v1/objects/presign:
     post:
       operationId: objects.presign
@@ -5136,11 +6990,13 @@ paths:
         - objects:read
       x-kofra-errors:
         - account_unavailable
+        - bucket_not_allowed
         - bucket_not_found
         - idempotency_key_in_use
         - idempotency_key_reused
         - insufficient_scope
         - internal_error
+        - ip_not_allowed
         - payload_too_large
         - rate_limited
         - role_forbidden
@@ -5273,7 +7129,7 @@ paths:
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
         "403":
-          description: "`account_unavailable`, `insufficient_scope`, `role_forbidden`"
+          description: "`account_unavailable`, `bucket_not_allowed`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`"
           headers:
             Kofra-Request-Id:
               $ref: "#/components/headers/KofraRequestId"
@@ -5298,6 +7154,18 @@ paths:
                     docs_url: https://kofra.app/docs/errors/account_unavailable.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
+                bucket_not_allowed:
+                  summary: Token is limited to other buckets
+                  value:
+                    type: https://kofra.app/docs/errors/bucket_not_allowed
+                    title: Token is limited to other buckets
+                    status: 403
+                    code: bucket_not_allowed
+                    detail: The token is limited to other buckets than "photos".
+                    hint: Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.
+                    docs_url: https://kofra.app/docs/errors/bucket_not_allowed.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
                 insufficient_scope:
                   summary: Token lacks a required scope
                   value:
@@ -5308,6 +7176,18 @@ paths:
                     detail: This operation needs the scope "buckets:write".
                     hint: Use a token that has the scope named in `detail`, or create one with that scope in the console.
                     docs_url: https://kofra.app/docs/errors/insufficient_scope.md
+                    request_id: req_01jd3examplerequestid0000
+                    retryable: false
+                ip_not_allowed:
+                  summary: Request address is not allowed for this token
+                  value:
+                    type: https://kofra.app/docs/errors/ip_not_allowed
+                    title: Request address is not allowed for this token
+                    status: 403
+                    code: ip_not_allowed
+                    detail: The token is not accepted from 198.51.100.7.
+                    hint: Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.
+                    docs_url: https://kofra.app/docs/errors/ip_not_allowed.md
                     request_id: req_01jd3examplerequestid0000
                     retryable: false
                 role_forbidden:
@@ -5552,8 +7432,12 @@ components:
         Tokens carry scopes; each operation names the scopes it needs.
         Scopes: `account:read`, `account:delete`, `buckets:read`,
         `buckets:write`, `buckets:delete`, `keys:read`, `keys:write`,
-        `usage:read`, `events:read`, `objects:read`. A token's effective
-        permission is its scopes limited by its member's workspace role.
+        `tokens:read`, `tokens:write`, `usage:read`, `events:read`,
+        `audit:read`, `objects:read`. A token's effective permission is its
+        scopes limited by its member's workspace role. A token can also be
+        limited to some buckets (other buckets answer `bucket_not_allowed`)
+        and to some client addresses (other addresses answer
+        `ip_not_allowed`).
   parameters:
     BucketPath:
       name: bucket
@@ -5563,6 +7447,14 @@ components:
       schema:
         $ref: "#/components/schemas/BucketName"
       example: backups
+    TokenIdPath:
+      name: token_id
+      in: path
+      required: true
+      description: The API token ID.
+      schema:
+        $ref: "#/components/schemas/TokenId"
+      example: tok_01jd3p5d9v1n6z8r0t2v4x6y8a
     KeyIdPath:
       name: key_id
       in: path
@@ -5813,6 +7705,7 @@ components:
             - account
             - bucket
             - key
+            - token
         id:
           type: string
         change:
@@ -6294,6 +8187,277 @@ components:
           format: uri
         expires_at:
           $ref: "#/components/schemas/Timestamp"
+    TokenId:
+      type: string
+      description: The API token ID. The token itself is `kofra_tok_`, this ID without `tok_`, `_` and the secret.
+      pattern: ^tok_[0-9a-z]{26}$
+      examples:
+        - tok_01jd3p5d9v1n6z8r0t2v4x6y8a
+    UserId:
+      type: string
+      description: A member's user ID.
+      pattern: ^usr_[0-9a-z]{1,64}$
+      examples:
+        - usr_01jd3k9v6q2m8x4t7r5n0b1c3e
+    Scope:
+      type: string
+      description: A permission an API token can carry, as `resource:verb`.
+      enum:
+        - account:read
+        - account:delete
+        - buckets:read
+        - buckets:write
+        - buckets:delete
+        - keys:read
+        - keys:write
+        - tokens:read
+        - tokens:write
+        - usage:read
+        - events:read
+        - audit:read
+        - objects:read
+    TokenScopes:
+      type: array
+      description: The scopes of a token. Each scope at most once.
+      minItems: 1
+      maxItems: 13
+      uniqueItems: true
+      items:
+        $ref: "#/components/schemas/Scope"
+    TokenBuckets:
+      type: array
+      description: The only buckets the token can reach. Each bucket at most once.
+      minItems: 1
+      maxItems: 32
+      uniqueItems: true
+      items:
+        $ref: "#/components/schemas/BucketName"
+    IpRange:
+      type: string
+      description: An IPv4 or IPv6 address, or a CIDR block such as `203.0.113.0/24`.
+      minLength: 2
+      maxLength: 49
+      pattern: ^[0-9A-Fa-f:.]+(/[0-9]{1,3})?$
+      examples:
+        - 203.0.113.0/24
+    AllowedIps:
+      type: array
+      description: The only client addresses the token is accepted from. Each entry at most once.
+      minItems: 1
+      maxItems: 32
+      uniqueItems: true
+      items:
+        $ref: "#/components/schemas/IpRange"
+    TokenLifetimeDays:
+      type: integer
+      description: Days until the token expires. Default 90.
+      minimum: 1
+      maximum: 1000
+      default: 90
+    TokenName:
+      type: string
+      minLength: 1
+      maxLength: 64
+      description: A label for people; not used for access.
+    ApiToken:
+      type: object
+      required:
+        - id
+        - name
+        - scopes
+        - buckets
+        - allowed_ips
+        - agent
+        - created_by
+        - created_at
+        - expires_at
+        - last_used_at
+      properties:
+        id:
+          $ref: "#/components/schemas/TokenId"
+        name:
+          $ref: "#/components/schemas/TokenName"
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Scope"
+        buckets:
+          description: The only buckets the token can reach; `null` for every bucket the member can reach.
+          oneOf:
+            - type: array
+              items:
+                $ref: "#/components/schemas/BucketName"
+            - type: "null"
+        allowed_ips:
+          description: The only client addresses the token is accepted from; `null` for any address.
+          oneOf:
+            - type: array
+              items:
+                $ref: "#/components/schemas/IpRange"
+            - type: "null"
+        agent:
+          type: boolean
+          description: The token is used by an AI agent. Shown as such in the audit log; an agent token cannot create tokens.
+        created_by:
+          $ref: "#/components/schemas/UserId"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        expires_at:
+          $ref: "#/components/schemas/Timestamp"
+        last_used_at:
+          description: Last accepted request, to within an hour. `null` if never used.
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+    ApiTokenCreated:
+      description: An API token with its secret. The secret appears in this response only.
+      allOf:
+        - $ref: "#/components/schemas/ApiToken"
+        - type: object
+          required:
+            - token
+          properties:
+            token:
+              type:
+                - string
+                - "null"
+              description: "The token to send as `Authorization: Bearer <token>`. `null` when this is a replay of an earlier request."
+    ApiTokenCreate:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - scopes
+      properties:
+        name:
+          $ref: "#/components/schemas/TokenName"
+        scopes:
+          $ref: "#/components/schemas/TokenScopes"
+        buckets:
+          $ref: "#/components/schemas/TokenBuckets"
+        allowed_ips:
+          $ref: "#/components/schemas/AllowedIps"
+        expires_in_days:
+          $ref: "#/components/schemas/TokenLifetimeDays"
+        agent:
+          type: boolean
+          default: false
+          description: Mark the token as used by an AI agent.
+    ApiTokenList:
+      type: object
+      required:
+        - data
+        - next_cursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiToken"
+        next_cursor:
+          oneOf:
+            - $ref: "#/components/schemas/Cursor"
+            - type: "null"
+    AuditActorId:
+      type: string
+      description: A member's user ID (`usr_...`) or an API token ID (`tok_...`).
+      pattern: ^(usr|tok)_[0-9a-z]{1,64}$
+    OperationId:
+      type: string
+      description: An operation of this API, for example `buckets.create`.
+      pattern: ^[a-z][a-z_]*\.[a-z][a-z_]*$
+      maxLength: 64
+    AuditEntry:
+      type: object
+      required:
+        - id
+        - created_at
+        - actor_type
+        - actor_id
+        - credential_id
+        - operation
+        - target
+        - dry_run
+        - outcome
+        - status
+        - code
+        - request_id
+        - ip
+        - user_agent
+      properties:
+        id:
+          type: string
+          pattern: ^aud_[0-9a-z]{26}$
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        actor_type:
+          type: string
+          enum:
+            - user
+            - token
+            - agent
+          description: "`user`: a member in the console. `token`: an API token. `agent`: an API token marked `agent`."
+        actor_id:
+          oneOf:
+            - $ref: "#/components/schemas/UserId"
+            - type: "null"
+        credential_id:
+          description: The API token used, if any.
+          oneOf:
+            - $ref: "#/components/schemas/TokenId"
+            - type: "null"
+        operation:
+          $ref: "#/components/schemas/OperationId"
+        target:
+          type:
+            - string
+            - "null"
+          description: The bucket, key or token the operation named, if any.
+        dry_run:
+          type: boolean
+        outcome:
+          type: string
+          enum:
+            - pending
+            - succeeded
+            - refused
+            - failed
+          description: "`pending`: the request never finished. `refused`: answered with a 4xx. `failed`: answered with a 5xx."
+        status:
+          type:
+            - integer
+            - "null"
+          minimum: 100
+          maximum: 599
+        code:
+          type:
+            - string
+            - "null"
+          description: The error code of a refused or failed request.
+        request_id:
+          type: string
+        ip:
+          type:
+            - string
+            - "null"
+        user_agent:
+          type:
+            - string
+            - "null"
+          maxLength: 256
+    AuditList:
+      type: object
+      required:
+        - data
+        - next_cursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEntry"
+        next_cursor:
+          oneOf:
+            - $ref: "#/components/schemas/Cursor"
+            - type: "null"
     Problem:
       type: object
       description: RFC 9457 problem details with Kofra's fields. Only `code` is stable.

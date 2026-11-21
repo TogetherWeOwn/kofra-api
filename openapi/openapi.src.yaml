@@ -76,6 +76,10 @@ tags:
     description: The workspace's event feed.
   - name: Objects
     description: Presigned URLs for the S3 endpoint.
+  - name: API tokens
+    description: Bearer tokens for this API, with scopes, bucket and address limits.
+  - name: Audit log
+    description: Who changed what, and every refused attempt.
 externalDocs:
   description: Kofra API documentation
   url: https://kofra.app/docs/api
@@ -237,7 +241,7 @@ paths:
       summary: Create a bucket
       description: Creates an empty bucket. Bucket names are unique within the workspace.
       x-kofra-scopes: [buckets:write]
-      x-kofra-errors: [invalid_bucket_name, bucket_already_exists, account_read_only, role_forbidden]
+      x-kofra-errors: [invalid_bucket_name, bucket_already_exists, account_read_only, role_forbidden, bucket_not_allowed]
       x-kofra-success: 201
       requestBody:
         required: true
@@ -272,7 +276,7 @@ paths:
       summary: Get a bucket
       description: Returns one bucket with its size.
       x-kofra-scopes: [buckets:read]
-      x-kofra-errors: [bucket_not_found]
+      x-kofra-errors: [bucket_not_found, bucket_not_allowed]
       x-kofra-success: 200
       responses:
         '200':
@@ -297,7 +301,7 @@ paths:
         still holds objects is refused with `bucket_not_empty`; delete the
         objects through the S3 endpoint first. Deletion is final.
       x-kofra-scopes: [buckets:delete]
-      x-kofra-errors: [bucket_not_found, bucket_not_empty, role_forbidden]
+      x-kofra-errors: [bucket_not_found, bucket_not_empty, role_forbidden, bucket_not_allowed]
       x-kofra-dry-run: true
       x-kofra-success: 204
       responses:
@@ -370,7 +374,7 @@ paths:
         Through the MCP tool `keys_create`, the secret is not in the tool
         result: the result links to a console page that shows it once.
       x-kofra-scopes: [keys:write]
-      x-kofra-errors: [bucket_not_found, key_limit_reached, account_read_only, role_forbidden]
+      x-kofra-errors: [bucket_not_found, key_limit_reached, account_read_only, role_forbidden, bucket_not_allowed]
       x-kofra-success: 201
       requestBody:
         required: true
@@ -415,7 +419,7 @@ paths:
         (`read_write` to `read`) or removed: create a new key with the narrower
         access and revoke this one. Grants not listed are left as they are.
       x-kofra-scopes: [keys:write]
-      x-kofra-errors: [key_not_found, bucket_not_found, grant_narrowing_refused, grant_limit_reached, account_read_only, role_forbidden]
+      x-kofra-errors: [key_not_found, bucket_not_found, grant_narrowing_refused, grant_limit_reached, account_read_only, role_forbidden, bucket_not_allowed]
       x-kofra-success: 200
       requestBody:
         required: true
@@ -620,6 +624,197 @@ paths:
                         data: { key_id: KF7Q2M8X4T7R5N0B }
                     next_cursor: ec_7Hq2Lk9P
 
+  /v1/tokens:
+    get:
+      operationId: tokens.list
+      tags: [API tokens]
+      summary: List API tokens
+      description: |
+        Lists API tokens that are not revoked, newest first. An Owner or Admin
+        sees every token of the workspace; any other member sees only their
+        own. The token secrets are never returned.
+      x-kofra-scopes: [tokens:read]
+      x-kofra-paginated: true
+      x-kofra-success: 200
+      responses:
+        '200':
+          description: One page of API tokens.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiTokenList' }
+              examples:
+                page:
+                  summary: One token, last page
+                  value:
+                    data:
+                      - id: tok_01jd3p5d9v1n6z8r0t2v4x6y8a
+                        name: ci-deploy
+                        scopes: [buckets:read, keys:read]
+                        buckets: [backups]
+                        allowed_ips: [203.0.113.0/24]
+                        agent: false
+                        created_by: usr_01jd3k9v6q2m8x4t7r5n0b1c3e
+                        created_at: '2026-11-19T10:00:00Z'
+                        expires_at: '2027-02-17T10:00:00Z'
+                        last_used_at: '2026-11-19T11:30:00Z'
+                    next_cursor: null
+    post:
+      operationId: tokens.create
+      tags: [API tokens]
+      summary: Create an API token
+      description: |
+        Creates an API token for the member who makes the request. The token
+        is in this response only; store it at once. A replay of the same
+        request with the same `Idempotency-Key` returns the token with
+        `token: null`: revoke that token and create a new one if it was lost.
+
+        A token can never hold more than the credential that creates it: every
+        scope must be one the caller holds (`insufficient_scope` otherwise),
+        a bucket list must lie inside the caller's (`bucket_not_allowed`), an
+        address list inside the caller's (`ip_not_allowed`), and the expiry
+        must not be later than the caller's (without `expires_in_days`, the
+        token gets 90 days or the caller's remaining life, whichever is
+        shorter). A token marked `agent` cannot create or revoke tokens, and
+        cannot be given `tokens:write`. The token's permission is also limited
+        by the member's role at every request.
+      x-kofra-scopes: [tokens:write]
+      x-kofra-errors: [bucket_not_allowed]
+      x-kofra-success: 201
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApiTokenCreate' }
+            examples:
+              ci:
+                summary: A read-only token for one bucket
+                value:
+                  name: ci-deploy
+                  scopes: [buckets:read, keys:read]
+                  buckets: [backups]
+                  allowed_ips: [203.0.113.0/24]
+                  expires_in_days: 90
+                  agent: false
+      responses:
+        '201':
+          description: The token was created. It is shown once.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiTokenCreated' }
+              examples:
+                created:
+                  summary: New token
+                  value:
+                    id: tok_01jd3p5d9v1n6z8r0t2v4x6y8a
+                    name: ci-deploy
+                    scopes: [buckets:read, keys:read]
+                    buckets: [backups]
+                    allowed_ips: [203.0.113.0/24]
+                    agent: false
+                    created_by: usr_01jd3k9v6q2m8x4t7r5n0b1c3e
+                    created_at: '2026-11-19T10:00:00Z'
+                    expires_at: '2027-02-17T10:00:00Z'
+                    last_used_at: null
+                    token: kofra_tok_01jd3p5d9v1n6z8r0t2v4x6y8a_EXAMPLEtokenEXAMPLEtokenEXAMPLEtoken00000000
+
+  /v1/tokens/{token_id}:
+    parameters:
+      - $ref: '#/components/parameters/TokenIdPath'
+    delete:
+      operationId: tokens.revoke
+      tags: [API tokens]
+      summary: Revoke an API token
+      description: |
+        Revokes the token at once; requests made with it are refused from then
+        on. Members can revoke their own tokens; an Owner or Admin can revoke
+        any token of the workspace. Revocation is final; the token disappears
+        from the list, so a second revoke answers `token_not_found`.
+      x-kofra-scopes: [tokens:write]
+      x-kofra-errors: [token_not_found]
+      x-kofra-dry-run: true
+      x-kofra-success: 204
+      responses:
+        '204':
+          description: The token was revoked.
+        '200':
+          description: Dry run. What the revocation would do; nothing was changed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Plan' }
+              examples:
+                plan:
+                  summary: Dry run
+                  value:
+                    dry_run: true
+                    operation: tokens.revoke
+                    summary: Revokes the API token "ci-deploy". Requests made with it are refused from then on.
+                    reversible: false
+                    effects:
+                      - { resource: token, id: tok_01jd3p5d9v1n6z8r0t2v4x6y8a, change: revoke }
+                    totals:
+                      buckets: 0
+                      objects: 0
+                      stored_bytes: 0
+                      keys: 0
+
+  /v1/audit:
+    get:
+      operationId: audit.list
+      tags: [Audit log]
+      summary: Read the audit log
+      description: |
+        Every change made through the API or the console, newest first, and
+        every attempt refused for lack of permission (scope, role, client
+        address or bucket limit). A row is written before the change runs;
+        `outcome: pending` means its result was not recorded. Dry runs are
+        recorded with `dry_run: true`. Reads are not recorded.
+      x-kofra-scopes: [audit:read]
+      x-kofra-paginated: true
+      x-kofra-success: 200
+      parameters:
+        - name: actor
+          in: query
+          description: Only rows made by this member (`usr_...`) or with this API token (`tok_...`).
+          schema: { $ref: '#/components/schemas/AuditActorId' }
+        - name: operation
+          in: query
+          description: Only rows of this operation, for example `buckets.delete`.
+          schema: { $ref: '#/components/schemas/OperationId' }
+        - name: since
+          in: query
+          description: Only rows at or after this time.
+          schema: { $ref: '#/components/schemas/Timestamp' }
+        - name: until
+          in: query
+          description: Only rows before this time.
+          schema: { $ref: '#/components/schemas/Timestamp' }
+      responses:
+        '200':
+          description: One page of audit rows.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditList' }
+              examples:
+                page:
+                  summary: One bucket created with an API token
+                  value:
+                    data:
+                      - id: aud_01jd3q6e0w2p7a9s1u3w5y7z9b
+                        created_at: '2026-11-19T10:00:00Z'
+                        actor_type: token
+                        actor_id: usr_01jd3k9v6q2m8x4t7r5n0b1c3e
+                        credential_id: tok_01jd3p5d9v1n6z8r0t2v4x6y8a
+                        operation: buckets.create
+                        target: backups
+                        dry_run: false
+                        outcome: succeeded
+                        status: 201
+                        code: null
+                        request_id: req_01jd3examplerequestid0000
+                        ip: 203.0.113.7
+                        user_agent: kofra-cli/1.0.0
+                    next_cursor: null
+
   /v1/objects/presign:
     post:
       operationId: objects.presign
@@ -630,7 +825,7 @@ paths:
         further credentials, valid for at most 15 minutes. Anyone who has the
         URL can use it until it expires.
       x-kofra-scopes: [objects:read]
-      x-kofra-errors: [bucket_not_found, role_forbidden]
+      x-kofra-errors: [bucket_not_found, role_forbidden, bucket_not_allowed]
       x-kofra-success: 200
       requestBody:
         required: true
@@ -666,8 +861,12 @@ components:
         Tokens carry scopes; each operation names the scopes it needs.
         Scopes: `account:read`, `account:delete`, `buckets:read`,
         `buckets:write`, `buckets:delete`, `keys:read`, `keys:write`,
-        `usage:read`, `events:read`, `objects:read`. A token's effective
-        permission is its scopes limited by its member's workspace role.
+        `tokens:read`, `tokens:write`, `usage:read`, `events:read`,
+        `audit:read`, `objects:read`. A token's effective permission is its
+        scopes limited by its member's workspace role. A token can also be
+        limited to some buckets (other buckets answer `bucket_not_allowed`)
+        and to some client addresses (other addresses answer
+        `ip_not_allowed`).
 
   parameters:
     BucketPath:
@@ -677,6 +876,13 @@ components:
       description: The bucket name.
       schema: { $ref: '#/components/schemas/BucketName' }
       example: backups
+    TokenIdPath:
+      name: token_id
+      in: path
+      required: true
+      description: The API token ID.
+      schema: { $ref: '#/components/schemas/TokenId' }
+      example: tok_01jd3p5d9v1n6z8r0t2v4x6y8a
     KeyIdPath:
       name: key_id
       in: path
@@ -836,7 +1042,7 @@ components:
       properties:
         resource:
           type: string
-          enum: [account, bucket, key]
+          enum: [account, bucket, key, token]
         id:
           type: string
         change:
@@ -1153,6 +1359,219 @@ components:
           type: string
           format: uri
         expires_at: { $ref: '#/components/schemas/Timestamp' }
+
+    TokenId:
+      type: string
+      description: The API token ID. The token itself is `kofra_tok_`, this ID without `tok_`, `_` and the secret.
+      pattern: '^tok_[0-9a-z]{26}$'
+      examples: [tok_01jd3p5d9v1n6z8r0t2v4x6y8a]
+
+    UserId:
+      type: string
+      description: A member's user ID.
+      pattern: '^usr_[0-9a-z]{1,64}$'
+      examples: [usr_01jd3k9v6q2m8x4t7r5n0b1c3e]
+
+    Scope:
+      type: string
+      description: A permission an API token can carry, as `resource:verb`.
+      enum:
+        - account:read
+        - account:delete
+        - buckets:read
+        - buckets:write
+        - buckets:delete
+        - keys:read
+        - keys:write
+        - tokens:read
+        - tokens:write
+        - usage:read
+        - events:read
+        - audit:read
+        - objects:read
+
+    TokenScopes:
+      type: array
+      description: The scopes of a token. Each scope at most once.
+      minItems: 1
+      maxItems: 13
+      uniqueItems: true
+      items: { $ref: '#/components/schemas/Scope' }
+
+    TokenBuckets:
+      type: array
+      description: The only buckets the token can reach. Each bucket at most once.
+      minItems: 1
+      maxItems: 32
+      uniqueItems: true
+      items: { $ref: '#/components/schemas/BucketName' }
+
+    IpRange:
+      type: string
+      description: An IPv4 or IPv6 address, or a CIDR block such as `203.0.113.0/24`.
+      minLength: 2
+      maxLength: 49
+      pattern: '^[0-9A-Fa-f:.]+(/[0-9]{1,3})?$'
+      examples: [203.0.113.0/24]
+
+    AllowedIps:
+      type: array
+      description: The only client addresses the token is accepted from. Each entry at most once.
+      minItems: 1
+      maxItems: 32
+      uniqueItems: true
+      items: { $ref: '#/components/schemas/IpRange' }
+
+    TokenLifetimeDays:
+      type: integer
+      description: Days until the token expires. Default 90.
+      minimum: 1
+      maximum: 1000
+      default: 90
+
+    TokenName:
+      type: string
+      minLength: 1
+      maxLength: 64
+      description: A label for people; not used for access.
+
+    ApiToken:
+      type: object
+      required: [id, name, scopes, buckets, allowed_ips, agent, created_by, created_at, expires_at, last_used_at]
+      properties:
+        id: { $ref: '#/components/schemas/TokenId' }
+        name: { $ref: '#/components/schemas/TokenName' }
+        scopes:
+          type: array
+          items: { $ref: '#/components/schemas/Scope' }
+        buckets:
+          description: The only buckets the token can reach; `null` for every bucket the member can reach.
+          oneOf:
+            - type: array
+              items: { $ref: '#/components/schemas/BucketName' }
+            - type: 'null'
+        allowed_ips:
+          description: The only client addresses the token is accepted from; `null` for any address.
+          oneOf:
+            - type: array
+              items: { $ref: '#/components/schemas/IpRange' }
+            - type: 'null'
+        agent:
+          type: boolean
+          description: The token is used by an AI agent. Shown as such in the audit log; an agent token cannot create tokens.
+        created_by: { $ref: '#/components/schemas/UserId' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        expires_at: { $ref: '#/components/schemas/Timestamp' }
+        last_used_at:
+          description: Last accepted request, to within an hour. `null` if never used.
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+
+    ApiTokenCreated:
+      description: An API token with its secret. The secret appears in this response only.
+      allOf:
+        - $ref: '#/components/schemas/ApiToken'
+        - type: object
+          required: [token]
+          properties:
+            token:
+              type: [string, 'null']
+              description: 'The token to send as `Authorization: Bearer <token>`. `null` when this is a replay of an earlier request.'
+
+    ApiTokenCreate:
+      type: object
+      additionalProperties: false
+      required: [name, scopes]
+      properties:
+        name: { $ref: '#/components/schemas/TokenName' }
+        scopes: { $ref: '#/components/schemas/TokenScopes' }
+        buckets: { $ref: '#/components/schemas/TokenBuckets' }
+        allowed_ips: { $ref: '#/components/schemas/AllowedIps' }
+        expires_in_days: { $ref: '#/components/schemas/TokenLifetimeDays' }
+        agent:
+          type: boolean
+          default: false
+          description: Mark the token as used by an AI agent.
+
+    ApiTokenList:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/ApiToken' }
+        next_cursor:
+          oneOf:
+            - $ref: '#/components/schemas/Cursor'
+            - type: 'null'
+
+    AuditActorId:
+      type: string
+      description: A member's user ID (`usr_...`) or an API token ID (`tok_...`).
+      pattern: '^(usr|tok)_[0-9a-z]{1,64}$'
+
+    OperationId:
+      type: string
+      description: An operation of this API, for example `buckets.create`.
+      pattern: '^[a-z][a-z_]*\.[a-z][a-z_]*$'
+      maxLength: 64
+
+    AuditEntry:
+      type: object
+      required: [id, created_at, actor_type, actor_id, credential_id, operation, target, dry_run, outcome, status, code, request_id, ip, user_agent]
+      properties:
+        id:
+          type: string
+          pattern: '^aud_[0-9a-z]{26}$'
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        actor_type:
+          type: string
+          enum: [user, token, agent]
+          description: '`user`: a member in the console. `token`: an API token. `agent`: an API token marked `agent`.'
+        actor_id:
+          oneOf:
+            - $ref: '#/components/schemas/UserId'
+            - type: 'null'
+        credential_id:
+          description: The API token used, if any.
+          oneOf:
+            - $ref: '#/components/schemas/TokenId'
+            - type: 'null'
+        operation: { $ref: '#/components/schemas/OperationId' }
+        target:
+          type: [string, 'null']
+          description: The bucket, key or token the operation named, if any.
+        dry_run: { type: boolean }
+        outcome:
+          type: string
+          enum: [pending, succeeded, refused, failed]
+          description: '`pending`: the request never finished. `refused`: answered with a 4xx. `failed`: answered with a 5xx.'
+        status:
+          type: [integer, 'null']
+          minimum: 100
+          maximum: 599
+        code:
+          type: [string, 'null']
+          description: The error code of a refused or failed request.
+        request_id: { type: string }
+        ip:
+          type: [string, 'null']
+        user_agent:
+          type: [string, 'null']
+          maxLength: 256
+
+    AuditList:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/AuditEntry' }
+        next_cursor:
+          oneOf:
+            - $ref: '#/components/schemas/Cursor'
+            - type: 'null'
 
     Problem:
       type: object

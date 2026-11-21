@@ -48,7 +48,7 @@ jobs:
     name: changes
     uses: TogetherWeOwn/.github/.github/workflows/changes.yml@8059ac2b121b63443db656b1e10e927b8af8133c # v0.12.1
     with:
-      areas-json: '{"docs":["**.md","docs/**"],"contract":["openapi/**","errors/**","registry/**","generated/**","tools/**","test/**"],"rust":["crates/**","xtask/**","Cargo.toml","Cargo.lock","rust-toolchain.toml","openapi/**","errors/**","registry/**","tools/build.mjs","generated/**"],"sdk":["sdk/**","tools/sdk/**","tools/mock/**",".node-version","openapi/**","errors/**","registry/**","generated/**"]}'
+      areas-json: '{"docs":["**.md","docs/**"],"contract":["openapi/**","errors/**","registry/**","generated/**","tools/**","test/**","migrations/**"],"rust":["crates/**","xtask/**","Cargo.toml","Cargo.lock","rust-toolchain.toml","openapi/**","errors/**","registry/**","tools/build.mjs","generated/**"],"sdk":["sdk/**","tools/sdk/**","tools/mock/**",".node-version","openapi/**","errors/**","registry/**","generated/**"]}'
       full-run-globs-json: '["package.json","**/package.json","pnpm-lock.yaml","**/pnpm-lock.yaml","pnpm-workspace.yaml","**/pnpm-workspace.yaml",".npmrc","**/.npmrc",".node-version","redocly.yaml","eslint.config.js","prettier.config.js",".prettierignore",".gitignore",".gitattributes",".editorconfig","Cargo.toml","**/Cargo.toml","Cargo.lock","**/Cargo.lock",".cargo/**","**/.cargo/**","rust-toolchain*","**/rust-toolchain*","osv-scanner.toml",".gitleaks.toml",".github/**"]'
       docs-areas-json: '["docs"]'
 
@@ -163,10 +163,11 @@ jobs:
       # The Rust types are generated from generated/openapi.json; drift fails.
       - run: cargo run --locked -q -p xtask -- check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - run: cargo clippy --locked -p kofra-api-types --all-targets --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo clippy --locked -p kofra-api-types -p kofra-api-core --all-targets --target wasm32-unknown-unknown -- -D warnings
       - run: cargo test --locked --workspace
-      # The contract-derived types must build for the Workers target.
-      - run: cargo build --locked -p kofra-api-types --target wasm32-unknown-unknown --release
+      # The contract-derived types and the API core must build for the
+      # Workers target.
+      - run: cargo build --locked -p kofra-api-types -p kofra-api-core --target wasm32-unknown-unknown --release
 
   sdk:
     name: sdk (regenerate, TypeScript, Python, Go, CLI cross-build)

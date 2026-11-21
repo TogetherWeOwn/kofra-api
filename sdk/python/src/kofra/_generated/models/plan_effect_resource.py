@@ -4,6 +4,7 @@ class PlanEffectResource(StrEnum):
     ACCOUNT = "account"
     BUCKET = "bucket"
     KEY = "key"
+    TOKEN = "token"
 
     def __str__(self) -> str:
         return str(self.value)

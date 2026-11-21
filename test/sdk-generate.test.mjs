@@ -11,7 +11,12 @@ const registry = () => YAML.parse(readFileSync('registry/operations.yaml', 'utf8
 test('the SDK generator reads destructive from the registry', () => {
 	const ops = operations(spec, registry());
 	const destructive = ops.filter((o) => o.destructive).map((o) => o.id);
-	assert.deepEqual(destructive.sort(), ['account.delete', 'buckets.delete', 'keys.revoke']);
+	assert.deepEqual(destructive.sort(), [
+		'account.delete',
+		'buckets.delete',
+		'keys.revoke',
+		'tokens.revoke'
+	]);
 });
 
 test('the SDK generator refuses a DELETE or dry-run operation not marked destructive', () => {

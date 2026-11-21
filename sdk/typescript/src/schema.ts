@@ -298,6 +298,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List API tokens
+         * @description Lists API tokens that are not revoked, newest first. An Owner or Admin
+         *     sees every token of the workspace; any other member sees only their
+         *     own. The token secrets are never returned.
+         *
+         *     Scopes: `tokens:read`.
+         */
+        get: operations["tokens.list"];
+        put?: never;
+        /**
+         * Create an API token
+         * @description Creates an API token for the member who makes the request. The token
+         *     is in this response only; store it at once. A replay of the same
+         *     request with the same `Idempotency-Key` returns the token with
+         *     `token: null`: revoke that token and create a new one if it was lost.
+         *
+         *     A token can never hold more than the credential that creates it: every
+         *     scope must be one the caller holds (`insufficient_scope` otherwise),
+         *     a bucket list must lie inside the caller's (`bucket_not_allowed`), an
+         *     address list inside the caller's (`ip_not_allowed`), and the expiry
+         *     must not be later than the caller's (without `expires_in_days`, the
+         *     token gets 90 days or the caller's remaining life, whichever is
+         *     shorter). A token marked `agent` cannot create or revoke tokens, and
+         *     cannot be given `tokens:write`. The token's permission is also limited
+         *     by the member's role at every request.
+         *
+         *     Scopes: `tokens:write`.
+         */
+        post: operations["tokens.create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The API token ID.
+                 * @example tok_01jd3p5d9v1n6z8r0t2v4x6y8a
+                 */
+                token_id: components["parameters"]["TokenIdPath"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an API token
+         * @description Revokes the token at once; requests made with it are refused from then
+         *     on. Members can revoke their own tokens; an Owner or Admin can revoke
+         *     any token of the workspace. Revocation is final; the token disappears
+         *     from the list, so a second revoke answers `token_not_found`.
+         *
+         *     Scopes: `tokens:write`.
+         */
+        delete: operations["tokens.revoke"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the audit log
+         * @description Every change made through the API or the console, newest first, and
+         *     every attempt refused for lack of permission (scope, role, client
+         *     address or bucket limit). A row is written before the change runs;
+         *     `outcome: pending` means its result was not recorded. Dry runs are
+         *     recorded with `dry_run: true`. Reads are not recorded.
+         *
+         *     Scopes: `audit:read`.
+         */
+        get: operations["audit.list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/objects/presign": {
         parameters: {
             query?: never;
@@ -431,7 +531,7 @@ export interface components {
         };
         PlanEffect: {
             /** @enum {string} */
-            resource: "account" | "bucket" | "key";
+            resource: "account" | "bucket" | "key" | "token";
             id: string;
             /** @enum {string} */
             change: "delete" | "revoke" | "schedule_deletion";
@@ -632,6 +732,111 @@ export interface components {
             url: string;
             expires_at: components["schemas"]["Timestamp"];
         };
+        /**
+         * @description The API token ID. The token itself is `kofra_tok_`, this ID without `tok_`, `_` and the secret.
+         * @example tok_01jd3p5d9v1n6z8r0t2v4x6y8a
+         */
+        TokenId: string;
+        /**
+         * @description A member's user ID.
+         * @example usr_01jd3k9v6q2m8x4t7r5n0b1c3e
+         */
+        UserId: string;
+        /**
+         * @description A permission an API token can carry, as `resource:verb`.
+         * @enum {string}
+         */
+        Scope: "account:read" | "account:delete" | "buckets:read" | "buckets:write" | "buckets:delete" | "keys:read" | "keys:write" | "tokens:read" | "tokens:write" | "usage:read" | "events:read" | "audit:read" | "objects:read";
+        /** @description The scopes of a token. Each scope at most once. */
+        TokenScopes: components["schemas"]["Scope"][];
+        /** @description The only buckets the token can reach. Each bucket at most once. */
+        TokenBuckets: components["schemas"]["BucketName"][];
+        /**
+         * @description An IPv4 or IPv6 address, or a CIDR block such as `203.0.113.0/24`.
+         * @example 203.0.113.0/24
+         */
+        IpRange: string;
+        /** @description The only client addresses the token is accepted from. Each entry at most once. */
+        AllowedIps: components["schemas"]["IpRange"][];
+        /**
+         * @description Days until the token expires. Default 90.
+         * @default 90
+         */
+        TokenLifetimeDays: number;
+        /** @description A label for people; not used for access. */
+        TokenName: string;
+        ApiToken: {
+            id: components["schemas"]["TokenId"];
+            name: components["schemas"]["TokenName"];
+            scopes: components["schemas"]["Scope"][];
+            /** @description The only buckets the token can reach; `null` for every bucket the member can reach. */
+            buckets: components["schemas"]["BucketName"][] | null;
+            /** @description The only client addresses the token is accepted from; `null` for any address. */
+            allowed_ips: components["schemas"]["IpRange"][] | null;
+            /** @description The token is used by an AI agent. Shown as such in the audit log; an agent token cannot create tokens. */
+            agent: boolean;
+            created_by: components["schemas"]["UserId"];
+            created_at: components["schemas"]["Timestamp"];
+            expires_at: components["schemas"]["Timestamp"];
+            /** @description Last accepted request, to within an hour. `null` if never used. */
+            last_used_at: components["schemas"]["Timestamp"] | null;
+        };
+        /** @description An API token with its secret. The secret appears in this response only. */
+        ApiTokenCreated: components["schemas"]["ApiToken"] & {
+            /** @description The token to send as `Authorization: Bearer <token>`. `null` when this is a replay of an earlier request. */
+            token: string | null;
+        };
+        ApiTokenCreate: {
+            name: components["schemas"]["TokenName"];
+            scopes: components["schemas"]["TokenScopes"];
+            buckets?: components["schemas"]["TokenBuckets"];
+            allowed_ips?: components["schemas"]["AllowedIps"];
+            expires_in_days?: components["schemas"]["TokenLifetimeDays"];
+            /**
+             * @description Mark the token as used by an AI agent.
+             * @default false
+             */
+            agent: boolean;
+        };
+        ApiTokenList: {
+            data: components["schemas"]["ApiToken"][];
+            next_cursor: components["schemas"]["Cursor"] | null;
+        };
+        /** @description A member's user ID (`usr_...`) or an API token ID (`tok_...`). */
+        AuditActorId: string;
+        /** @description An operation of this API, for example `buckets.create`. */
+        OperationId: string;
+        AuditEntry: {
+            id: string;
+            created_at: components["schemas"]["Timestamp"];
+            /**
+             * @description `user`: a member in the console. `token`: an API token. `agent`: an API token marked `agent`.
+             * @enum {string}
+             */
+            actor_type: "user" | "token" | "agent";
+            actor_id: components["schemas"]["UserId"] | null;
+            /** @description The API token used, if any. */
+            credential_id: components["schemas"]["TokenId"] | null;
+            operation: components["schemas"]["OperationId"];
+            /** @description The bucket, key or token the operation named, if any. */
+            target: string | null;
+            dry_run: boolean;
+            /**
+             * @description `pending`: the request never finished. `refused`: answered with a 4xx. `failed`: answered with a 5xx.
+             * @enum {string}
+             */
+            outcome: "pending" | "succeeded" | "refused" | "failed";
+            status: number | null;
+            /** @description The error code of a refused or failed request. */
+            code: string | null;
+            request_id: string;
+            ip: string | null;
+            user_agent: string | null;
+        };
+        AuditList: {
+            data: components["schemas"]["AuditEntry"][];
+            next_cursor: components["schemas"]["Cursor"] | null;
+        };
         /** @description RFC 9457 problem details with Kofra's fields. Only `code` is stable. */
         Problem: {
             /**
@@ -672,6 +877,11 @@ export interface components {
          * @example backups
          */
         BucketPath: components["schemas"]["BucketName"];
+        /**
+         * @description The API token ID.
+         * @example tok_01jd3p5d9v1n6z8r0t2v4x6y8a
+         */
+        TokenIdPath: components["schemas"]["TokenId"];
         /**
          * @description The access key ID.
          * @example KF7Q2M8X4T7R5N0B
@@ -772,7 +982,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `insufficient_scope` */
+            /** @description `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -891,7 +1101,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `account_unavailable`, `insufficient_scope`, `role_forbidden` */
+            /** @description `account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -1020,7 +1230,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `insufficient_scope`, `role_forbidden` */
+            /** @description `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -1149,7 +1359,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `account_unavailable`, `insufficient_scope` */
+            /** @description `account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -1257,7 +1467,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `account_read_only`, `account_unavailable`, `insufficient_scope`, `role_forbidden` */
+            /** @description `account_read_only`, `account_unavailable`, `bucket_not_allowed`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -1410,7 +1620,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `account_unavailable`, `insufficient_scope` */
+            /** @description `account_unavailable`, `bucket_not_allowed`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -1545,7 +1755,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `account_unavailable`, `insufficient_scope`, `role_forbidden` */
+            /** @description `account_unavailable`, `bucket_not_allowed`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -1686,7 +1896,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `account_unavailable`, `insufficient_scope` */
+            /** @description `account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -1794,7 +2004,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `account_read_only`, `account_unavailable`, `insufficient_scope`, `role_forbidden` */
+            /** @description `account_read_only`, `account_unavailable`, `bucket_not_allowed`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -1978,7 +2188,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `account_unavailable`, `insufficient_scope`, `role_forbidden` */
+            /** @description `account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -2129,7 +2339,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `account_read_only`, `account_unavailable`, `insufficient_scope`, `role_forbidden` */
+            /** @description `account_read_only`, `account_unavailable`, `bucket_not_allowed`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -2288,7 +2498,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `account_unavailable`, `insufficient_scope` */
+            /** @description `account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -2397,7 +2607,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `account_unavailable`, `insufficient_scope` */
+            /** @description `account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -2501,7 +2711,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `account_unavailable`, `insufficient_scope` */
+            /** @description `account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -2605,7 +2815,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `account_unavailable`, `insufficient_scope` */
+            /** @description `account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
@@ -2619,6 +2829,539 @@ export interface operations {
             };
             /** @description `feed_reset` */
             409: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `rate_limited` */
+            429: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `internal_error` */
+            500: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `service_unavailable` */
+            503: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "tokens.list": {
+        parameters: {
+            query?: {
+                /** @description Items per page, 1 to 200. */
+                limit?: components["parameters"]["Limit"];
+                /** @description The `next_cursor` from the previous page. Omit for the first page. */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of API tokens. */
+            200: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    Link: components["headers"]["Link"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiTokenList"];
+                };
+            };
+            /** @description `invalid_cursor`, `unknown_field`, `validation_failed` */
+            400: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `token_expired`, `unauthenticated` */
+            401: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
+            403: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `rate_limited` */
+            429: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `internal_error` */
+            500: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `service_unavailable` */
+            503: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "tokens.create": {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. The key is bound to the method, the path, the query and the body of its first request: `dry_run=true` and a request without it (or with `dry_run=false`, which is the same request) are different requests and need different keys. 1 to 255 printable ASCII characters; a UUID is a good choice.
+                 * @example 6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApiTokenCreate"];
+            };
+        };
+        responses: {
+            /** @description The token was created. It is shown once. */
+            201: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiTokenCreated"];
+                };
+            };
+            /** @description `unknown_field`, `validation_failed` */
+            400: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `token_expired`, `unauthenticated` */
+            401: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `account_unavailable`, `bucket_not_allowed`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
+            403: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `idempotency_key_in_use` */
+            409: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `payload_too_large` */
+            413: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `unsupported_media_type` */
+            415: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `idempotency_key_reused` */
+            422: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `rate_limited` */
+            429: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `internal_error` */
+            500: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `service_unavailable` */
+            503: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "tokens.revoke": {
+        parameters: {
+            query?: {
+                /** @description When `true`, answer `200` with the plan of what would change, and change nothing. */
+                dry_run?: components["parameters"]["DryRun"];
+            };
+            header?: {
+                /**
+                 * @description Makes a retry safe: the same key and the same request within 24 hours return the first answer. The key is bound to the method, the path, the query and the body of its first request: `dry_run=true` and a request without it (or with `dry_run=false`, which is the same request) are different requests and need different keys. 1 to 255 printable ASCII characters; a UUID is a good choice.
+                 * @example 6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /**
+                 * @description The API token ID.
+                 * @example tok_01jd3p5d9v1n6z8r0t2v4x6y8a
+                 */
+                token_id: components["parameters"]["TokenIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dry run. What the revocation would do; nothing was changed. */
+            200: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Plan"];
+                };
+            };
+            /** @description The token was revoked. */
+            204: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `unknown_field`, `validation_failed` */
+            400: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `token_expired`, `unauthenticated` */
+            401: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
+            403: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `token_not_found` */
+            404: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `idempotency_key_in_use` */
+            409: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `idempotency_key_reused` */
+            422: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `rate_limited` */
+            429: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `internal_error` */
+            500: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `service_unavailable` */
+            503: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "audit.list": {
+        parameters: {
+            query?: {
+                /** @description Only rows made by this member (`usr_...`) or with this API token (`tok_...`). */
+                actor?: components["schemas"]["AuditActorId"];
+                /** @description Only rows of this operation, for example `buckets.delete`. */
+                operation?: components["schemas"]["OperationId"];
+                /** @description Only rows at or after this time. */
+                since?: components["schemas"]["Timestamp"];
+                /** @description Only rows before this time. */
+                until?: components["schemas"]["Timestamp"];
+                /** @description Items per page, 1 to 200. */
+                limit?: components["parameters"]["Limit"];
+                /** @description The `next_cursor` from the previous page. Omit for the first page. */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of audit rows. */
+            200: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    Link: components["headers"]["Link"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditList"];
+                };
+            };
+            /** @description `invalid_cursor`, `unknown_field`, `validation_failed` */
+            400: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `token_expired`, `unauthenticated` */
+            401: {
+                headers: {
+                    "Kofra-Request-Id": components["headers"]["KofraRequestId"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "RateLimit-Policy": components["headers"]["RateLimitPolicy"];
+                    "WWW-Authenticate": components["headers"]["WWWAuthenticate"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `account_unavailable`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
+            403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];
                     RateLimit: components["headers"]["RateLimit"];
@@ -2725,7 +3468,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `account_unavailable`, `insufficient_scope`, `role_forbidden` */
+            /** @description `account_unavailable`, `bucket_not_allowed`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden` */
             403: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];

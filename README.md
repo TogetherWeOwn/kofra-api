@@ -1,23 +1,25 @@
 # kofra-api
 
-The Kofra management API: its OpenAPI 3.1 contract, error catalogue, naming registry, mock server, and the
-Rust types that the API Worker will be built on.
+The Kofra management API: its OpenAPI 3.1 contract, error catalogue, naming registry, mock server, the Rust
+types generated from the contract, and the API's request pipeline and handlers (`kofra-api-core`).
 
 **Status: draft contract, nothing deployed.** The contract is published ahead of the service so that SDKs,
 the CLI, the MCP server and the console can be built against the mock.
 
 ## Layout
 
-| Path                       | What it is                                                                                                                                                                                                           |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `openapi/openapi.src.yaml` | Contract source (hand-written)                                                                                                                                                                                       |
-| `errors/catalogue.yaml`    | Every error code: status, title, meaning, one-sentence hint, retryable                                                                                                                                               |
-| `registry/operations.yaml` | One name everywhere: each operation's SDK method, CLI command, MCP tool and console label                                                                                                                            |
-| `generated/`               | Published artefacts, built by `pnpm run build` and committed: `openapi.yaml`, `openapi.json`, `errors.json`, one Markdown page per error code, the RFC 9727 `api-catalog`, and the entries for the site's `llms.txt` |
-| `tools/mock/server.mjs`    | Mock server driven entirely by `generated/openapi.json`                                                                                                                                                              |
-| `tools/f7/`                | Deny-list check over source and generated artefacts                                                                                                                                                                  |
-| `crates/kofra-api-types`   | Rust types generated from the contract (`cargo run -p xtask -- gen`)                                                                                                                                                 |
-| `xtask/`                   | The Rust type generator and its drift check                                                                                                                                                                          |
+| Path                       | What it is                                                                                                                                                                                                                                       |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `openapi/openapi.src.yaml` | Contract source (hand-written)                                                                                                                                                                                                                   |
+| `errors/catalogue.yaml`    | Every error code: status, title, meaning, one-sentence hint, retryable                                                                                                                                                                           |
+| `registry/operations.yaml` | One name everywhere: each operation's SDK method, CLI command, MCP tool and console label                                                                                                                                                        |
+| `generated/`               | Published artefacts, built by `pnpm run build` and committed: `openapi.yaml`, `openapi.json`, `errors.json`, one Markdown page per error code, the RFC 9727 `api-catalog`, and the entries for the site's `llms.txt`                             |
+| `tools/mock/server.mjs`    | Mock server driven entirely by `generated/openapi.json`                                                                                                                                                                                          |
+| `tools/f7/`                | Deny-list check over source and generated artefacts                                                                                                                                                                                              |
+| `crates/kofra-api-types`   | Rust types generated from the contract (`cargo run -p xtask -- gen`)                                                                                                                                                                             |
+| `crates/kofra-api-core`    | The API itself, independent of the runtime: authentication, scopes and roles, problem details, request IDs, idempotency, pagination, rate limits, the audit log, and one handler per operation, on ports (traits) with in-memory implementations |
+| `migrations/`              | The API's own database tables (workspaces, members, API tokens, idempotency records, audit log)                                                                                                                                                  |
+| `xtask/`                   | The Rust type generator and its drift check                                                                                                                                                                                                      |
 
 ## What the contract covers
 
@@ -30,9 +32,12 @@ Only operations whose storage support exists today or is fixed by the tenancy de
 - **Usage**: current totals and limits, daily series, per bucket.
 - **Events**: the workspace event feed, cursor-paged.
 - **Objects**: presigned download URLs (at most 15 minutes).
+- **API tokens**: list, create (shown once; never more scopes, buckets, addresses or lifetime than the creating
+  credential), revoke.
+- **Audit log**: every change, and every attempt refused for lack of permission, newest first.
 
 Bucket settings (versioning, lifecycle, CORS, public access, Object Lock), custom domains, share links,
-webhooks, API tokens, members, billing, audit and support tickets are absent until the feature behind each one
+webhooks, members, billing and support tickets are absent until the feature behind each one
 exists. A test fails if any of the unbuilt storage features appears in the contract.
 
 Conventions (all in the contract's `info.description`): bearer API tokens with scopes, RFC 9457
@@ -52,6 +57,39 @@ pnpm run mock         # mock server on 127.0.0.1:4010
 cargo run -p xtask -- gen    # regenerate the Rust types after a contract change
 cargo test --workspace
 ```
+
+## The API core
+
+`crates/kofra-api-core` answers one request at a time: `Api::handle(Request) -> Response`. It reaches
+everything outside the process through the traits in `ports.rs` (its own database, the rate limiter, the
+storage management plane, the clock and the random source), so the same code runs in tests on the in-memory
+ports of `memory.rs` and, later, in the Workers shell on real bindings. It is not deployed yet.
+
+Every request runs one pipeline: request ID, route (from the contract's route table), authentication, client
+address, scopes and role, rate limits, validation, account state, idempotency, an audit row before any write,
+the handler, then the standard headers. The integration tests in `crates/kofra-api-core/tests` check every
+answer against the contract: the status and error code must be declared for the operation, and every success
+body must round-trip through the contract's Rust type.
+
+Credentials:
+
+- **API tokens** on the public hostname: `kofra_tok_<id>_<secret><checksum>`. Only the SHA-256 is stored; the
+  checksum lets scanners spot a leaked token and lets the API refuse a mistyped one without a lookup.
+- **Console session assertions** only on the console's private service binding: the console signs which member
+  of which workspace is signed in, per request, for at most 60 seconds. The console then uses the same API, with
+  the same SDK, as every other client.
+
+Effective permission is the credential's scopes limited by the member's role at every request:
+
+| Role    | Scopes                                                                         |
+| ------- | ------------------------------------------------------------------------------ |
+| Owner   | all                                                                            |
+| Admin   | all except `account:delete`                                                    |
+| Billing | `account:read`, `usage:read`, `tokens:read`, `tokens:write`                    |
+| Member  | all reads except `audit:read`; `buckets:write`, `keys:write`, `tokens:write`   |
+| Viewer  | all reads except `audit:read`; `tokens:write` (for their own read-only tokens) |
+
+Owners and Admins see and revoke every API token of the workspace; other members only their own.
 
 The mock accepts any `Authorization: Bearer kofra_tok_<...>` token (a token ending in `_readonly` has only
 read scopes), validates requests against the contract, and answers with the contract's examples. Pick another

@@ -13,12 +13,15 @@ Every error is an RFC 9457 `application/problem+json` body with a stable `code`,
 | [`unauthenticated`](unauthenticated.md) | 401 | no | Authentication required |
 | [`token_expired`](token_expired.md) | 401 | no | API token has expired |
 | [`insufficient_scope`](insufficient_scope.md) | 403 | no | Token lacks a required scope |
+| [`ip_not_allowed`](ip_not_allowed.md) | 403 | no | Request address is not allowed for this token |
+| [`bucket_not_allowed`](bucket_not_allowed.md) | 403 | no | Token is limited to other buckets |
 | [`role_forbidden`](role_forbidden.md) | 403 | no | Your role does not allow this |
 | [`account_read_only`](account_read_only.md) | 403 | no | Account is read-only |
 | [`account_unavailable`](account_unavailable.md) | 403 | no | Account is not available |
 | [`not_found`](not_found.md) | 404 | no | No such endpoint |
 | [`bucket_not_found`](bucket_not_found.md) | 404 | no | Bucket not found |
 | [`key_not_found`](key_not_found.md) | 404 | no | Access key not found |
+| [`token_not_found`](token_not_found.md) | 404 | no | API token not found |
 | [`method_not_allowed`](method_not_allowed.md) | 405 | no | Method not allowed |
 | [`payload_too_large`](payload_too_large.md) | 413 | no | Request body is too large |
 | [`unsupported_media_type`](unsupported_media_type.md) | 415 | no | Body must be JSON |
