@@ -14,5 +14,9 @@ pub(super) async fn presign<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Pro
     };
     ctx.principal.check_bucket(body.bucket.as_str())?;
     let url = ctx.api.ports.storage().presign(ctx.acting()?, body).await?;
-    Ok(Reply::json(200, to_json(&url)?))
+    // A presigned URL is a bearer credential: it is never kept in an
+    // idempotency record. Minting another is harmless.
+    let mut reply = Reply::json(200, to_json(&url)?);
+    reply.no_store = true;
+    Ok(reply)
 }

@@ -1,8 +1,9 @@
 //! `events.list`: the workspace's event feed, oldest first. The cursor is
 //! never `null`: at the end it is the position to poll from.
 //!
-//! A token limited to some buckets does not see events about other buckets
-//! (events whose `data.bucket` names one).
+//! A token limited to some buckets sees only events about its buckets
+//! (`data.bucket` in its list); events that name no bucket, such as a key
+//! being created, are not shown to it, since they can concern any bucket.
 
 use super::{open_cursor, page, to_json};
 use crate::{
@@ -23,7 +24,12 @@ pub(super) async fn list<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Proble
     let mut data = Vec::new();
     for e in &events {
         let bucket = e.data.get("bucket").and_then(serde_json::Value::as_str);
-        if bucket.is_none_or(|b| ctx.principal.bucket_allowed(b)) {
+        let shown = match (&ctx.principal.buckets, bucket) {
+            (None, _) => true,
+            (Some(_), Some(b)) => ctx.principal.bucket_allowed(b),
+            (Some(_), None) => false,
+        };
+        if shown {
             data.push(to_json(e)?);
         }
     }

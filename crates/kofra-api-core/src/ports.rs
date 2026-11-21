@@ -192,15 +192,22 @@ pub trait IdempotencyStore {
         workspace: &str,
         key: &str,
         fingerprint: &[u8; 32],
+        claimed_at_ms: u64,
         stored: &Stored,
     ) -> Result<(), PortError>;
     /// Drops a claimed record whose request failed in a way that may be
     /// retried, so that the retry runs again.
+    ///
+    /// `finish` and `release` act only on the pending claim made at
+    /// `claimed_at_ms` (the record's claim time, compared in the same
+    /// conditional write): a request whose claim was taken over after its
+    /// lease cannot overwrite or drop the newer claim.
     async fn release(
         &self,
         workspace: &str,
         key: &str,
         fingerprint: &[u8; 32],
+        claimed_at_ms: u64,
     ) -> Result<(), PortError>;
 }
 

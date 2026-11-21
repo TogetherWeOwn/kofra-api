@@ -126,7 +126,8 @@ fn a_takeover_finds_the_token_instead_of_making_a_second_one() {
     let fp = idempotency::fingerprint(&id, "POST", "/v1/tokens", "", &bytes);
     let first = send();
     assert_eq!(first.status, 201);
-    pollster::block_on(h.api.ports.idempotency.release("ws_a", "t1", &fp)).expect("drop");
+    // Lose the record, as if `finish` had failed, then leave a stale claim.
+    h.api.ports.idempotency.forget("ws_a", "t1");
     pollster::block_on(h.api.ports.idempotency.begin(
         "ws_a",
         "t1",
@@ -187,4 +188,67 @@ fn bucket_limited_tokens_cannot_be_given_workspace_wide_scopes() {
         );
         assert_eq!(code(&r), "validation_failed", "{scope}");
     }
+}
+
+#[test]
+fn presigned_urls_are_never_kept_for_replay() {
+    let h = setup();
+    let owner = h.owner();
+    let send = || {
+        let mut r = H::with_body(
+            h.req("POST", "/v1/objects/presign", Some(&owner)),
+            &json!({ "bucket": "backups", "key": "a.txt", "method": "GET" }),
+        );
+        r.headers.push(("Idempotency-Key".into(), "p1".into()));
+        h.send(r)
+    };
+    assert_eq!(send().status, 200);
+    assert!(h.api.ports.idempotency.is_empty());
+    let again = send();
+    assert_eq!(
+        (again.status, again.header("Idempotent-Replayed")),
+        (200, None)
+    );
+}
+
+#[test]
+fn bucket_limited_tokens_see_only_events_about_their_buckets() {
+    let h = setup();
+    let owner = h.owner();
+    h.call(
+        "POST",
+        "/v1/buckets",
+        &owner,
+        Some(json!({ "name": "seen" })),
+    );
+    h.call(
+        "POST",
+        "/v1/buckets",
+        &owner,
+        Some(json!({ "name": "unseen" })),
+    );
+    h.call(
+        "POST",
+        "/v1/keys",
+        &owner,
+        Some(json!({ "grants": [{ "bucket": "unseen", "access": "read" }] })),
+    );
+    let (tok, _) = h.token(Tok {
+        buckets: Some(&["seen"]),
+        ..Tok::default()
+    });
+    let body = h.call("GET", "/v1/events", &tok, None).json_body();
+    let types: Vec<String> = body["data"]
+        .as_array()
+        .expect("data")
+        .iter()
+        .map(|e| {
+            format!(
+                "{} {}",
+                e["type"].as_str().unwrap_or_default(),
+                e["data"]["bucket"]
+            )
+        })
+        .collect();
+    assert_eq!(types, ["bucket.created \"seen\""]);
 }

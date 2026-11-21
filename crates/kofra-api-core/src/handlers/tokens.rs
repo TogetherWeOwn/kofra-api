@@ -210,6 +210,7 @@ pub(super) async fn create<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Prob
             replay_body: Some(shown),
             headers: Vec::new(),
             created: Some(existing.id),
+            no_store: false,
         });
     }
     let mut shown = to_json(&record);
@@ -222,6 +223,7 @@ pub(super) async fn create<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Prob
         replay_body: Some(replay),
         headers: Vec::new(),
         created: Some(record.id),
+        no_store: false,
     })
 }
 

@@ -129,7 +129,7 @@ fn a_running_request_holds_its_key_until_the_lease_ends() {
         idempotency::TTL_MS,
     ))
     .expect("claim");
-    assert_eq!(begin, idempotency::Begin::Started);
+    assert!(matches!(begin, idempotency::Begin::Started { .. }));
     let r = keyed(
         &h,
         "POST",

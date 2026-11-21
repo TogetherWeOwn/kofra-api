@@ -95,6 +95,7 @@ pub(super) async fn create<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Prob
         replay_body: Some(replay),
         headers: Vec::new(),
         created: Some(created.id.to_string()),
+        no_store: false,
     })
 }
 

@@ -136,6 +136,9 @@ pub struct Reply {
     pub headers: Vec<(String, String)>,
     /// The ID of what the request created, for the audit row.
     pub created: Option<String>,
+    /// Never store this answer for a replay (it holds a bearer URL); the
+    /// claim is released instead, so a retry runs again.
+    pub no_store: bool,
 }
 
 impl Reply {
@@ -419,7 +422,10 @@ impl<P: Ports> Api<P> {
                     r.set_header("Idempotent-Replayed", "true");
                     return Ok(r);
                 }
-                Some((key.clone(), fp))
+                let Begin::Started { claimed_at_ms } = begin else {
+                    return Err(Problem::new("internal_error"));
+                };
+                Some((key.clone(), fp, claimed_at_ms))
             }
             None => None,
         };
@@ -430,8 +436,8 @@ impl<P: Ports> Api<P> {
         let tenant = match self.load_tenant(&principal, op.id).await {
             Ok(t) => t,
             Err(p) => {
-                if let Some((key, fp)) = &claim {
-                    let _ = self.ports.idempotency().release(&ws_id, key, fp).await;
+                if let Some((key, fp, at)) = &claim {
+                    let _ = self.ports.idempotency().release(&ws_id, key, fp, *at).await;
                 }
                 return Err(p);
             }
@@ -440,8 +446,8 @@ impl<P: Ports> Api<P> {
         if creates_credential(op.id)
             && let Err(p) = self.take_creation(&principal, now_ms, limits).await
         {
-            if let Some((key, fp)) = &claim {
-                let _ = self.ports.idempotency().release(&ws_id, key, fp).await;
+            if let Some((key, fp, at)) = &claim {
+                let _ = self.ports.idempotency().release(&ws_id, key, fp, *at).await;
             }
             return Err(p);
         }
@@ -457,8 +463,8 @@ impl<P: Ports> Api<P> {
             .row(&principal);
             row.outcome = Outcome::Pending;
             if let Err(e) = self.ports.audit().begin(&row).await {
-                if let Some((key, fp)) = &claim {
-                    let _ = self.ports.idempotency().release(&ws_id, key, fp).await;
+                if let Some((key, fp, at)) = &claim {
+                    let _ = self.ports.idempotency().release(&ws_id, key, fp, *at).await;
                 }
                 return Err(e.into());
             }
@@ -481,8 +487,10 @@ impl<P: Ports> Api<P> {
             request_id: request_id.to_owned(),
         };
         let result = handlers::dispatch(&mut ctx).await;
+        let mut no_store = false;
         let (resp, replay, created, code) = match result {
             Ok(reply) => {
+                no_store = reply.no_store;
                 let resp = reply.response();
                 let replay = match &reply.replay_body {
                     Some(b) => Response {
@@ -523,11 +531,11 @@ impl<P: Ports> Api<P> {
                 )
                 .await;
         }
-        if let Some((key, fp)) = claim {
+        if let Some((key, fp, at)) = claim {
             let store = self.ports.idempotency();
             // Only final answers are stored: a 5xx or a 429 (busy storage)
             // releases the key, so the retry runs again.
-            if resp.status < 500 && resp.status != 429 {
+            if resp.status < 500 && resp.status != 429 && !no_store {
                 let stored = Stored {
                     status: replay.status,
                     headers: replay
@@ -541,9 +549,9 @@ impl<P: Ports> Api<P> {
                         .collect(),
                     body: replay.body,
                 };
-                let _ = store.finish(&ws_id, &key, &fp, &stored).await;
+                let _ = store.finish(&ws_id, &key, &fp, at, &stored).await;
             } else {
-                let _ = store.release(&ws_id, &key, &fp).await;
+                let _ = store.release(&ws_id, &key, &fp, at).await;
             }
         }
         Ok(resp)

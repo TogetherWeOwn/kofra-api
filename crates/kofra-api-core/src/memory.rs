@@ -319,6 +319,14 @@ impl MemoryIdempotency {
         self.claims.borrow().len()
     }
 
+    /// Drops a record whatever its state, as if it had never been written
+    /// (tests of lost records).
+    pub fn forget(&self, workspace: &str, key: &str) {
+        self.claims
+            .borrow_mut()
+            .remove(&(workspace.to_owned(), key.to_owned()));
+    }
+
     /// Whether there are no stored claims.
     pub fn is_empty(&self) -> bool {
         self.claims.borrow().is_empty()
@@ -350,7 +358,9 @@ impl IdempotencyStore for MemoryIdempotency {
                 }
                 ClaimState::Pending => {
                     claim.created_ms = now_ms;
-                    Begin::Started
+                    Begin::Started {
+                        claimed_at_ms: now_ms,
+                    }
                 }
                 ClaimState::Done(stored) => Begin::Done(stored.clone()),
             });
@@ -363,7 +373,9 @@ impl IdempotencyStore for MemoryIdempotency {
                 state: ClaimState::Pending,
             },
         );
-        Ok(Begin::Started)
+        Ok(Begin::Started {
+            claimed_at_ms: now_ms,
+        })
     }
 
     async fn finish(
@@ -371,6 +383,7 @@ impl IdempotencyStore for MemoryIdempotency {
         workspace: &str,
         key: &str,
         fingerprint: &[u8; 32],
+        claimed_at_ms: u64,
         stored: &Stored,
     ) -> Result<(), PortError> {
         check_failure(&self.fail)?;
@@ -379,6 +392,8 @@ impl IdempotencyStore for MemoryIdempotency {
             .borrow_mut()
             .get_mut(&(workspace.to_owned(), key.to_owned()))
             && claim.fingerprint == *fingerprint
+            && claim.created_ms == claimed_at_ms
+            && matches!(claim.state, ClaimState::Pending)
         {
             claim.state = ClaimState::Done(stored.clone());
         }
@@ -390,14 +405,16 @@ impl IdempotencyStore for MemoryIdempotency {
         workspace: &str,
         key: &str,
         fingerprint: &[u8; 32],
+        claimed_at_ms: u64,
     ) -> Result<(), PortError> {
         check_failure(&self.fail)?;
         let mut claims = self.claims.borrow_mut();
         let key = (workspace.to_owned(), key.to_owned());
-        if claims
-            .get(&key)
-            .is_some_and(|claim| claim.fingerprint == *fingerprint)
-        {
+        if claims.get(&key).is_some_and(|claim| {
+            claim.fingerprint == *fingerprint
+                && claim.created_ms == claimed_at_ms
+                && matches!(claim.state, ClaimState::Pending)
+        }) {
             claims.remove(&key);
         }
         Ok(())
@@ -1179,27 +1196,31 @@ mod tests {
             let a = [1; 32];
             let b = [2; 32];
             let begin = |now, fingerprint| store.begin("ws", "key", fingerprint, now, 10, 100);
+            let started = |at| Begin::Started { claimed_at_ms: at };
             assert!(store.is_empty());
-            assert_eq!(begin(0, &a).await.unwrap(), Begin::Started);
+            assert_eq!(begin(0, &a).await.unwrap(), started(0));
             assert_eq!(begin(1, &b).await.unwrap(), Begin::Mismatch);
             assert_eq!(begin(9, &a).await.unwrap(), Begin::InFlight);
             assert_eq!(begin(10, &b).await.unwrap(), Begin::Mismatch);
-            assert_eq!(begin(10, &a).await.unwrap(), Begin::Started);
+            assert_eq!(begin(10, &a).await.unwrap(), started(10));
             assert_eq!(begin(11, &a).await.unwrap(), Begin::InFlight);
             let result = Stored {
                 status: 201,
                 headers: vec![],
                 body: vec![1],
             };
-            store.finish("ws", "key", &b, &result).await.unwrap();
-            store.release("ws", "key", &b).await.unwrap();
+            // Another fingerprint, or the claim that was taken over, acts on nothing.
+            store.finish("ws", "key", &b, 10, &result).await.unwrap();
+            store.release("ws", "key", &b, 10).await.unwrap();
+            store.release("ws", "key", &a, 0).await.unwrap();
+            store.finish("ws", "key", &a, 0, &result).await.unwrap();
             assert_eq!(begin(12, &a).await.unwrap(), Begin::InFlight);
-            store.finish("ws", "key", &a, &result).await.unwrap();
+            store.finish("ws", "key", &a, 10, &result).await.unwrap();
             assert_eq!(begin(109, &a).await.unwrap(), Begin::Done(result));
             assert_eq!(begin(109, &b).await.unwrap(), Begin::Mismatch);
-            assert_eq!(begin(110, &b).await.unwrap(), Begin::Started);
+            assert_eq!(begin(110, &b).await.unwrap(), started(110));
             assert_eq!(store.len(), 1);
-            store.release("ws", "key", &b).await.unwrap();
+            store.release("ws", "key", &b, 110).await.unwrap();
             assert!(store.is_empty());
         });
     }

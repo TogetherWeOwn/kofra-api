@@ -54,8 +54,13 @@ pub struct Stored {
 /// The answer of a claim.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Begin {
-    /// The key is now held by this request.
-    Started,
+    /// The key is now held by this request. `claimed_at_ms` names this
+    /// claim: finishing or releasing it acts only on this claim, never on a
+    /// later one that took it over.
+    Started {
+        /// The claim time, Unix ms (the `now_ms` of the claim).
+        claimed_at_ms: u64,
+    },
     /// The first request with this key is still running.
     InFlight,
     /// The key was used for another request.
@@ -108,7 +113,7 @@ pub fn refusal(begin: &Begin) -> Option<Problem> {
     match begin {
         Begin::InFlight => Some(Problem::new("idempotency_key_in_use").retry_after(1)),
         Begin::Mismatch => Some(Problem::new("idempotency_key_reused")),
-        Begin::Started | Begin::Done(_) => None,
+        Begin::Started { .. } | Begin::Done(_) => None,
     }
 }
 
