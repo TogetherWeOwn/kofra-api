@@ -407,7 +407,6 @@ impl<P: Ports> Accounts<P> {
         }
         let user = store.user(&s.user_id).await?.ok_or_else(invalid)?;
         if s.epoch != user.epoch {
-            store.delete_session(&s.user_id, &s.id).await?;
             return Err(invalid());
         }
         if now.saturating_sub(s.last_seen_at) >= TOUCH_MS {
@@ -447,15 +446,15 @@ impl<P: Ports> Accounts<P> {
             .filter(|t| t.enabled))
     }
 
-    /// When the user has no second factor yet, the current password must
-    /// come with the request that adds the first one.
+    /// Requires the current password when the session has level below 2.
     async fn check_first_factor_password(
         &self,
+        session: &SessionRecord,
         user: &UserRecord,
         password: Option<&str>,
         client: &Client,
     ) -> Result<()> {
-        if self.has_second_factor(&user.id).await? {
+        if session.level >= 2 {
             return Ok(());
         }
         self.limit(&format!("reauth:{}", user.id), 10, 15 * MINUTE)
@@ -1280,9 +1279,7 @@ impl<P: Ports> Accounts<P> {
     /// Returns new recovery codes when this is the user's first second
     /// factor.
     ///
-    /// The first second factor also needs the current password: whoever
-    /// holds only a session must not be able to bind a factor that would
-    /// then lock the owner out of a password reset.
+    /// A session below level 2 also needs the current password.
     pub async fn totp_confirm(
         &self,
         token: Option<&str>,
@@ -1290,13 +1287,13 @@ impl<P: Ports> Accounts<P> {
         password: Option<&str>,
         client: &Client,
     ) -> Result<Option<Vec<String>>> {
-        let (mut s, user) = self.fresh(token).await?;
+        let (s, user) = self.fresh(token).await?;
         self.limit(&format!("second:{}", user.id), 10, 15 * MINUTE)
             .await?;
-        self.check_first_factor_password(&user, password, client)
+        self.check_first_factor_password(&s, &user, password, client)
             .await?;
         let store = self.ports.store();
-        let mut rec = store
+        let rec = store
             .totp(&user.id)
             .await?
             .filter(|t| !t.enabled)
@@ -1308,15 +1305,11 @@ impl<P: Ports> Accounts<P> {
         let step = totp::parse_code(code)
             .and_then(|c| totp::verify(&secret, c, self.now(), 0))
             .ok_or(Code::CodeInvalid)?;
-        rec.enabled = true;
-        rec.last_step = step;
-        store.put_totp(&rec).await?;
+        store
+            .enable_totp(&user.id, step, s.epoch, &s.id, self.now())
+            .await?
+            .ok_or(Code::SessionInvalid)?;
         let codes = self.first_recovery_codes(&user.id, client).await?;
-        s.level = 2;
-        store.update_session(&s).await?;
-        // Adding a factor raises the epoch (other devices sign in again with
-        // it, and links made before it stop working); this device stays.
-        store.bump_epoch(&user.id, Some(&s.id), self.now()).await?;
         self.event(&user.id, EventKind::TotpEnabled, client).await?;
         self.send(mail::notice(
             &user.email,
@@ -1330,21 +1323,19 @@ impl<P: Ports> Accounts<P> {
     /// `DELETE /totp`: turns the authenticator app off, voids the recovery
     /// codes, and signs out every other device.
     pub async fn totp_disable(&self, token: Option<&str>, client: &Client) -> Result<()> {
-        let (mut s, user) = self.fresh(token).await?;
+        let (s, user) = self.fresh(token).await?;
         let store = self.ports.store();
         if store.totp(&user.id).await?.is_none() {
             return Err(Code::NotFound.into());
         }
-        store.delete_totp(&user.id).await?;
         store
-            .replace_recovery_codes(&user.id, &[], self.now())
-            .await?;
+            .disable_totp(&user.id, s.epoch, &s.id, self.now())
+            .await?
+            .ok_or(Code::SessionInvalid)?;
         store
             .void_email_tokens(&user.id, &ALL_PURPOSES, self.now())
             .await?;
         store.delete_sessions(&user.id, Some(&s.id)).await?;
-        s.level = 1;
-        store.update_session(&s).await?;
         self.event(&user.id, EventKind::TotpDisabled, client)
             .await?;
         self.send(mail::notice(

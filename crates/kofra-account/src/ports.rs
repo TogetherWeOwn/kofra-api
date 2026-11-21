@@ -56,11 +56,16 @@ pub trait Store {
         expected_epoch: u64,
         now_ms: u64,
     ) -> PortResult<Option<u64>>;
-    /// Raises the credential epoch (a second factor was added or removed)
-    /// and, in the same batch, stamps the new epoch on the session `keep`,
-    /// so that the device making the change stays signed in. Returns the
-    /// new epoch.
-    async fn bump_epoch(&self, user_id: &str, keep: Option<&str>, now_ms: u64) -> PortResult<u64>;
+    /// Atomically raises the epoch by one and sets `updated_at` if the user
+    /// is still at `expected_epoch`. Stamps the new epoch on `keep` if it
+    /// belongs to the user. Returns the new epoch, or `None` with no writes.
+    async fn bump_epoch(
+        &self,
+        user_id: &str,
+        expected_epoch: u64,
+        keep: Option<&str>,
+        now_ms: u64,
+    ) -> PortResult<Option<u64>>;
     /// Marks the address confirmed if it is not yet, and raises the epoch in
     /// the same statement (sign-ins in flight before the confirmation are
     /// refused); `true` if this call did it.
@@ -108,8 +113,8 @@ pub trait Store {
         purposes: &[Purpose],
         now_ms: u64,
     ) -> PortResult<()>;
-    /// Atomically marks the link used if it is still usable; returns it, or
-    /// `None` if another request took it first (or it is not usable).
+    /// Atomically marks the link used if it is still usable and its epoch
+    /// matches the user's current epoch. Returns it, or `None` with no writes.
     async fn take_email_token(
         &self,
         hash: &[u8; 32],
@@ -124,8 +129,29 @@ pub trait Store {
     async fn totp(&self, user_id: &str) -> PortResult<Option<TotpRecord>>;
     /// Stores or replaces it.
     async fn put_totp(&self, record: &TotpRecord) -> PortResult<()>;
-    /// Removes it.
-    async fn delete_totp(&self, user_id: &str) -> PortResult<()>;
+    /// Atomically enables pending TOTP at `expected_epoch`, records `step`,
+    /// raises the epoch, and sets `updated_at`. Sets the epoch and level 2
+    /// on `keep` if it belongs to the user. Returns the new epoch, or `None`
+    /// with no writes if the epoch changed or TOTP is missing or enabled.
+    async fn enable_totp(
+        &self,
+        user_id: &str,
+        step: u64,
+        expected_epoch: u64,
+        keep: &str,
+        now_ms: u64,
+    ) -> PortResult<Option<u64>>;
+    /// Atomically removes TOTP and voids all recovery codes at
+    /// `expected_epoch`, raises the epoch, and sets `updated_at`. Sets the
+    /// epoch and level 1 on `keep` if it belongs to the user. Returns the new
+    /// epoch, or `None` with no writes if the epoch changed or TOTP is missing.
+    async fn disable_totp(
+        &self,
+        user_id: &str,
+        expected_epoch: u64,
+        keep: &str,
+        now_ms: u64,
+    ) -> PortResult<Option<u64>>;
     /// Atomically sets `last_step = step` if `last_step < step`; `false` if a
     /// code of this or a later step was accepted already (a replay).
     async fn advance_totp(&self, user_id: &str, step: u64) -> PortResult<bool>;
@@ -156,7 +182,7 @@ pub trait Store {
     /// Unused codes left.
     async fn recovery_codes_left(&self, user_id: &str) -> PortResult<u32>;
 
-    /// The user's workspaces with their membership, active memberships only.
+    /// The user's active memberships in workspaces that are not closed.
     async fn memberships(&self, user_id: &str) -> PortResult<Vec<(WorkspaceRecord, MemberRecord)>>;
     /// Workspaces the user owns that are not closed.
     async fn owned_workspaces(&self, user_id: &str) -> PortResult<u32>;
@@ -169,22 +195,21 @@ pub trait Store {
         owner: &MemberRecord,
         max_owned: u32,
     ) -> PortResult<bool>;
-    /// Records a provisioning attempt; `false` if another attempt was
-    /// recorded after `not_after_ms` (so this one should not run).
+    /// Records a provisioning attempt. Returns `false` if the workspace is
+    /// absent, is not setting up, or has an attempt after `not_after_ms`.
     async fn claim_provisioning(
         &self,
         workspace_id: &str,
         not_after_ms: u64,
         now_ms: u64,
     ) -> PortResult<bool>;
-    /// Stores the tenant and makes the workspace active.
+    /// Stores the tenant and makes the workspace active only while setting up.
     async fn set_tenant(&self, workspace_id: &str, tenant_id: &str) -> PortResult<()>;
-    /// Closes a workspace whose tenant can never be created (the reference
-    /// is gone), so it leaves the retry queue and frees its slot.
+    /// Closes a workspace only while it is setting up, freeing its slot.
     async fn close_workspace(&self, workspace_id: &str) -> PortResult<()>;
     /// Workspaces still setting up, oldest first, for the retry job.
     async fn workspaces_setting_up(&self, limit: usize) -> PortResult<Vec<WorkspaceRecord>>;
-    /// Owners of a workspace (for the principal step of provisioning).
+    /// Owners of a workspace with active memberships, for provisioning.
     async fn owners(&self, workspace_id: &str) -> PortResult<Vec<String>>;
 
     /// One write of the same cost as an e-mail link insert, made on the

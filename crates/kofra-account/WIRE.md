@@ -103,7 +103,7 @@ interface SecurityEvent { at: string; kind: string; user_agent: string; country:
 | `POST /account/v1/email/change` | full, fresh step | `{ email }` | `202 {}` |
 | `PATCH /account/v1/profile` | full, verified | `{ name }` | `200 User` |
 | `POST /account/v1/totp/begin` | full, fresh step | none | `200 { "secret": base32, "uri": "otpauth://totp/..." }` |
-| `POST /account/v1/totp/confirm` | full, fresh step | `{ code, password? }` (`password` required when this is the first second factor) | `200 { "recovery_codes": string[] \| null }` (a new set only when the user had no unused recovery code) |
+| `POST /account/v1/totp/confirm` | full, fresh step | `{ code, password? }` (`password` required for sessions below level 2) | `200 { "recovery_codes": string[] \| null }` (a new set only when the user had no unused recovery code) |
 | `DELETE /account/v1/totp` | full, fresh step | | `204` |
 | `POST /account/v1/recovery-codes` | full, fresh step | none | `200 { "recovery_codes": string[] }` |
 | `POST /account/v1/workspaces` | full, verified | `{ name }` | `201 WorkspaceSummary` |
