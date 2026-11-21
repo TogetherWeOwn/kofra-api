@@ -82,6 +82,8 @@ impl Fixture {
             expires_at_ms: NOW + 86_400_000,
             last_used_at_ms: None,
             revoked_at_ms: None,
+            idempotency_key: None,
+            idempotency_fingerprint: None,
         };
         block_on(kofra_api_core::ports::Directory::insert_token(
             &memory.directory,
