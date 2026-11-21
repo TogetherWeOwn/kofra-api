@@ -56,6 +56,7 @@ pub fn declared_query(op_id: &str) -> &'static [&'static str] {
         "buckets.list" | "keys.list" | "usage.buckets" | "events.list" | "tokens.list" => PAGE,
         "usage.days" => &["after", "limit", "cursor"],
         "audit.list" => &["actor", "operation", "since", "until", "limit", "cursor"],
+        "objects.list" => &["prefix", "delimiter", "limit", "cursor"],
         "account.delete" | "buckets.delete" | "keys.revoke" | "tokens.revoke" => &["dry_run"],
         _ => &[],
     }
@@ -76,6 +77,9 @@ pub fn check_query(op_id: &str, q: &Query) -> Result<(), Problem> {
     }
     if op_id == "usage.days" {
         usage::after_day(q)?;
+    }
+    if op_id == "objects.list" {
+        objects::filters(q)?;
     }
     Ok(())
 }
@@ -216,6 +220,7 @@ pub async fn dispatch<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Problem> 
         "usage.days" => usage::days(ctx).await,
         "usage.buckets" => usage::buckets(ctx).await,
         "events.list" => events::list(ctx).await,
+        "objects.list" => objects::list(ctx).await,
         "objects.presign" => objects::presign(ctx).await,
         "tokens.list" => tokens::list(ctx).await,
         "tokens.create" => tokens::create(ctx).await,
@@ -257,6 +262,19 @@ fn page<P: Ports>(
     data: Vec<Value>,
     next: Option<String>,
 ) -> Result<Reply, Problem> {
+    page_with(ctx, filters, data, serde_json::Map::new(), next)
+}
+
+/// A list answer with more top-level fields beside `data` and
+/// `next_cursor`. `filters` must be percent-encoded: it goes into the `Link`
+/// URL as it is.
+fn page_with<P: Ports>(
+    ctx: &Ctx<'_, P>,
+    filters: &str,
+    data: Vec<Value>,
+    extra: serde_json::Map<String, Value>,
+    next: Option<String>,
+) -> Result<Reply, Problem> {
     let next_cursor = match next {
         Some(pos) => Some(
             cursor::seal(&ctx.api.config.cursor_key, &binding(ctx, filters), &pos)
@@ -264,10 +282,10 @@ fn page<P: Ports>(
         ),
         None => None,
     };
-    let mut reply = Reply::json(
-        200,
-        serde_json::json!({ "data": data, "next_cursor": next_cursor }),
-    );
+    let mut body = extra;
+    body.insert("data".into(), Value::Array(data));
+    body.insert("next_cursor".into(), serde_json::json!(next_cursor));
+    let mut reply = Reply::json(200, Value::Object(body));
     if let Some(c) = &next_cursor {
         let mut link = format!("<{}?cursor={c}", ctx.matched.op.path);
         if !filters.is_empty() {
