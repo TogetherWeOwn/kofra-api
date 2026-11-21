@@ -307,7 +307,15 @@ impl<P: Ports> Accounts<P> {
             .map_err(|w| AccountError::new(Code::WeakPassword).detail(w.sentence()))?;
         // A failed check accepts the password: the breach list is a second
         // line, and an outage of it must not stop sign-up or a reset.
-        if self.ports.breach().breached(pw).await.unwrap_or(false) {
+        // The list is checked with the same normal form that is hashed, so a
+        // Unicode variant of a listed password is caught too.
+        if self
+            .ports
+            .breach()
+            .breached(&password::normal(pw))
+            .await
+            .unwrap_or(false)
+        {
             return Err(AccountError::new(Code::BreachedPassword)
                 .detail("This password appears in a known data breach. Choose another one."));
         }
@@ -433,6 +441,10 @@ impl<P: Ports> Accounts<P> {
     /// authenticator-app code, anything else as a recovery code. Spends what
     /// it accepts. `false` if neither matches.
     async fn second_factor(&self, user: &UserRecord, code: &str, client: &Client) -> Result<bool> {
+        // One bucket for every code attempt (sign-in, re-authentication,
+        // reset, set-up), so they cannot be spread over several allowances.
+        self.limit(&format!("second:{}", user.id), 10, 15 * MINUTE)
+            .await?;
         let store = self.ports.store();
         if let Some(c) = totp::parse_code(code) {
             let Some(t) = self.totp_enabled(&user.id).await? else {

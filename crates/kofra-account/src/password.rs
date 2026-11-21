@@ -15,7 +15,7 @@ use unicode_normalization::UnicodeNormalization;
 
 /// NFKC, as NIST SP 800-63B asks, so that the same passphrase typed on two
 /// keyboards (composed or decomposed accents, full-width forms) matches.
-fn normal(password: &str) -> String {
+pub(crate) fn normal(password: &str) -> String {
     password.nfkc().collect()
 }
 

@@ -1236,7 +1236,10 @@ fn turning_two_step_off_ends_other_sessions() {
 fn a_second_step_session_sees_no_workspaces() {
     let h = Harness::new(SignupMode::Invite);
     let s = h.signed_up("ada");
-    h.call("POST", "workspaces", Some(&s), Some(json!({"name": "W"})));
+    let w = h.call("POST", "workspaces", Some(&s), Some(json!({"name": "W"})));
+    assert_eq!(w.status, 201, "{}", w.body);
+    let full = h.call("POST", "session/resolve", Some(&s), None);
+    assert_eq!(full.body["workspaces"].as_array().unwrap().len(), 1);
     h.enable_totp(&s);
     let p = h.call(
         "POST",
@@ -1480,4 +1483,59 @@ fn strangers_elsewhere_cannot_lock_the_owner_out() {
         Some(json!({"email": addr("ada"), "password": PW})),
     );
     assert_eq!(owner.status, 200, "{}", owner.body);
+}
+
+#[test]
+fn second_step_codes_are_throttled_per_user() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    let (secret, _) = h.enable_totp(&s);
+    let p = h.call(
+        "POST",
+        "login/password",
+        None,
+        Some(json!({"email": addr("ada"), "password": PW})),
+    );
+    let half = p.token();
+    let right = h.totp_code(&secret, 0);
+    let wrong = if right == "000000" {
+        "111111"
+    } else {
+        "000000"
+    };
+    // Setting the app up used one attempt of the 10.
+    for _ in 0..9 {
+        let a = h.call(
+            "POST",
+            "login/totp",
+            Some(&half),
+            Some(json!({"code": wrong})),
+        );
+        assert_eq!(a.code(), "code_invalid");
+    }
+    h.advance(30_000);
+    let blocked = h.call(
+        "POST",
+        "login/totp",
+        Some(&half),
+        Some(json!({"code": h.totp_code(&secret, 0)})),
+    );
+    assert_eq!(blocked.code(), "rate_limited");
+}
+
+#[test]
+fn a_unicode_variant_of_a_breached_password_is_refused() {
+    let h = Harness::new(SignupMode::Open);
+    h.ports()
+        .breach
+        .list
+        .borrow_mut()
+        .push("caf\u{e9} au lait 2024".into());
+    let a = h.call(
+        "POST",
+        "signup",
+        None,
+        Some(json!({"email": addr("a"), "name": "A", "password": "cafe\u{301} au lait 2024"})),
+    );
+    assert_eq!(a.code(), "breached_password");
 }
