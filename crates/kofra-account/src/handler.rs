@@ -301,6 +301,11 @@ async fn route<P: Ports>(acc: &Accounts<P>, req: &Request) -> Result<Response, A
     let Some(rest) = req.path.strip_prefix(PREFIX) else {
         return Err(Code::NotFound.into());
     };
+    if req.body.len() > MAX_BODY {
+        return Err(
+            AccountError::new(Code::InvalidRequest).detail("The request body is too large.")
+        );
+    }
     let c = client(req);
     let token = req.header("Kofra-Session").map(str::trim);
     let segments: Vec<&str> = rest.split('/').collect();

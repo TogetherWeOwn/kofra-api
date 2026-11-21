@@ -1323,7 +1323,8 @@ fn a_password_only_session_cannot_remove_a_new_second_factor() {
     let s2 = h.login(&addr("ada"));
     h.enable_totp(&s1);
     let off = h.call("DELETE", "totp", Some(&s2), None);
-    assert_eq!(off.code(), "step_required");
+    // Adding the factor raised the epoch: the password-only session is gone.
+    assert_eq!(off.code(), "session_invalid");
     assert_eq!(
         h.call("POST", "session/resolve", Some(&s1), None).body["user"]["totp"],
         true
@@ -1668,4 +1669,50 @@ fn a_first_second_factor_needs_the_current_password() {
     assert_eq!(wrong.code(), "invalid_credentials");
     let me = h.call("POST", "session/resolve", Some(&s), None);
     assert_eq!(me.body["user"]["totp"], false);
+}
+
+#[test]
+fn a_reset_link_made_before_a_factor_was_added_stops_working() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    h.call(
+        "POST",
+        "password/forgot",
+        None,
+        Some(json!({"email": addr("ada")})),
+    );
+    let link = h.mailed_token(&addr("ada"));
+    let (_, codes) = h.enable_totp(&s);
+    let r = h.call(
+        "POST",
+        "password/reset",
+        None,
+        Some(json!({"token": link, "password": "a brand new pass phrase", "code": codes[0]})),
+    );
+    assert!(
+        matches!(r.code(), "token_invalid" | "code_invalid"),
+        "{}",
+        r.body
+    );
+    let old = h.call(
+        "POST",
+        "login/password",
+        None,
+        Some(json!({"email": addr("ada"), "password": PW})),
+    );
+    assert_eq!(old.status, 200, "the password did not change");
+}
+
+#[test]
+fn bodies_over_the_limit_are_refused_on_every_route() {
+    let h = Harness::new(SignupMode::Invite);
+    let req = kofra_account::handler::Request {
+        method: "POST".into(),
+        path: "/account/v1/session/resolve".into(),
+        headers: vec![],
+        body: vec![b' '; kofra_account::handler::MAX_BODY + 1],
+        from_console: true,
+    };
+    let res = pollster::block_on(handle(&h.acc, &req));
+    assert_eq!(res.status, 400);
 }

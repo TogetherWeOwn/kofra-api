@@ -306,7 +306,10 @@ impl<P: Ports> Accounts<P> {
             country: client.country.clone(),
             user_agent: client.user_agent.clone(),
         };
-        Ok(self.ports.store().insert_event(&e).await?)
+        // Best effort: the security log must never undo or block a change
+        // that already happened (a spent recovery code, an enabled factor).
+        let _ = self.ports.store().insert_event(&e).await;
+        Ok(())
     }
 
     fn link(&self, path: &str, token: &str) -> String {
@@ -517,7 +520,7 @@ impl<P: Ports> Accounts<P> {
         {
             self.event(&user.id, EventKind::RecoveryCodeUsed, client)
                 .await?;
-            let left = store.recovery_codes_left(&user.id).await?;
+            let left = store.recovery_codes_left(&user.id).await.unwrap_or(0);
             self.send(mail::notice(
                 &user.email,
                 &user.name,
@@ -562,6 +565,7 @@ impl<P: Ports> Accounts<P> {
                 purpose,
                 user_id: user.id.clone(),
                 email: to.to_owned(),
+                epoch: user.epoch,
                 created_at: now,
                 expires_at: now + ttl,
                 used_at: None,
@@ -661,7 +665,10 @@ impl<P: Ports> Accounts<P> {
             created_at: now,
             updated_at: now,
         };
-        match store.insert_user(&user, invite_hash.as_ref(), now).await? {
+        match store
+            .insert_user(&user, invite_hash.as_ref(), self.now())
+            .await?
+        {
             InsertUser::Created => {}
             // Another request created the account in between: same answer.
             InsertUser::AddressTaken => return Ok(()),
@@ -747,7 +754,7 @@ impl<P: Ports> Accounts<P> {
             let user = store.user(&t.user_id).await?.ok_or(Code::TokenInvalid)?;
             let new = email::parse(&t.email).ok_or(Code::TokenInvalid)?;
             if !store
-                .set_email(&user.id, &new.display, &new.key, now)
+                .set_email(&user.id, &new.display, &new.key, t.epoch, now)
                 .await?
             {
                 return Err(Code::TokenInvalid.into());
@@ -1089,9 +1096,15 @@ impl<P: Ports> Accounts<P> {
             }
         }
         let now = self.now();
-        store
-            .set_password_hash(&user.id, &self.hash_password(pw)?, now)
-            .await?;
+        // Only under the epoch the link was made for: a factor added or a
+        // password changed since then voids the reset.
+        if store
+            .set_password_hash(&user.id, &self.hash_password(pw)?, t.epoch, now)
+            .await?
+            .is_none()
+        {
+            return Err(Code::TokenInvalid.into());
+        }
         // The link proved control of the inbox.
         store.mark_email_verified(&user.id, now).await?;
         store
@@ -1130,9 +1143,13 @@ impl<P: Ports> Accounts<P> {
             .await?;
         let store = self.ports.store();
         let now = self.now();
-        let epoch = store
-            .set_password_hash(&user.id, &self.hash_password(new)?, now)
-            .await?;
+        let Some(epoch) = store
+            .set_password_hash(&user.id, &self.hash_password(new)?, s.epoch, now)
+            .await?
+        else {
+            // A credential changed while this request ran.
+            return Err(Code::SessionInvalid.into());
+        };
         store
             .void_email_tokens(&user.id, &ALL_PURPOSES, now)
             .await?;
@@ -1275,6 +1292,9 @@ impl<P: Ports> Accounts<P> {
         };
         s.level = 2;
         store.update_session(&s).await?;
+        // Adding a factor raises the epoch (other devices sign in again with
+        // it, and links made before it stop working); this device stays.
+        store.bump_epoch(&user.id, Some(&s.id), self.now()).await?;
         self.event(&user.id, EventKind::TotpEnabled, client).await?;
         self.send(mail::notice(
             &user.email,
@@ -1378,11 +1398,12 @@ impl<P: Ports> Accounts<P> {
             e.retry_after = Some(5);
             return Err(e);
         }
+        // Best effort: the workspace exists whatever this read answers.
         let found = store
             .memberships(&user.id)
-            .await?
-            .into_iter()
-            .find(|(w, _)| w.id == ws.id)
+            .await
+            .ok()
+            .and_then(|all| all.into_iter().find(|(w, _)| w.id == ws.id))
             .unwrap_or((ws, member));
         Ok(found)
     }

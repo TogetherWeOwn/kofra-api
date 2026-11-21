@@ -46,21 +46,35 @@ pub trait Store {
     /// (a stale password hash above all).
     async fn set_name(&self, user_id: &str, name: &str, now_ms: u64) -> PortResult<()>;
     /// Sets the password hash and raises the credential epoch in the same
-    /// statement; returns the new epoch.
-    async fn set_password_hash(&self, user_id: &str, hash: &str, now_ms: u64) -> PortResult<u64>;
-    /// Raises the credential epoch (a second factor was removed); returns
-    /// the new epoch.
-    async fn bump_epoch(&self, user_id: &str, now_ms: u64) -> PortResult<u64>;
-    /// Marks the address confirmed if it is not yet; `true` if this call did
-    /// it (`UPDATE ... WHERE email_verified_at IS NULL`).
+    /// statement, only while the epoch is still `expected_epoch` (the one the
+    /// request was authorised under). Returns the new epoch, or `None` if a
+    /// credential changed meanwhile (nothing written).
+    async fn set_password_hash(
+        &self,
+        user_id: &str,
+        hash: &str,
+        expected_epoch: u64,
+        now_ms: u64,
+    ) -> PortResult<Option<u64>>;
+    /// Raises the credential epoch (a second factor was added or removed)
+    /// and, in the same batch, stamps the new epoch on the session `keep`,
+    /// so that the device making the change stays signed in. Returns the
+    /// new epoch.
+    async fn bump_epoch(&self, user_id: &str, keep: Option<&str>, now_ms: u64) -> PortResult<u64>;
+    /// Marks the address confirmed if it is not yet, and raises the epoch in
+    /// the same statement (sign-ins in flight before the confirmation are
+    /// refused); `true` if this call did it.
     async fn mark_email_verified(&self, user_id: &str, now_ms: u64) -> PortResult<bool>;
-    /// Sets a new, confirmed address; `false` (nothing written) if another
-    /// user has it.
+    /// Sets a new, confirmed address, only while the epoch is still
+    /// `expected_epoch` (the one the change was asked under); `false`
+    /// (nothing written) if another user has the address or a credential
+    /// changed meanwhile.
     async fn set_email(
         &self,
         user_id: &str,
         display: &str,
         key: &str,
+        expected_epoch: u64,
         now_ms: u64,
     ) -> PortResult<bool>;
 

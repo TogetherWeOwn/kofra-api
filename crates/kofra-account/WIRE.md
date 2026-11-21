@@ -15,7 +15,7 @@ ingress). Refused on the public host. JSON in, JSON out. Times are RFC 3339 UTC.
 
 ## Errors
 
-`application/problem+json`: `{ "type", "title", "status", "code", "detail" }`;
+`application/problem+json`: `{ "type", "title", "status", "code", "detail"? }` (`detail` only when there is something to add);
 `429` and `503` carry `Retry-After`. Codes:
 
 | Code | Status | Meaning |
@@ -37,6 +37,7 @@ ingress). Refused on the public host. JSON in, JSON out. Times are RFC 3339 UTC.
 | `workspace_limit_reached` | 409 | |
 | `rate_limited` | 429 | |
 | `service_unavailable` | 503 | |
+| `internal_error` | 500 | anything else; nothing was changed that the person can see |
 
 ## Shapes
 
@@ -100,7 +101,7 @@ interface SecurityEvent { at: string; kind: string; user_agent: string; country:
 | `POST /account/v1/password/reset` | none | `{ token, password, code? }` | `200 {}`; every session of the user ends. The link is spent before the code is checked: a wrong code means asking for a new link. |
 | `POST /account/v1/password/change` | full, fresh step | `{ current, password }` | `200 SignInAnswer`; every other session ends |
 | `POST /account/v1/email/change` | full, fresh step | `{ email }` | `202 {}` |
-| `PATCH /account/v1/profile` | full | `{ name }` | `200 User` |
+| `PATCH /account/v1/profile` | full, verified | `{ name }` | `200 User` |
 | `POST /account/v1/totp/begin` | full, fresh step | none | `200 { "secret": base32, "uri": "otpauth://totp/..." }` |
 | `POST /account/v1/totp/confirm` | full, fresh step | `{ code, password? }` (`password` required when this is the first second factor) | `200 { "recovery_codes": string[] \| null }` (codes only when this was the first second factor) |
 | `DELETE /account/v1/totp` | full, fresh step | | `204` |

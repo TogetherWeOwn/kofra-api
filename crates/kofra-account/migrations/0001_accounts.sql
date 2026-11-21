@@ -40,6 +40,7 @@ CREATE TABLE email_tokens (
   purpose    TEXT NOT NULL CHECK (purpose IN ('verify', 'reset', 'email_change')),
   user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   email      TEXT NOT NULL,                        -- the address the link was sent to
+  epoch      INTEGER NOT NULL,                     -- users.epoch when made; applied only while current
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   used_at    INTEGER

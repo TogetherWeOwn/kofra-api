@@ -110,6 +110,9 @@ pub struct EmailToken {
     pub user_id: String,
     /// The address the link went to.
     pub email: String,
+    /// The user's credential epoch when the link was made; a link that
+    /// changes a credential works only while it is current.
+    pub epoch: u64,
     /// Unix ms.
     pub created_at: u64,
     /// Unix ms.

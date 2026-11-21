@@ -122,19 +122,28 @@ impl Store for MemoryStore {
         Ok(())
     }
 
-    async fn set_password_hash(&self, user_id: &str, hash: &str, now_ms: u64) -> PortResult<u64> {
+    async fn set_password_hash(
+        &self,
+        user_id: &str,
+        hash: &str,
+        expected_epoch: u64,
+        now_ms: u64,
+    ) -> PortResult<Option<u64>> {
         self.check()?;
         let mut users = self.users.borrow_mut();
-        let Some(u) = users.iter_mut().find(|u| u.id == user_id) else {
-            return Ok(0);
+        let Some(u) = users
+            .iter_mut()
+            .find(|u| u.id == user_id && u.epoch == expected_epoch)
+        else {
+            return Ok(None);
         };
         hash.clone_into(&mut u.password_hash);
         u.epoch += 1;
         u.updated_at = now_ms;
-        Ok(u.epoch)
+        Ok(Some(u.epoch))
     }
 
-    async fn bump_epoch(&self, user_id: &str, now_ms: u64) -> PortResult<u64> {
+    async fn bump_epoch(&self, user_id: &str, keep: Option<&str>, now_ms: u64) -> PortResult<u64> {
         self.check()?;
         let mut users = self.users.borrow_mut();
         let Some(u) = users.iter_mut().find(|u| u.id == user_id) else {
@@ -142,7 +151,13 @@ impl Store for MemoryStore {
         };
         u.epoch += 1;
         u.updated_at = now_ms;
-        Ok(u.epoch)
+        let epoch = u.epoch;
+        if let Some(id) = keep
+            && let Some(s) = self.sessions.borrow_mut().iter_mut().find(|s| s.id == id)
+        {
+            s.epoch = epoch;
+        }
+        Ok(epoch)
     }
 
     async fn mark_email_verified(&self, user_id: &str, now_ms: u64) -> PortResult<bool> {
@@ -155,6 +170,7 @@ impl Store for MemoryStore {
             return Ok(false);
         };
         u.email_verified_at = Some(now_ms);
+        u.epoch += 1;
         u.updated_at = now_ms;
         Ok(true)
     }
@@ -164,11 +180,16 @@ impl Store for MemoryStore {
         user_id: &str,
         display: &str,
         key: &str,
+        expected_epoch: u64,
         now_ms: u64,
     ) -> PortResult<bool> {
         self.check()?;
         let mut users = self.users.borrow_mut();
-        if users.iter().any(|u| u.id != user_id && u.email_key == key) {
+        if users.iter().any(|u| u.id != user_id && u.email_key == key)
+            || !users
+                .iter()
+                .any(|u| u.id == user_id && u.epoch == expected_epoch)
+        {
             return Ok(false);
         }
         if let Some(u) = users.iter_mut().find(|u| u.id == user_id) {
