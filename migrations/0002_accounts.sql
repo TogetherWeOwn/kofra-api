@@ -1,11 +1,12 @@
--- Kofra accounts: users, sign-in credentials, sessions, e-mail links, invites,
--- workspaces and members. D1 (SQLite). Times are Unix milliseconds.
+-- Kofra accounts: users, sign-in credentials, sessions, e-mail links and
+-- invites, in the console's database (D1, SQLite) beside the API's tables.
+-- Times are Unix milliseconds.
 --
 -- Every secret is stored as a hash, except the authenticator-app secret,
 -- which must be read back and is sealed (AES-256-GCM) by the service before
 -- it reaches this table.
 
-CREATE TABLE users (
+CREATE TABLE account_users (
   id                TEXT PRIMARY KEY,              -- usr_...
   email             TEXT NOT NULL,                 -- as the user typed it
   email_key         TEXT NOT NULL UNIQUE,          -- normalised, for lookups
@@ -17,9 +18,9 @@ CREATE TABLE users (
   updated_at        INTEGER NOT NULL
 ) STRICT;
 
-CREATE TABLE sessions (
+CREATE TABLE account_sessions (
   id           TEXT PRIMARY KEY,                   -- ses_...
-  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id      TEXT NOT NULL REFERENCES account_users (id) ON DELETE CASCADE,
   epoch        INTEGER NOT NULL,                   -- must equal users.epoch
   token_hash   BLOB NOT NULL UNIQUE,               -- SHA-256 of the token
   stage        TEXT NOT NULL CHECK (stage IN ('full', 'second_step')),
@@ -32,22 +33,22 @@ CREATE TABLE sessions (
   country      TEXT,
   user_agent   TEXT NOT NULL DEFAULT ''
 ) STRICT;
-CREATE INDEX sessions_user ON sessions(user_id);
-CREATE INDEX sessions_expiry ON sessions(expires_at);
+CREATE INDEX account_sessions_user ON account_sessions(user_id);
+CREATE INDEX account_sessions_expiry ON account_sessions(expires_at);
 
-CREATE TABLE email_tokens (
+CREATE TABLE account_email_tokens (
   token_hash BLOB PRIMARY KEY,                     -- SHA-256 of the link token
   purpose    TEXT NOT NULL CHECK (purpose IN ('verify', 'reset', 'email_change')),
-  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES account_users (id) ON DELETE CASCADE,
   email      TEXT NOT NULL,                        -- the address the link was sent to
   epoch      INTEGER NOT NULL,                     -- users.epoch when made; applied only while current
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   used_at    INTEGER
 ) STRICT;
-CREATE INDEX email_tokens_user ON email_tokens(user_id, purpose);
+CREATE INDEX account_email_tokens_user ON account_email_tokens(user_id, purpose);
 
-CREATE TABLE invites (
+CREATE TABLE account_invites (
   id         TEXT PRIMARY KEY,                     -- inv_...
   token_hash BLOB NOT NULL UNIQUE,
   email_key  TEXT NOT NULL,
@@ -56,57 +57,45 @@ CREATE TABLE invites (
   used_at    INTEGER
 ) STRICT;
 
-CREATE TABLE totp_credentials (
-  user_id    TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+CREATE TABLE account_totp_credentials (
+  user_id    TEXT PRIMARY KEY REFERENCES account_users (id) ON DELETE CASCADE,
   sealed     BLOB NOT NULL,                        -- key id, nonce, AES-256-GCM
   enabled    INTEGER NOT NULL CHECK (enabled IN (0, 1)),
   last_step  INTEGER NOT NULL DEFAULT 0,           -- replay guard
   created_at INTEGER NOT NULL
 ) STRICT;
 
-CREATE TABLE recovery_codes (
-  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+CREATE TABLE account_recovery_codes (
+  user_id    TEXT NOT NULL REFERENCES account_users (id) ON DELETE CASCADE,
   code_hash  BLOB NOT NULL,                        -- HMAC-SHA256 under a derived key
   created_at INTEGER NOT NULL,
   used_at    INTEGER,
   PRIMARY KEY (user_id, code_hash)
 ) STRICT;
 
--- Read by the API's directory as well (workspace and member records).
-CREATE TABLE workspaces (
-  id                 TEXT PRIMARY KEY,             -- ws_..., 130 random bits
-  name               TEXT NOT NULL,
-  tenant_id          TEXT UNIQUE,                  -- NULL until the storage tenant exists
-  state              TEXT NOT NULL CHECK (state IN ('setting_up', 'active', 'closed')),
-  provision_tried_at INTEGER,
-  created_at         INTEGER NOT NULL
+-- Workspaces and members are the API's tables (`api_workspaces`,
+-- `api_members`, migration 0001): the account service writes them at sign-up
+-- and the API reads them. Only the provisioning retry clock is kept here.
+CREATE TABLE account_provisioning (
+  workspace_id TEXT PRIMARY KEY REFERENCES api_workspaces (id),
+  tried_at     INTEGER NOT NULL
 ) STRICT;
 
-CREATE TABLE members (
-  workspace_id TEXT NOT NULL REFERENCES workspaces(id),
-  user_id      TEXT NOT NULL REFERENCES users(id),
-  role         TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'billing', 'member', 'viewer')),
-  status       TEXT NOT NULL CHECK (status IN ('active', 'disabled')),
-  created_at   INTEGER NOT NULL,
-  PRIMARY KEY (workspace_id, user_id)
-) STRICT;
-CREATE INDEX members_user ON members(user_id);
-
-CREATE TABLE security_events (
+CREATE TABLE account_security_events (
   id         TEXT PRIMARY KEY,                     -- sev_...
-  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES account_users (id) ON DELETE CASCADE,
   kind       TEXT NOT NULL,
   at         INTEGER NOT NULL,
   ip         TEXT,
   country    TEXT,
   user_agent TEXT NOT NULL DEFAULT ''
 ) STRICT;
-CREATE INDEX security_events_user ON security_events(user_id, at);
+CREATE INDEX account_security_events_user ON account_security_events(user_id, at);
 
 -- One row, updated on the branches that would otherwise write nothing, so
 -- that response time does not tell whether an address has an account.
-CREATE TABLE equalise (
+CREATE TABLE account_equalise (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   n  INTEGER NOT NULL
 ) STRICT;
-INSERT INTO equalise (id, n) VALUES (1, 0);
+INSERT INTO account_equalise (id, n) VALUES (1, 0);

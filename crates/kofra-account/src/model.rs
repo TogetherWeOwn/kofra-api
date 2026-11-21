@@ -1,5 +1,7 @@
-//! Stored records. Field names follow the D1 tables in
-//! `migrations/0001_accounts.sql`.
+//! Stored records. Field names follow the D1 tables in the repository's
+//! `migrations/` (`account_*` for accounts; workspaces and members are the
+//! API's `api_workspaces` and `api_members`, with the provisioning clock in
+//! `account_provisioning`).
 
 /// A user.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1364,6 +1364,11 @@ impl<P: Ports> Accounts<P> {
     ) -> Result<(WorkspaceRecord, MemberRecord)> {
         let (_, user) = self.full_verified(token).await?;
         let name = clean_name(name)?;
+        // The workspace table allows 64 characters.
+        if name.chars().count() > 64 {
+            return Err(AccountError::new(Code::InvalidRequest)
+                .detail("Use a workspace name of 1 to 64 characters."));
+        }
         self.limit(&format!("workspace:{}", user.id), 10, DAY)
             .await?;
         let store = self.ports.store();

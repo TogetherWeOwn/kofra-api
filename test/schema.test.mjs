@@ -41,6 +41,15 @@ test('the migrations apply in order on an empty database', () => {
 		.all()
 		.map((r) => r.name);
 	assert.deepEqual(tables, [
+		'account_email_tokens',
+		'account_equalise',
+		'account_invites',
+		'account_provisioning',
+		'account_recovery_codes',
+		'account_security_events',
+		'account_sessions',
+		'account_totp_credentials',
+		'account_users',
 		'api_audit',
 		'api_deletion_requests',
 		'api_idempotency',
@@ -139,4 +148,43 @@ test('the list queries use their indexes', () => {
 		.all()
 		.map((r) => r.id);
 	assert.deepEqual(rows, ['tok_1', 'tok_0']);
+});
+
+test('the account tables sit on the API tables and keep secrets out', () => {
+	const db = open();
+	seed(db);
+	db.prepare(
+		"INSERT INTO account_users (id, email, email_key, name, password_hash, created_at, updated_at) VALUES ('usr_a', 'A@example.com', 'a@example.com', 'A', '$argon2id$x', 1, 1)"
+	).run();
+	// One account per normalised address.
+	assert.throws(() =>
+		db
+			.prepare(
+				"INSERT INTO account_users (id, email, email_key, name, password_hash, created_at, updated_at) VALUES ('usr_b', 'a@example.com', 'a@example.com', 'B', 'x', 1, 1)"
+			)
+			.run()
+	);
+	// Sessions belong to a user and carry an epoch and a stage.
+	assert.throws(() =>
+		db
+			.prepare(
+				"INSERT INTO account_sessions (id, user_id, epoch, token_hash, stage, level, step_at, created_at, last_seen_at, expires_at) VALUES ('ses_x', 'usr_nobody', 0, ?, 'full', 1, 1, 1, 1, 2)"
+			)
+			.run(hash)
+	);
+	assert.throws(() =>
+		db
+			.prepare(
+				"INSERT INTO account_sessions (id, user_id, epoch, token_hash, stage, level, step_at, created_at, last_seen_at, expires_at) VALUES ('ses_y', 'usr_a', 0, ?, 'admin', 1, 1, 1, 1, 2)"
+			)
+			.run(hash)
+	);
+	// The provisioning clock names an existing workspace.
+	db.prepare("INSERT INTO account_provisioning (workspace_id, tried_at) VALUES ('ws_a', 5)").run();
+	assert.throws(() =>
+		db
+			.prepare("INSERT INTO account_provisioning (workspace_id, tried_at) VALUES ('ws_none', 5)")
+			.run()
+	);
+	assert.equal(db.prepare('SELECT n FROM account_equalise WHERE id = 1').get().n, 0);
 });
