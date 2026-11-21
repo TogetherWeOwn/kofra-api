@@ -1038,7 +1038,9 @@ impl<P: Ports> Accounts<P> {
             .await?
             .ok_or(Code::TokenInvalid)?;
         let user = store.user(&t.user_id).await?.ok_or(Code::TokenInvalid)?;
-        if user.email != t.email {
+        // A link made before a credential change is refused here, before any
+        // second factor could be spent on it.
+        if user.email != t.email || user.epoch != t.epoch {
             return Err(Code::TokenInvalid.into());
         }
         Ok((t, user))
