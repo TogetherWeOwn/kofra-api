@@ -1175,3 +1175,19 @@ fn enrolling_a_passkey_raises_this_session_for_the_next_steps() {
     let totp = h.call("POST", "totp/begin", Some(&s), None);
     assert_eq!(totp.status, 200, "{}", totp.body);
 }
+
+#[test]
+fn enrolling_a_passkey_does_not_renew_the_fresh_step() {
+    let h = Harness::new();
+    let s = h.signed_up("ada");
+    h.acc.ports().env.advance(6 * 60_000);
+    let mut a = Authenticator::es256(53);
+    assert_eq!(h.register(&s, &mut a).status, 201);
+    // A new authenticator proves nothing about the credentials the step was
+    // taken with: the window still runs from the sign-in, 10 minutes.
+    h.acc.ports().env.advance(5 * 60_000);
+    let codes = h.call("POST", "recovery-codes", Some(&s), None);
+    assert_eq!(codes.code(), "step_required", "{}", codes.body);
+    let me = h.call("POST", "session/resolve", Some(&s), None);
+    assert_eq!(me.body["session"]["level"], 2);
+}
