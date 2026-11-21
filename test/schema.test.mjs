@@ -91,6 +91,20 @@ test('constraints refuse values the code never writes', () => {
 	);
 });
 
+test('a workspace whose tenant never existed can close, never activate', () => {
+	const db = open();
+	db.exec("INSERT INTO api_workspaces (id, state, created_at) VALUES ('ws_gone', 'setting_up', 1)");
+	assert.throws(
+		() => db.exec("UPDATE api_workspaces SET state = 'active' WHERE id = 'ws_gone'"),
+		/constraint/i
+	);
+	db.exec("UPDATE api_workspaces SET state = 'closed' WHERE id = 'ws_gone'");
+	assert.equal(
+		db.prepare("SELECT state FROM api_workspaces WHERE id = 'ws_gone'").get().state,
+		'closed'
+	);
+});
+
 test('one token per idempotency key in a workspace', () => {
 	const db = open();
 	seed(db);

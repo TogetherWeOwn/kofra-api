@@ -9,14 +9,15 @@
 -- with foreign keys on, the same way.
 
 -- A workspace is one customer account. `tenant_id` is filled in once its
--- storage tenant exists (sign-up step 4); both IDs are unique for good.
+-- storage tenant exists (sign-up step 4); both IDs are unique for good. A
+-- workspace whose tenant can never be created closes without one.
 CREATE TABLE api_workspaces (
   id         TEXT PRIMARY KEY CHECK (id GLOB 'ws_?*'),
   name       TEXT NOT NULL DEFAULT '' CHECK (length(name) <= 64),
   tenant_id  TEXT UNIQUE,
   state      TEXT NOT NULL CHECK (state IN ('setting_up', 'active', 'closed')),
   created_at INTEGER NOT NULL,
-  CHECK (state = 'setting_up' OR tenant_id IS NOT NULL)
+  CHECK (state <> 'active' OR tenant_id IS NOT NULL)
 ) STRICT;
 
 -- A member's role in a workspace. `disabled` refuses every credential of
