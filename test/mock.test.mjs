@@ -260,14 +260,23 @@ test('a valid cursor answers an empty page: the poll position for events, the en
 	assert.equal(events.res.status, 200);
 	assert.deepEqual(events.json, { data: [], next_cursor: 'ec_after1' });
 	assert.equal(events.res.headers.get('link'), null);
-	for (const url of ['/v1/buckets', '/v1/keys', '/v1/usage/days', '/v1/usage/buckets']) {
+	for (const url of [
+		'/v1/buckets',
+		'/v1/keys',
+		'/v1/usage/days',
+		'/v1/usage/buckets',
+		'/v1/buckets/backups/objects'
+	]) {
 		const r = await call('GET', `${url}?cursor=c_page2`);
 		assert.equal(r.res.status, 200, url);
-		assert.deepEqual(r.json, { data: [], next_cursor: null }, url);
+		const want = url.endsWith('/objects')
+			? { data: [], prefixes: [], next_cursor: null }
+			: { data: [], next_cursor: null };
+		assert.deepEqual(r.json, want, url);
 		assert.equal(r.res.headers.get('link'), null, url);
 		const v = validatorAt(
 			ajv,
-			`/paths/${esc(url)}/get/responses/200/content/application~1json/schema`
+			`/paths/${esc(url.replace('/backups/', '/{bucket}/'))}/get/responses/200/content/application~1json/schema`
 		);
 		assert.ok(v(r.json), url);
 	}
@@ -427,4 +436,17 @@ test('Prefer quoted-string values are read whole, so separators inside quotes do
 	assertMockRefusal(
 		await call('GET', '/v1/usage', { headers: { prefer: 'custom="unterminated; code=503' } })
 	);
+});
+
+test('a query text is limited in UTF-8 bytes, as the service counts it', async () => {
+	const ok = await call('GET', `/v1/buckets/backups/objects?prefix=${'a'.repeat(1024)}`);
+	assert.equal(ok.res.status, 200);
+	// 600 characters, 1,200 bytes.
+	const long = await call(
+		'GET',
+		`/v1/buckets/backups/objects?prefix=${encodeURIComponent('é'.repeat(600))}`
+	);
+	assert.equal(long.res.status, 400);
+	assert.equal(long.json.code, 'validation_failed');
+	assert.equal(long.json.errors[0].pointer, '#query/prefix');
 });

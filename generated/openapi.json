@@ -3498,7 +3498,7 @@
           "Objects"
         ],
         "summary": "List objects",
-        "description": "Lists the objects in a bucket in key order (UTF-8 byte order). With\n`delimiter=/`, keys that continue past the next `/` after `prefix` are\nrolled up into `prefixes`, as folders. Each page holds at most `limit`\nentries in `data` and `prefixes` together. Object data is read through\nthe S3 endpoint or a presigned URL, never through this API.\n\nScopes: `objects:read`.",
+        "description": "Lists the objects in a bucket in key order (UTF-8 byte order). With\n`delimiter=/`, every key that holds a `/` after `prefix` is rolled up\ninto `prefixes`, cut after that first `/`, as a folder. A key that ends\nin that `/` (a folder marker) is rolled up too, as S3 does. Each page holds at most `limit`\nentries in `data` and `prefixes` together. Object data is read through\nthe S3 endpoint or a presigned URL, never through this API.\n\nScopes: `objects:read`.",
         "x-kofra-scopes": [
           "objects:read"
         ],

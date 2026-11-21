@@ -1426,8 +1426,9 @@ type ClientInterface interface {
 	// ObjectsList List objects
 	//
 	// Lists the objects in a bucket in key order (UTF-8 byte order). With
-	// `delimiter=/`, keys that continue past the next `/` after `prefix` are
-	// rolled up into `prefixes`, as folders. Each page holds at most `limit`
+	// `delimiter=/`, every key that holds a `/` after `prefix` is rolled up
+	// into `prefixes`, cut after that first `/`, as a folder. A key that ends
+	// in that `/` (a folder marker) is rolled up too, as S3 does. Each page holds at most `limit`
 	// entries in `data` and `prefixes` together. Object data is read through
 	// the S3 endpoint or a presigned URL, never through this API.
 	//
@@ -1870,8 +1871,9 @@ func (c *Client) BucketsGet(ctx context.Context, bucket BucketPath, reqEditors .
 // ObjectsList List objects
 //
 // Lists the objects in a bucket in key order (UTF-8 byte order). With
-// `delimiter=/`, keys that continue past the next `/` after `prefix` are
-// rolled up into `prefixes`, as folders. Each page holds at most `limit`
+// `delimiter=/`, every key that holds a `/` after `prefix` is rolled up
+// into `prefixes`, cut after that first `/`, as a folder. A key that ends
+// in that `/` (a folder marker) is rolled up too, as S3 does. Each page holds at most `limit`
 // entries in `data` and `prefixes` together. Object data is read through
 // the S3 endpoint or a presigned URL, never through this API.
 //
@@ -3779,8 +3781,9 @@ type ClientWithResponsesInterface interface {
 	// ObjectsListWithResponse List objects
 	//
 	// Lists the objects in a bucket in key order (UTF-8 byte order). With
-	// `delimiter=/`, keys that continue past the next `/` after `prefix` are
-	// rolled up into `prefixes`, as folders. Each page holds at most `limit`
+	// `delimiter=/`, every key that holds a `/` after `prefix` is rolled up
+	// into `prefixes`, cut after that first `/`, as a folder. A key that ends
+	// in that `/` (a folder marker) is rolled up too, as S3 does. Each page holds at most `limit`
 	// entries in `data` and `prefixes` together. Object data is read through
 	// the S3 endpoint or a presigned URL, never through this API.
 	//
@@ -8033,8 +8036,9 @@ func (c *ClientWithResponses) BucketsGetWithResponse(ctx context.Context, bucket
 // ObjectsListWithResponse List objects
 //
 // Lists the objects in a bucket in key order (UTF-8 byte order). With
-// `delimiter=/`, keys that continue past the next `/` after `prefix` are
-// rolled up into `prefixes`, as folders. Each page holds at most `limit`
+// `delimiter=/`, every key that holds a `/` after `prefix` is rolled up
+// into `prefixes`, cut after that first `/`, as a folder. A key that ends
+// in that `/` (a folder marker) is rolled up too, as S3 does. Each page holds at most `limit`
 // entries in `data` and `prefixes` together. Object data is read through
 // the S3 endpoint or a presigned URL, never through this API.
 //

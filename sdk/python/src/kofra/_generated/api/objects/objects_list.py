@@ -143,8 +143,9 @@ def sync_detailed(
     """ List objects
 
      Lists the objects in a bucket in key order (UTF-8 byte order). With
-    `delimiter=/`, keys that continue past the next `/` after `prefix` are
-    rolled up into `prefixes`, as folders. Each page holds at most `limit`
+    `delimiter=/`, every key that holds a `/` after `prefix` is rolled up
+    into `prefixes`, cut after that first `/`, as a folder. A key that ends
+    in that `/` (a folder marker) is rolled up too, as S3 does. Each page holds at most `limit`
     entries in `data` and `prefixes` together. Object data is read through
     the S3 endpoint or a presigned URL, never through this API.
 
@@ -195,8 +196,9 @@ def sync(
     """ List objects
 
      Lists the objects in a bucket in key order (UTF-8 byte order). With
-    `delimiter=/`, keys that continue past the next `/` after `prefix` are
-    rolled up into `prefixes`, as folders. Each page holds at most `limit`
+    `delimiter=/`, every key that holds a `/` after `prefix` is rolled up
+    into `prefixes`, cut after that first `/`, as a folder. A key that ends
+    in that `/` (a folder marker) is rolled up too, as S3 does. Each page holds at most `limit`
     entries in `data` and `prefixes` together. Object data is read through
     the S3 endpoint or a presigned URL, never through this API.
 
@@ -242,8 +244,9 @@ async def asyncio_detailed(
     """ List objects
 
      Lists the objects in a bucket in key order (UTF-8 byte order). With
-    `delimiter=/`, keys that continue past the next `/` after `prefix` are
-    rolled up into `prefixes`, as folders. Each page holds at most `limit`
+    `delimiter=/`, every key that holds a `/` after `prefix` is rolled up
+    into `prefixes`, cut after that first `/`, as a folder. A key that ends
+    in that `/` (a folder marker) is rolled up too, as S3 does. Each page holds at most `limit`
     entries in `data` and `prefixes` together. Object data is read through
     the S3 endpoint or a presigned URL, never through this API.
 
@@ -294,8 +297,9 @@ async def asyncio(
     """ List objects
 
      Lists the objects in a bucket in key order (UTF-8 byte order). With
-    `delimiter=/`, keys that continue past the next `/` after `prefix` are
-    rolled up into `prefixes`, as folders. Each page holds at most `limit`
+    `delimiter=/`, every key that holds a `/` after `prefix` is rolled up
+    into `prefixes`, cut after that first `/`, as a folder. A key that ends
+    in that `/` (a folder marker) is rolled up too, as S3 does. Each page holds at most `limit`
     entries in `data` and `prefixes` together. Object data is read through
     the S3 endpoint or a presigned URL, never through this API.
 

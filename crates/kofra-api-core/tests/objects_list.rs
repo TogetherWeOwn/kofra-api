@@ -391,3 +391,24 @@ fn keys_and_prefixes_of_1024_bytes_page_without_error() {
         assert_eq!(seen, 6, "{filters}");
     }
 }
+
+#[test]
+fn a_folder_marker_key_is_rolled_up_with_its_folder() {
+    let f = Fixture::new();
+    let t = reader(&f);
+    f.api
+        .ports
+        .storage
+        .add_object(TENANT, "photos", "trips/", 0);
+    f.api
+        .ports
+        .storage
+        .add_object(TENANT, "photos", "trips/a.jpg", 1);
+    let (status, body, _) = f.get(&t, "/v1/buckets/photos/objects?delimiter=/");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(prefixes(&body), ["trips/"]);
+    assert!(keys(&body).is_empty());
+    // Inside the folder, the marker itself is an object.
+    let (_, body, _) = f.get(&t, "/v1/buckets/photos/objects?delimiter=/&prefix=trips/");
+    assert_eq!(keys(&body), ["trips/", "trips/a.jpg"]);
+}
