@@ -129,7 +129,8 @@ def sync_detailed(
 
      Events for this workspace, oldest first, kept 30 days. Start without a
     cursor, then pass each `next_cursor`. At the end of the feed
-    `next_cursor` is the position to poll from next, not `null`. If the
+    `next_cursor` is the position to poll from next, not `null`: when no
+    event follows the cursor you sent, it is that same cursor. If the
     feed was rebuilt, an old cursor answers `feed_reset`.
 
     Event types use `resource.verb_past` names, for example `key.created`,
@@ -174,7 +175,8 @@ def sync(
 
      Events for this workspace, oldest first, kept 30 days. Start without a
     cursor, then pass each `next_cursor`. At the end of the feed
-    `next_cursor` is the position to poll from next, not `null`. If the
+    `next_cursor` is the position to poll from next, not `null`: when no
+    event follows the cursor you sent, it is that same cursor. If the
     feed was rebuilt, an old cursor answers `feed_reset`.
 
     Event types use `resource.verb_past` names, for example `key.created`,
@@ -214,7 +216,8 @@ async def asyncio_detailed(
 
      Events for this workspace, oldest first, kept 30 days. Start without a
     cursor, then pass each `next_cursor`. At the end of the feed
-    `next_cursor` is the position to poll from next, not `null`. If the
+    `next_cursor` is the position to poll from next, not `null`: when no
+    event follows the cursor you sent, it is that same cursor. If the
     feed was rebuilt, an old cursor answers `feed_reset`.
 
     Event types use `resource.verb_past` names, for example `key.created`,
@@ -259,7 +262,8 @@ async def asyncio(
 
      Events for this workspace, oldest first, kept 30 days. Start without a
     cursor, then pass each `next_cursor`. At the end of the feed
-    `next_cursor` is the position to poll from next, not `null`. If the
+    `next_cursor` is the position to poll from next, not `null`: when no
+    event follows the cursor you sent, it is that same cursor. If the
     feed was rebuilt, an old cursor answers `feed_reset`.
 
     Event types use `resource.verb_past` names, for example `key.created`,

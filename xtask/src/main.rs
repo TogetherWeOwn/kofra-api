@@ -25,6 +25,10 @@ const BOUNDED: &[(&str, &str)] = &[
     ("PresignLifetime", "crate::bounded::PresignLifetime"),
     ("Grants", "crate::bounded::Grants"),
     ("AccessKeyUpdate", "crate::bounded::AccessKeyUpdate"),
+    ("TokenScopes", "crate::bounded::TokenScopes"),
+    ("TokenBuckets", "crate::bounded::TokenBuckets"),
+    ("AllowedIps", "crate::bounded::AllowedIps"),
+    ("TokenLifetimeDays", "crate::bounded::TokenLifetimeDays"),
 ];
 
 /// Each limit of a [`BOUNDED`] type: (schema, keyword in the contract, the
@@ -36,6 +40,15 @@ const LIMITS: &[(&str, &str, &str)] = &[
     ("Grants", "minItems", "MIN"),
     ("Grants", "maxItems", "MAX"),
     ("AccessKeyUpdate", "minProperties", "MIN_FIELDS"),
+    ("TokenScopes", "minItems", "MIN"),
+    ("TokenScopes", "maxItems", "MAX"),
+    ("TokenBuckets", "minItems", "MIN"),
+    ("TokenBuckets", "maxItems", "MAX"),
+    ("AllowedIps", "minItems", "MIN"),
+    ("AllowedIps", "maxItems", "MAX"),
+    ("TokenLifetimeDays", "minimum", "MIN"),
+    ("TokenLifetimeDays", "maximum", "MAX"),
+    ("TokenLifetimeDays", "default", "DEFAULT_DAYS"),
 ];
 
 const BOUNDED_RS: &str = "crates/kofra-api-types/src/bounded.rs";
@@ -74,6 +87,27 @@ const SHAPES: &[(&str, &str, &[&str])] = &[
         "/properties/grants",
         &["$ref", "description"],
     ),
+    ("TokenScopes", "", LIST_SHAPE),
+    ("TokenScopes", "/items", &["$ref"]),
+    ("TokenBuckets", "", LIST_SHAPE),
+    ("TokenBuckets", "/items", &["$ref"]),
+    ("AllowedIps", "", LIST_SHAPE),
+    ("AllowedIps", "/items", &["$ref"]),
+    (
+        "TokenLifetimeDays",
+        "",
+        &["type", "minimum", "maximum", "default", "description"],
+    ),
+];
+
+/// The keywords a `distinct_list!` type in `bounded.rs` implements.
+const LIST_SHAPE: &[&str] = &[
+    "type",
+    "description",
+    "minItems",
+    "maxItems",
+    "uniqueItems",
+    "items",
 ];
 
 /// Fixed values inside a [`BOUNDED`] schema that its type relies on.
@@ -85,6 +119,28 @@ const FIXED: &[(&str, &str, &str)] = &[
         "/items/$ref",
         r##""#/components/schemas/GrantInput""##,
     ),
+    ("TokenScopes", "/type", r#""array""#),
+    ("TokenScopes", "/uniqueItems", "true"),
+    (
+        "TokenScopes",
+        "/items/$ref",
+        r##""#/components/schemas/Scope""##,
+    ),
+    ("TokenBuckets", "/type", r#""array""#),
+    ("TokenBuckets", "/uniqueItems", "true"),
+    (
+        "TokenBuckets",
+        "/items/$ref",
+        r##""#/components/schemas/BucketName""##,
+    ),
+    ("AllowedIps", "/type", r#""array""#),
+    ("AllowedIps", "/uniqueItems", "true"),
+    (
+        "AllowedIps",
+        "/items/$ref",
+        r##""#/components/schemas/IpRange""##,
+    ),
+    ("TokenLifetimeDays", "/type", r#""integer""#),
     ("AccessKeyUpdate", "/type", r#""object""#),
     ("AccessKeyUpdate", "/additionalProperties", "false"),
     (
@@ -520,8 +576,18 @@ mod tests {
             pub struct AccessKeyUpdate;
             impl AccessKeyUpdate { pub const MIN_FIELDS: usize = 1; }
         ";
+        // Only the three types this spec describes; the others are absent from it.
+        let got: Vec<String> = limit_mismatches(&spec, source)
+            .expect("parses")
+            .into_iter()
+            .filter(|m| {
+                ["PresignLifetime.", "Grants.", "AccessKeyUpdate."]
+                    .iter()
+                    .any(|p| m.starts_with(p))
+            })
+            .collect();
         assert_eq!(
-            limit_mismatches(&spec, source).expect("parses"),
+            got,
             [
                 "PresignLifetime.maximum is 600 in the contract but PresignLifetime::MAX is 900",
                 "Grants.maxItems is 32 in the contract but Grants::MAX is absent"

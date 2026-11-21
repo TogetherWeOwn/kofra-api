@@ -34,5 +34,9 @@ pub const OPERATIONS: &[Operation] = &[
     Operation { id: "usage.days", method: "GET", path: "/v1/usage/days", scopes: &["usage:read"], success: 200, dry_run: false },
     Operation { id: "usage.buckets", method: "GET", path: "/v1/usage/buckets", scopes: &["usage:read"], success: 200, dry_run: false },
     Operation { id: "events.list", method: "GET", path: "/v1/events", scopes: &["events:read"], success: 200, dry_run: false },
+    Operation { id: "tokens.list", method: "GET", path: "/v1/tokens", scopes: &["tokens:read"], success: 200, dry_run: false },
+    Operation { id: "tokens.create", method: "POST", path: "/v1/tokens", scopes: &["tokens:write"], success: 201, dry_run: false },
+    Operation { id: "tokens.revoke", method: "DELETE", path: "/v1/tokens/{token_id}", scopes: &["tokens:write"], success: 204, dry_run: true },
+    Operation { id: "audit.list", method: "GET", path: "/v1/audit", scopes: &["audit:read"], success: 200, dry_run: false },
     Operation { id: "objects.presign", method: "POST", path: "/v1/objects/presign", scopes: &["objects:read"], success: 200, dry_run: false },
 ];

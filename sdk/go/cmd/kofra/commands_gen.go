@@ -19,5 +19,9 @@ var commands = []command{
 	{resource: "usage", name: "days", operation: "usage.days", summary: "List daily usage", method: "GET", path: "/v1/usage/days", args: []string{}, query: []string{"after", "limit", "cursor"}, body: false, dryRun: false, destructive: false},
 	{resource: "usage", name: "buckets", operation: "usage.buckets", summary: "List usage per bucket", method: "GET", path: "/v1/usage/buckets", args: []string{}, query: []string{"limit", "cursor"}, body: false, dryRun: false, destructive: false},
 	{resource: "events", name: "list", operation: "events.list", summary: "Read the event feed", method: "GET", path: "/v1/events", args: []string{}, query: []string{"limit", "cursor"}, body: false, dryRun: false, destructive: false},
+	{resource: "tokens", name: "list", operation: "tokens.list", summary: "List API tokens", method: "GET", path: "/v1/tokens", args: []string{}, query: []string{"limit", "cursor"}, body: false, dryRun: false, destructive: false},
+	{resource: "tokens", name: "create", operation: "tokens.create", summary: "Create an API token", method: "POST", path: "/v1/tokens", args: []string{}, query: []string{}, body: true, dryRun: false, destructive: false},
+	{resource: "tokens", name: "revoke", operation: "tokens.revoke", summary: "Revoke an API token", method: "DELETE", path: "/v1/tokens/{token_id}", args: []string{"token_id"}, query: []string{}, body: false, dryRun: true, destructive: true},
+	{resource: "audit", name: "list", operation: "audit.list", summary: "Read the audit log", method: "GET", path: "/v1/audit", args: []string{}, query: []string{"actor", "operation", "since", "until", "limit", "cursor"}, body: false, dryRun: false, destructive: false},
 	{resource: "objects", name: "presign", operation: "objects.presign", summary: "Create a presigned URL", method: "POST", path: "/v1/objects/presign", args: []string{}, query: []string{}, body: true, dryRun: false, destructive: false},
 }

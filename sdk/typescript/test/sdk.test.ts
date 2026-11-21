@@ -159,6 +159,14 @@ test('paginate refuses a non-empty page that repeats its cursor, and still ends 
 	const all: string[] = [];
 	for await (const x of paginate(feed.list)) all.push(x);
 	assert.deepEqual(all, ['a']);
+	// An empty page with a new cursor (a bucket limit hid it) is read past.
+	const hidden = pages([
+		{ data: [], next_cursor: 'c1' },
+		{ data: ['b'], next_cursor: null }
+	]);
+	const seen: string[] = [];
+	for await (const x of paginate(hidden.list)) seen.push(x);
+	assert.deepEqual(seen, ['b']);
 });
 
 test('maxRetries and maxRetryWaitSeconds must be finite and non-negative', () => {

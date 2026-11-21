@@ -110,6 +110,31 @@ operations:
     mcp: { tool: null, reason: The feed is for programs that sync state; agents read the audit log instead. }
     console: Events
 
+  - operation_id: tokens.list
+    sdk: { typescript: client.tokens.list(), python: client.tokens.list(), go: 'client.Tokens.List(ctx)' }
+    cli: kofra tokens list
+    mcp: { tool: null, reason: API tokens are managed in the API and the console; an agent never sees or manages them. }
+    console: API tokens
+
+  - operation_id: tokens.create
+    sdk: { typescript: client.tokens.create(), python: client.tokens.create(), go: 'client.Tokens.Create(ctx)' }
+    cli: kofra tokens create
+    mcp: { tool: null, reason: Creating API tokens is never offered to AI agents, so a tricked agent cannot give itself lasting or wider access. }
+    console: Create API token
+
+  - operation_id: tokens.revoke
+    sdk: { typescript: client.tokens.revoke(), python: client.tokens.revoke(), go: 'client.Tokens.Revoke(ctx)' }
+    cli: kofra tokens revoke
+    destructive: true
+    mcp: { tool: null, reason: API tokens are managed in the API and the console; an agent never sees or manages them. }
+    console: Revoke API token
+
+  - operation_id: audit.list
+    sdk: { typescript: client.audit.list(), python: client.audit.list(), go: 'client.Audit.List(ctx)' }
+    cli: kofra audit list
+    mcp: { tool: audit_list }
+    console: Audit log
+
   - operation_id: objects.presign
     sdk: { typescript: client.objects.presign(), python: client.objects.presign(), go: 'client.Objects.Presign(ctx)' }
     cli: kofra objects presign

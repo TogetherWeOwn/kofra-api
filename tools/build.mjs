@@ -14,6 +14,8 @@ const COMMON_ERRORS = [
 	'unauthenticated',
 	'token_expired',
 	'insufficient_scope',
+	'role_forbidden',
+	'ip_not_allowed',
 	'rate_limited',
 	'internal_error',
 	'service_unavailable'

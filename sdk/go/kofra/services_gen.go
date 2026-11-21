@@ -158,6 +158,48 @@ func (s *EventsService) List(ctx context.Context, params *api.EventsListParams) 
 	return resp, checkResponse(resp.HTTPResponse, resp.Body)
 }
 
+// TokensService holds the `tokens` operations.
+type TokensService struct{ c *Client }
+
+// List: List API tokens. Operation `tokens.list`.
+func (s *TokensService) List(ctx context.Context, params *api.TokensListParams) (*api.TokensListResponse, error) {
+	resp, err := s.c.raw.TokensListWithResponse(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	return resp, checkResponse(resp.HTTPResponse, resp.Body)
+}
+
+// Create: Create an API token. Operation `tokens.create`.
+func (s *TokensService) Create(ctx context.Context, params *api.TokensCreateParams, body api.TokensCreateJSONRequestBody) (*api.TokensCreateResponse, error) {
+	resp, err := s.c.raw.TokensCreateWithResponse(ctx, params, body)
+	if err != nil {
+		return nil, err
+	}
+	return resp, checkResponse(resp.HTTPResponse, resp.Body)
+}
+
+// Revoke: Revoke an API token. Operation `tokens.revoke`. Set DryRun in params to preview.
+func (s *TokensService) Revoke(ctx context.Context, tokenId api.TokenId, params *api.TokensRevokeParams) (*api.TokensRevokeResponse, error) {
+	resp, err := s.c.raw.TokensRevokeWithResponse(ctx, tokenId, params)
+	if err != nil {
+		return nil, err
+	}
+	return resp, checkResponse(resp.HTTPResponse, resp.Body)
+}
+
+// AuditService holds the `audit` operations.
+type AuditService struct{ c *Client }
+
+// List: Read the audit log. Operation `audit.list`.
+func (s *AuditService) List(ctx context.Context, params *api.AuditListParams) (*api.AuditListResponse, error) {
+	resp, err := s.c.raw.AuditListWithResponse(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	return resp, checkResponse(resp.HTTPResponse, resp.Body)
+}
+
 // ObjectsService holds the `objects` operations.
 type ObjectsService struct{ c *Client }
 
@@ -176,6 +218,8 @@ func (c *Client) initServices() {
 	c.Keys = &KeysService{c: c}
 	c.Usage = &UsageService{c: c}
 	c.Events = &EventsService{c: c}
+	c.Tokens = &TokensService{c: c}
+	c.Audit = &AuditService{c: c}
 	c.Objects = &ObjectsService{c: c}
 }
 
@@ -186,5 +230,7 @@ type services struct {
 	Keys    *KeysService
 	Usage   *UsageService
 	Events  *EventsService
+	Tokens  *TokensService
+	Audit   *AuditService
 	Objects *ObjectsService
 }

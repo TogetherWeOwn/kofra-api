@@ -71,6 +71,26 @@
       "docs_url": "https://kofra.app/docs/errors/insufficient_scope.md"
     },
     {
+      "code": "ip_not_allowed",
+      "status": 403,
+      "title": "Request address is not allowed for this token",
+      "retryable": false,
+      "hint": "Send the request from an address in the token's `allowed_ips`, or use a token whose list includes this address.",
+      "meaning": "The API token is limited to some client addresses (`allowed_ips`), and this request came from another address. When a token is being created, an address list wider than the creating token's own is refused the same way.",
+      "type": "https://kofra.app/docs/errors/ip_not_allowed",
+      "docs_url": "https://kofra.app/docs/errors/ip_not_allowed.md"
+    },
+    {
+      "code": "bucket_not_allowed",
+      "status": 403,
+      "title": "Token is limited to other buckets",
+      "retryable": false,
+      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.",
+      "meaning": "The API token is limited to some buckets (`buckets`), and the request names a bucket outside that list. When a token or an access key is being created, a bucket outside the creating token's list is refused the same way.",
+      "type": "https://kofra.app/docs/errors/bucket_not_allowed",
+      "docs_url": "https://kofra.app/docs/errors/bucket_not_allowed.md"
+    },
+    {
       "code": "role_forbidden",
       "status": 403,
       "title": "Your role does not allow this",
@@ -96,7 +116,7 @@
       "title": "Account is not available",
       "retryable": false,
       "hint": "Open Account in the console to see the reason; a deletion can be cancelled there or with POST /v1/account/deletion/cancel.",
-      "meaning": "The account is blocked or is being deleted, so only reading the account itself and cancelling a deletion are possible.",
+      "meaning": "The account is blocked or is being deleted. Storage operations and new API tokens are refused; reading the account, cancelling a deletion, listing and revoking API tokens and reading the audit log still work.",
       "type": "https://kofra.app/docs/errors/account_unavailable",
       "docs_url": "https://kofra.app/docs/errors/account_unavailable.md"
     },
@@ -129,6 +149,16 @@
       "meaning": "The workspace has no active access key with this ID. Revoked keys are removed, so a second revoke of the same key also answers this code.",
       "type": "https://kofra.app/docs/errors/key_not_found",
       "docs_url": "https://kofra.app/docs/errors/key_not_found.md"
+    },
+    {
+      "code": "token_not_found",
+      "status": 404,
+      "title": "API token not found",
+      "retryable": false,
+      "hint": "List your API tokens with GET /v1/tokens and use one of the returned IDs.",
+      "meaning": "No API token with this ID exists in the workspace that you can manage, or it has been revoked.",
+      "type": "https://kofra.app/docs/errors/token_not_found",
+      "docs_url": "https://kofra.app/docs/errors/token_not_found.md"
     },
     {
       "code": "method_not_allowed",

@@ -9,6 +9,14 @@ from .account import Account
 from .account_access import AccountAccess
 from .account_limits import AccountLimits
 from .account_state import AccountState
+from .api_token import ApiToken
+from .api_token_create import ApiTokenCreate
+from .api_token_created import ApiTokenCreated
+from .api_token_list import ApiTokenList
+from .audit_entry import AuditEntry
+from .audit_entry_actor_type import AuditEntryActorType
+from .audit_entry_outcome import AuditEntryOutcome
+from .audit_list import AuditList
 from .bucket import Bucket
 from .bucket_create import BucketCreate
 from .bucket_list import BucketList
@@ -38,6 +46,7 @@ from .presign_request_method import PresignRequestMethod
 from .presigned_url import PresignedUrl
 from .presigned_url_method import PresignedUrlMethod
 from .problem import Problem
+from .scope import Scope
 from .suspension import Suspension
 from .suspension_mode import SuspensionMode
 from .suspension_reason import SuspensionReason
@@ -57,6 +66,14 @@ __all__ = (
     "AccountAccess",
     "AccountLimits",
     "AccountState",
+    "ApiToken",
+    "ApiTokenCreate",
+    "ApiTokenCreated",
+    "ApiTokenList",
+    "AuditEntry",
+    "AuditEntryActorType",
+    "AuditEntryOutcome",
+    "AuditList",
     "Bucket",
     "BucketCreate",
     "BucketList",
@@ -86,6 +103,7 @@ __all__ = (
     "PresignRequest",
     "PresignRequestMethod",
     "Problem",
+    "Scope",
     "Suspension",
     "SuspensionMode",
     "SuspensionReason",
