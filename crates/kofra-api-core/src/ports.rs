@@ -356,7 +356,11 @@ pub struct ObjectPage {
     pub objects: Vec<t::ObjectSummary>,
     /// Folder prefixes on this page, each ending in the delimiter.
     pub prefixes: Vec<String>,
-    /// Storage's next position (`None` at the end).
+    /// Storage's next position (`None` at the end), at most
+    /// [`crate::cursor::MAX_POSITION`] bytes. Build it from the last key or
+    /// prefix of the page (as the in-memory storage's `k<key>` and
+    /// `p<prefix>` do); never pass on a backend's own opaque list cursor,
+    /// which can be longer.
     pub next: Option<String>,
 }
 

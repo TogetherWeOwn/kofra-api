@@ -355,6 +355,19 @@ fn a_cursor_of_one_bucket_is_refused_on_another() {
 }
 
 #[test]
+fn a_key_over_1024_bytes_is_never_stored() {
+    let f = Fixture::new();
+    let t = reader(&f);
+    // 700 two-byte characters: 1401 bytes, under 1024 characters.
+    let wide = format!("a{}", "\u{e9}".repeat(700));
+    f.api.ports.storage.add_object(TENANT, "photos", &wide, 1);
+    f.api.ports.storage.add_object(TENANT, "photos", "zzz", 1);
+    let (status, body, _) = f.get(&t, "/v1/buckets/photos/objects?limit=1");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(keys(&body), ["zzz"]);
+}
+
+#[test]
 fn keys_and_prefixes_of_1024_bytes_page_without_error() {
     let f = Fixture::new();
     let t = reader(&f);

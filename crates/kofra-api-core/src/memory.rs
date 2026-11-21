@@ -828,6 +828,11 @@ impl MemoryStorage {
         else {
             return;
         };
+        // The contract counts the 1024 in bytes; the generated type counts
+        // characters, so the byte length is checked here too.
+        if key.is_empty() || key.len() > 1024 {
+            return;
+        }
         let Ok(key_type) = t::ObjectSummaryKey::try_from(key.to_owned()) else {
             return;
         };

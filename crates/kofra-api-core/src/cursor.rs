@@ -3,8 +3,8 @@
 //! A cursor carries a position (the storage's own position, or the last row
 //! of a newest-first page) and is bound to the workspace, the operation and
 //! the list's filters. It is sealed SIV-style with two keys derived from the
-//! API's cursor key: the position, length-prefixed and padded to one block,
-//! is covered by a 128-bit HMAC-SHA256 tag (with the binding) and encrypted
+//! API's cursor key: the position, length-prefixed and padded to whole
+//! blocks, is covered by a 128-bit HMAC-SHA256 tag (with the binding) and encrypted
 //! with an HMAC-SHA256 keystream seeded by that tag. So a cursor cannot be forged or moved to another workspace,
 //! list or filter set (`invalid_cursor`), and it does not show its position:
 //! a storage position can name a bucket that a bucket-limited token must not
@@ -28,8 +28,8 @@ pub const MAX_LEN: usize = 2048;
 const VERSION: u8 = 1;
 /// The encrypted position is padded to a multiple of this many bytes, so a
 /// cursor's length does not give away the length of a hidden name. One
-/// block holds the longest known position (an access key ID, 128
-/// characters, plus the 2-byte length).
+/// block holds every position but an object key or prefix (the longest is
+/// an access key ID, 128 characters, plus the 2-byte length).
 const BLOCK: usize = 192;
 
 /// The longest position a cursor holds, in bytes: seven blocks less the
