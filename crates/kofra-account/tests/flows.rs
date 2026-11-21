@@ -217,7 +217,7 @@ impl Harness {
             "POST",
             "totp/confirm",
             Some(session),
-            Some(json!({"code": code})),
+            Some(json!({"code": code, "password": PW})),
         );
         assert_eq!(c.status, 200, "{}", c.body);
         let codes = c.body["recovery_codes"]
@@ -596,7 +596,7 @@ fn totp_setup_second_step_and_replay_guard() {
         "POST",
         "totp/confirm",
         Some(&s),
-        Some(json!({"code": "000000"})),
+        Some(json!({"code": "000000", "password": PW})),
     );
     if h.totp_code(&secret, 0) != "000000" {
         assert_eq!(wrong.code(), "code_invalid");
@@ -605,7 +605,7 @@ fn totp_setup_second_step_and_replay_guard() {
         "POST",
         "totp/confirm",
         Some(&s),
-        Some(json!({"code": h.totp_code(&secret, 0)})),
+        Some(json!({"code": h.totp_code(&secret, 0), "password": PW})),
     );
     assert_eq!(c.status, 200);
     let codes = c.body["recovery_codes"].as_array().unwrap();
@@ -1434,6 +1434,7 @@ fn a_gone_tenant_reference_closes_the_workspace() {
     h.ports().tenancy.gone.set(true);
     let w = h.call("POST", "workspaces", Some(&s), Some(json!({"name": "W"})));
     assert_eq!((w.status, w.code()), (503, "service_unavailable"));
+    assert_eq!(w.header("Retry-After"), Some("5"));
     assert_eq!(
         h.ports().store.all_workspaces()[0].state,
         kofra_account::model::WorkspaceState::Closed
@@ -1643,4 +1644,28 @@ fn a_throttled_reset_keeps_its_link() {
     let body = json!({"token": link, "password": "a brand new pass phrase", "code": h.totp_code(&secret, 0)});
     let ok = h.call("POST", "password/reset", None, Some(body));
     assert_eq!(ok.status, 200, "the link is still usable: {}", ok.body);
+}
+
+#[test]
+fn a_first_second_factor_needs_the_current_password() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    let b = h.call("POST", "totp/begin", Some(&s), None);
+    let secret = b.body["secret"].as_str().unwrap().to_owned();
+    let no_pw = h.call(
+        "POST",
+        "totp/confirm",
+        Some(&s),
+        Some(json!({"code": h.totp_code(&secret, 0)})),
+    );
+    assert_eq!(no_pw.code(), "invalid_credentials");
+    let wrong = h.call(
+        "POST",
+        "totp/confirm",
+        Some(&s),
+        Some(json!({"code": h.totp_code(&secret, 0), "password": "not the password"})),
+    );
+    assert_eq!(wrong.code(), "invalid_credentials");
+    let me = h.call("POST", "session/resolve", Some(&s), None);
+    assert_eq!(me.body["user"]["totp"], false);
 }

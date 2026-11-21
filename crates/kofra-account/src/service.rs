@@ -444,6 +444,27 @@ impl<P: Ports> Accounts<P> {
             .filter(|t| t.enabled))
     }
 
+    /// When the user has no second factor yet, the current password must
+    /// come with the request that adds the first one.
+    async fn check_first_factor_password(
+        &self,
+        user: &UserRecord,
+        password: Option<&str>,
+        client: &Client,
+    ) -> Result<()> {
+        if self.has_second_factor(&user.id).await? {
+            return Ok(());
+        }
+        self.limit(&format!("reauth:{}", user.id), 10, 15 * MINUTE)
+            .await?;
+        if password.is_some_and(|p| password::verify(p, &user.password_hash)) {
+            return Ok(());
+        }
+        self.event(&user.id, EventKind::SignInFailed, client)
+            .await?;
+        Err(invalid_credentials())
+    }
+
     /// Whether the user has a second factor.
     async fn has_second_factor(&self, user_id: &str) -> Result<bool> {
         Ok(self.totp_enabled(user_id).await?.is_some())
@@ -1212,14 +1233,21 @@ impl<P: Ports> Accounts<P> {
     /// `POST /totp/confirm`: turns the pending secret on with a first code.
     /// Returns new recovery codes when this is the user's first second
     /// factor.
+    ///
+    /// The first second factor also needs the current password: whoever
+    /// holds only a session must not be able to bind a factor that would
+    /// then lock the owner out of a password reset.
     pub async fn totp_confirm(
         &self,
         token: Option<&str>,
         code: &str,
+        password: Option<&str>,
         client: &Client,
     ) -> Result<Option<Vec<String>>> {
         let (mut s, user) = self.fresh(token).await?;
         self.limit(&format!("second:{}", user.id), 10, 15 * MINUTE)
+            .await?;
+        self.check_first_factor_password(&user, password, client)
             .await?;
         let store = self.ports.store();
         let mut rec = store
@@ -1345,8 +1373,10 @@ impl<P: Ports> Accounts<P> {
             return Err(Code::WorkspaceLimitReached.into());
         }
         if self.provision(&ws.id).await? == Provisioned::Closed {
-            return Err(AccountError::new(Code::ServiceUnavailable)
-                .detail("The workspace could not be set up. Try again."));
+            let mut e = AccountError::new(Code::ServiceUnavailable)
+                .detail("The workspace could not be set up. Try again.");
+            e.retry_after = Some(5);
+            return Err(e);
         }
         let found = store
             .memberships(&user.id)

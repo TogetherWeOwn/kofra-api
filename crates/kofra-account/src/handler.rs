@@ -198,6 +198,13 @@ struct CodeOnly {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct TotpConfirm {
+    code: String,
+    password: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Reauth {
     password: String,
     code: Option<String>,
@@ -423,8 +430,10 @@ async fn route<P: Ports>(acc: &Accounts<P>, req: &Request) -> Result<Response, A
             ))
         }
         ("POST", ["totp", "confirm"]) => {
-            let b: CodeOnly = body(req)?;
-            let codes = acc.totp_confirm(token, &b.code, &c).await?;
+            let b: TotpConfirm = body(req)?;
+            let codes = acc
+                .totp_confirm(token, &b.code, b.password.as_deref(), &c)
+                .await?;
             Ok(Response::json(200, &json!({ "recovery_codes": codes })))
         }
         ("DELETE", ["totp"]) => {
