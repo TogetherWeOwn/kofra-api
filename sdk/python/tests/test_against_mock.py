@@ -109,9 +109,21 @@ def test_paginate_refuses_a_repeated_cursor_but_ends_on_empty_feed_pages():
     # An empty page with a new cursor (a bucket limit hid it) is read past.
     hidden, _ = scripted([Page([], "c1"), Page(["b"], None)])
     assert list(paginate(hidden)) == ["b"]
+    # A page with no data but a new cursor (only folder prefixes) is read past.
+    folders, sent = scripted([Page(["a"], "c1"), Page([], "c2"), Page(["b"], None)])
+    assert list(paginate(folders)) == ["a", "b"]
+    assert sent == [None, "c1", "c2"]
 
 
 def test_a_missing_token_is_refused(monkeypatch, base_url):
     monkeypatch.delenv("KOFRA_API_TOKEN", raising=False)
     with pytest.raises(ValueError, match="KOFRA_API_TOKEN"):
         Kofra(base_url=base_url)
+
+
+def test_objects_list_takes_a_plain_string_delimiter(kofra):
+    page = kofra.objects.list("backups", prefix="2026/11/", delimiter="/")
+    assert [o.key for o in page.data] == ["2026/11/19/db.tar.zst"]
+    assert page.prefixes == ["2026/11/19/logs/"]
+    with pytest.raises(ValueError):
+        kofra.objects.list("backups", delimiter="-")

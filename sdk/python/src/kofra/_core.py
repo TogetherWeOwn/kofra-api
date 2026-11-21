@@ -5,6 +5,7 @@ from the contract."""
 
 from __future__ import annotations
 
+import enum
 import inspect
 import ipaddress
 import json
@@ -95,6 +96,22 @@ def _check_base_url(url: str, allow_insecure_http: bool) -> None:
         f"Kofra: the base URL {url!r} must use https (plain http only for localhost, 127.0.0.0/8 or ::1, "
         "or with allow_insecure_http=True)."
     )
+
+
+def _coerce_enum_kwargs(module: Any, kwargs: dict[str, Any]) -> None:
+    """Accepts a plain string for a query parameter typed as an enum, as in
+    `client.objects.list("backups", delimiter="/")`. A value the enum does
+    not hold raises ValueError before any request is sent."""
+    hints = typing.get_type_hints(module._get_kwargs)
+    for name, value in kwargs.items():
+        if name == "body" or not isinstance(value, str):
+            continue
+        hint = hints.get(name)
+        for candidate in (hint, *typing.get_args(hint)):
+            if isinstance(candidate, type) and issubclass(candidate, enum.Enum):
+                if not isinstance(value, candidate):
+                    kwargs[name] = candidate(value)
+                break
 
 
 def _check_path_args(args: tuple[Any, ...]) -> None:
@@ -190,6 +207,7 @@ class Core:
                     raise ValueError(f"Kofra: body is missing the required field {missing}.") from None
                 _refuse_unknown_keys(raw, model.to_dict(), "body")
                 kwargs["body"] = model
+        _coerce_enum_kwargs(module, kwargs)
         request = module._get_kwargs(*args, **kwargs)
         for attempt in range(self.max_retries + 1):
             last = attempt >= self.max_retries

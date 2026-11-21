@@ -277,3 +277,36 @@ func TestInterruptStopsABodyRead(t *testing.T) {
 		t.Fatal("the body read ignored the interrupt")
 	}
 }
+
+func TestObjectsListPrintsPrefixes(t *testing.T) {
+	env := mockEnv(t)
+	r := cli(t, env, "", "objects", "list", "backups", "--prefix", "2026/11/", "--delimiter", "/")
+	if r.code != exitOK || !strings.Contains(r.stdout, "2026/11/19/db.tar.zst") || !strings.Contains(r.stdout, "prefix: 2026/11/19/logs/") {
+		t.Fatalf("exit %d, stdout %q, stderr %q", r.code, r.stdout, r.stderr)
+	}
+	var out bytes.Buffer
+	inv := &invocation{cmd: &command{summary: "List objects"}}
+	body := []byte(`{"data":[],"prefixes":["photos/"],"next_cursor":null}`)
+	if err := renderTo(&out, inv, body); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); strings.Contains(got, "(none)") || !strings.Contains(got, "prefix: photos/") {
+		t.Fatalf("prefixes-only page: %q", got)
+	}
+}
+
+func TestTextOutputEscapesControlCharacters(t *testing.T) {
+	var out bytes.Buffer
+	inv := &invocation{cmd: &command{summary: "List objects"}}
+	body := []byte(`{"data":[{"key":"a\u001b[2Jb\u009bc","size_bytes":1}],"prefixes":["d\rx/"],"next_cursor":null}`)
+	if err := renderTo(&out, inv, body); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if strings.ContainsAny(got, "\x1b\r\u009b") {
+		t.Fatalf("control characters reached the terminal: %q", got)
+	}
+	if !strings.Contains(got, `a\x1b[2Jb\u009bc`) || !strings.Contains(got, `prefix: d\x0dx/`) {
+		t.Fatalf("escaped form missing: %q", got)
+	}
+}

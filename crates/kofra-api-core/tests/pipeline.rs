@@ -467,6 +467,12 @@ fn every_operation_is_served_and_answers_in_its_contract_shape() {
         ("GET", "/v1/usage/buckets".into(), None, 200),
         ("GET", "/v1/events".into(), None, 200),
         (
+            "GET",
+            "/v1/buckets/backups/objects?delimiter=/".into(),
+            None,
+            200,
+        ),
+        (
             "POST",
             "/v1/objects/presign".into(),
             Some(
