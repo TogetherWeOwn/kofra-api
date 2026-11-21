@@ -301,6 +301,10 @@ impl<P: Ports> Accounts<P> {
         // the account: this session has used a second factor.
         session.level = 2;
         store.update_session(&session).await?;
+        // Adding a factor raises the epoch; this device is re-stamped with it.
+        store
+            .bump_epoch(&user.id, Some(&session.id), self.now())
+            .await?;
         self.event(&user.id, EventKind::PasskeyAdded, client)
             .await?;
         self.send(mail::notice(
@@ -530,7 +534,7 @@ impl<P: Ports> Accounts<P> {
             store.delete_sessions(&user.id, Some(&s.id)).await?;
             s.level = 1;
             // A sign-in already past its checks cannot outlive this change.
-            s.epoch = store.bump_epoch(&user.id, self.now()).await?;
+            s.epoch = store.bump_epoch(&user.id, Some(&s.id), self.now()).await?;
             store.update_session(&s).await?;
         }
         self.event(&user.id, EventKind::PasskeyRemoved, client)

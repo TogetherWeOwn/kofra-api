@@ -828,7 +828,8 @@ fn a_level_one_session_cannot_add_a_passkey_once_a_factor_exists() {
     let mut a = Authenticator::es256(31);
     assert_eq!(h.register(&s, &mut a).status, 201);
     let b = h.call("POST", "passkeys/register/begin", Some(&other), None);
-    assert_eq!(b.code(), "step_required");
+    // Adding the first passkey raised the epoch: the other session is gone.
+    assert_eq!(b.code(), "session_invalid");
 }
 
 #[test]

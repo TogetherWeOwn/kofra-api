@@ -1378,7 +1378,7 @@ impl<P: Ports> Accounts<P> {
             s.level = 1;
         }
         // A sign-in already past its checks cannot outlive this change.
-        s.epoch = store.bump_epoch(&user.id, self.now()).await?;
+        s.epoch = store.bump_epoch(&user.id, Some(&s.id), self.now()).await?;
         store
             .void_email_tokens(&user.id, &ALL_PURPOSES, self.now())
             .await?;
