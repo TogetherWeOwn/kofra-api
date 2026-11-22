@@ -37,13 +37,18 @@
 //!   [`storage::KEY_CHANGE_TRIES`] times, then answers `service_unavailable`.
 //! - **Errors** map by the contract's table ([`codes`]); shapes by
 //!   [`shape`].
+//!
+//! The account service's tenancy port (sign-up) is [`MgmtTenancy`], over
+//! the same transport.
 
 pub mod codes;
 pub mod shape;
 pub mod storage;
+pub mod tenancy;
 pub mod tokens;
 pub mod transport;
 
 pub use storage::MgmtStorage;
+pub use tenancy::{MgmtTenancy, Pager};
 pub use tokens::{TokenClass, Tokens};
 pub use transport::{Method, Request, Response, Transport, TransportError};

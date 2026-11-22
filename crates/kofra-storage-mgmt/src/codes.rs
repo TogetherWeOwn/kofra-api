@@ -66,7 +66,9 @@ pub fn storage_error(response: &Response) -> Refusal {
     };
     use KofraMapping as K;
     Refusal::Storage(match body.kofra() {
-        K::Upstream | K::BucketLimitReached | K::UploadLimitReached => StorageError::Upstream,
+        K::Upstream => StorageError::Upstream,
+        K::BucketLimitReached => StorageError::BucketLimitReached,
+        K::UploadLimitReached => StorageError::UploadLimitReached,
         K::InvalidCursor => StorageError::InvalidCursor,
         K::GrantNotHeld => StorageError::GrantNotHeld,
         K::BucketNotFound => StorageError::BucketNotFound,

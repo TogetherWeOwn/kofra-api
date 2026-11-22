@@ -458,3 +458,16 @@ fn input_storage_would_refuse_is_refused_as_the_clients_mistake() {
     );
     assert_eq!((r.status, code(&r).as_str()), (400, "validation_failed"));
 }
+
+#[test]
+fn a_workspace_has_at_most_its_bucket_limit() {
+    let m = Memory::new(T0);
+    m.storage.add_tenant("t_a");
+    for i in 0..kofra_api_core::memory::MAX_BUCKETS {
+        m.storage.add_bucket("t_a", &format!("b-{i}"), 0, 0);
+    }
+    assert_eq!(
+        block_on(m.storage.create_bucket(ACT, "one-more")).unwrap_err(),
+        StorageError::BucketLimitReached
+    );
+}

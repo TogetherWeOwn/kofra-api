@@ -888,6 +888,7 @@ dependencies = [
 name = "kofra-storage-mgmt"
 version = "0.1.0"
 dependencies = [
+ "kofra-account",
  "kofra-api-core",
  "kofra-api-types",
  "mgmt-types",

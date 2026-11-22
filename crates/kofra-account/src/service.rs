@@ -1512,7 +1512,9 @@ impl<P: Ports> Accounts<P> {
         for owner in store.owners(workspace_id).await? {
             let req = CreatePrincipal {
                 tenant_id: tenant_id.clone(),
-                idempotency_key: format!("{workspace_id}:{owner}:principal"),
+                // `<workspace id>/<owner_ref>`: one key per member of the
+                // workspace, the same on every retry.
+                idempotency_key: format!("{workspace_id}/{owner}"),
                 owner_ref: owner,
                 role: Role::Owner,
             };

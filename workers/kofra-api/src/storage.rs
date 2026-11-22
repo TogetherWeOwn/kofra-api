@@ -26,8 +26,8 @@ use kofra_api_core::{
 };
 use kofra_api_types as t;
 use kofra_storage_mgmt::{
-    Method, MgmtStorage, Request as MgmtRequest, Response as MgmtResponse, Tokens, Transport,
-    TransportError,
+    Method, MgmtStorage, MgmtTenancy, Pager, Request as MgmtRequest, Response as MgmtResponse,
+    Tokens, Transport, TransportError,
 };
 use sha2::{Digest, Sha256};
 
@@ -436,27 +436,68 @@ impl Storage for StubStorage {
     }
 }
 
-/// Tenant and principal creation: the stub of the tenancy design §6.4
-/// shapes until W6 (see the module docs).
+/// Tenant and principal creation: the management plane when the
+/// `STORAGE_PLANE` setting says `mgmt`, else the stub of the tenancy
+/// design §6.4 shapes (see the module docs).
 ///
 /// The stub answers only where its tenants can be thrown away (staging,
 /// local). Elsewhere it answers `Retry`: a workspace stays setting up, and
-/// the cron provisions it for real once the adapter exists, instead of it
-/// pointing for good at a tenant that was never created.
+/// the cron provisions it for real once the plane is switched on, instead
+/// of it pointing for good at a tenant that was never created.
 pub struct TenancyPlane {
     /// Whether stub tenants may be handed out.
     pub stub: bool,
+    /// The management plane, which takes precedence when set.
+    pub mgmt: Option<MgmtTenancy<ServiceTransport, LogPager>>,
+}
+
+impl TenancyPlane {
+    /// The stub, handing out tenants only when `stub` is set.
+    pub fn stub(stub: bool) -> Self {
+        Self { stub, mgmt: None }
+    }
+
+    /// The management plane over `binding`. The confirmed token, which
+    /// sign-up takes, is added with the token classes; until then every
+    /// attempt answers `Retry` and pages, and the workspace stays setting
+    /// up.
+    pub fn mgmt(binding: worker::Fetcher, token: &str) -> Self {
+        Self {
+            stub: false,
+            mgmt: Some(MgmtTenancy::new(
+                ServiceTransport { binding },
+                Tokens::new(token, None),
+                LogPager,
+            )),
+        }
+    }
+}
+
+/// Pages by a log line (`page: tenancy …`), which the alerts watch. It
+/// names the call and a code, never request data.
+pub struct LogPager;
+
+impl Pager for LogPager {
+    fn page(&self, call: &'static str, what: &str) {
+        worker::console_error!("page: tenancy {call} {what}");
+    }
 }
 
 impl Tenancy for TenancyPlane {
     async fn create_tenant(&self, req: &CreateTenant) -> Result<String, TenancyError> {
+        if let Some(m) = &self.mgmt {
+            return m.create_tenant(req).await;
+        }
         if !self.stub {
             return Err(TenancyError::Retry);
         }
         Ok(stub_tenant_id(&req.external_ref))
     }
 
-    async fn create_principal(&self, _req: &CreatePrincipal) -> Result<(), TenancyError> {
+    async fn create_principal(&self, req: &CreatePrincipal) -> Result<(), TenancyError> {
+        if let Some(m) = &self.mgmt {
+            return m.create_principal(req).await;
+        }
         if !self.stub {
             return Err(TenancyError::Retry);
         }
@@ -485,13 +526,13 @@ mod tests {
             jurisdiction: "us".into(),
         };
         // A retry answers the same tenant.
-        let stub = TenancyPlane { stub: true };
+        let stub = TenancyPlane::stub(true);
         assert_eq!(
             block_on(stub.create_tenant(&req)),
             block_on(stub.create_tenant(&req))
         );
         // Where stub tenants may not be handed out, nothing is created.
-        let off = TenancyPlane { stub: false };
+        let off = TenancyPlane::stub(false);
         assert_eq!(block_on(off.create_tenant(&req)), Err(TenancyError::Retry));
     }
 

@@ -713,8 +713,6 @@ fn expected(code: Code) -> Option<StorageError> {
         | "jurisdiction_not_served"
         | "limits_not_served"
         | "rate_class_not_served"
-        | "bucket_limit_reached"
-        | "upload_limit_reached"
         | "idempotency_key_required"
         | "unauthenticated"
         | "insufficient_scope"
@@ -735,6 +733,8 @@ fn expected(code: Code) -> Option<StorageError> {
         "bucket_already_exists" => E::BucketAlreadyExists,
         "bucket_not_empty" => E::BucketNotEmpty,
         "key_limit_reached" => E::KeyLimitReached,
+        "bucket_limit_reached" => E::BucketLimitReached,
+        "upload_limit_reached" => E::UploadLimitReached,
         "grant_limit_reached" => E::GrantLimitReached,
         "feed_reset" => E::FeedReset,
         "deletion_already_requested" => E::DeletionAlreadyRequested,
@@ -861,4 +861,23 @@ fn every_request_carries_the_token_and_debug_never_shows_it() {
     assert!(!format!("{r:?}").contains(STANDARD));
     assert!(!format!("{:?}", tokens()).contains(STANDARD));
     assert!(!format!("{:?}", tokens()).contains(CONFIRMED));
+}
+
+/// The plane's absolute limits that the pinned contract copy does not name
+/// yet map to their own errors, never to "busy".
+#[test]
+fn absolute_limits_map_to_their_own_errors() {
+    for (code, want) in [
+        ("bucket_limit_reached", StorageError::BucketLimitReached),
+        ("upload_limit_reached", StorageError::UploadLimitReached),
+    ] {
+        let (fake, _) = plane();
+        let s = with(&fake);
+        fake.answer_next(coded(code, 409, None));
+        assert_eq!(
+            block_on(s.create_bucket(acting(TENANT, OWNER, Some("k"), None), "music")).unwrap_err(),
+            want,
+            "{code}"
+        );
+    }
 }

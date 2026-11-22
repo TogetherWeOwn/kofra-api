@@ -221,6 +221,26 @@
       "docs_url": "https://kofra.app/docs/errors/key_limit_reached.md"
     },
     {
+      "code": "bucket_limit_reached",
+      "status": 409,
+      "title": "Too many buckets",
+      "retryable": false,
+      "hint": "Delete a bucket you no longer use, then create the new one.",
+      "meaning": "A workspace can have at most 10,000 buckets, counting buckets that are still being deleted.",
+      "type": "https://kofra.app/docs/errors/bucket_limit_reached",
+      "docs_url": "https://kofra.app/docs/errors/bucket_limit_reached.md"
+    },
+    {
+      "code": "upload_limit_reached",
+      "status": 409,
+      "title": "Too many uploads in progress",
+      "retryable": false,
+      "hint": "Complete or abort an upload in progress, then start the new one.",
+      "meaning": "The workspace has as many uploads in progress as it may have at once; the usage answer shows the limit (`open_uploads`).",
+      "type": "https://kofra.app/docs/errors/upload_limit_reached",
+      "docs_url": "https://kofra.app/docs/errors/upload_limit_reached.md"
+    },
+    {
       "code": "grant_narrowing_refused",
       "status": 409,
       "title": "Access can only be widened",

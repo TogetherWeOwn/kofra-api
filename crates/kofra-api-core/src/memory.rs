@@ -1149,6 +1149,9 @@ impl Storage for MemoryStorage {
         if data.buckets.contains_key(name) {
             return Err(StorageError::BucketAlreadyExists);
         }
+        if data.buckets.len() >= MAX_BUCKETS {
+            return Err(StorageError::BucketLimitReached);
+        }
         let bucket = t::Bucket {
             name: name.parse().map_err(|_| StorageError::Upstream)?,
             created_at: self.timestamp(),
@@ -1497,6 +1500,10 @@ impl Storage for MemoryStorage {
         })
     }
 }
+
+/// The most buckets a workspace may have, as storage counts them (a bucket
+/// being deleted still counts until it is gone).
+pub const MAX_BUCKETS: usize = 10_000;
 
 #[cfg(test)]
 mod tests {
