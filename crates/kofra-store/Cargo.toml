@@ -1,0 +1,25 @@
+[package]
+name = "kofra-store"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The Kofra API's and account service's ports on SQLite (D1 in the Workers shell): the SQL, behind one small database trait."
+
+[dependencies]
+kofra-account = { path = "../kofra-account" }
+kofra-api-core = { path = "../kofra-api-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+pollster = "0.4"
+rusqlite = { version = "0.42", features = ["bundled"] }
+base64 = "0.22"
+ciborium = "0.2"
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "pkcs8"] }
+ed25519-dalek = { version = "2", default-features = false, features = ["fast"] }
+
+[lints]
+workspace = true

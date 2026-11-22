@@ -168,6 +168,10 @@ jobs:
       # The contract-derived types, the API core and the account service must
       # build for the Workers target.
       - run: cargo build --locked -p kofra-api-types -p kofra-api-core -p kofra-account --target wasm32-unknown-unknown --release
+      # The SQL store runs in the Workers shell too. Only its library: its
+      # tests run on a bundled native SQLite.
+      - run: cargo clippy --locked -p kofra-store --lib --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo build --locked -p kofra-store --target wasm32-unknown-unknown --release
 
   sdk:
     name: sdk (regenerate, TypeScript, Python, Go, CLI cross-build)
