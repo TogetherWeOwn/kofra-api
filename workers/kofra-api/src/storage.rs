@@ -91,7 +91,11 @@ impl Storage for StoragePlane {
         not_yet()
     }
 
-    async fn restore_tenant(&self, _acting: Acting<'_>) -> Result<(), StorageError> {
+    async fn restore_tenant(
+        &self,
+        _acting: Acting<'_>,
+        _deletion_seq: u64,
+    ) -> Result<(), StorageError> {
         not_yet()
     }
 
@@ -297,6 +301,7 @@ mod tests {
             tenant: "t_1",
             principal: "usr_1",
             idempotency_key: None,
+            confirmation: None,
         };
         assert_eq!(
             block_on(s.create_bucket(acting, "photos")).err(),

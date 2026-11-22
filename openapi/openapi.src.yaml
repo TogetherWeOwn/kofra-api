@@ -181,7 +181,7 @@ paths:
         long as `erase_at` has not passed. The account, its buckets and its keys
         work again at once.
       x-kofra-scopes: [account:delete]
-      x-kofra-errors: [deletion_not_requested, deletion_final, role_forbidden]
+      x-kofra-errors: [deletion_not_requested, deletion_final, deletion_not_cancellable, role_forbidden]
       x-kofra-success: 200
       responses:
         '200':

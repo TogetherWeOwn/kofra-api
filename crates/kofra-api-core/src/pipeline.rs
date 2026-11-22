@@ -114,6 +114,9 @@ impl<P: Ports> Ctx<'_, P> {
             tenant: self.tenant_id()?,
             principal: &self.principal.user_id,
             idempotency_key: self.idempotency_key.as_deref(),
+            // Which requests count as confirmed is decided with the token
+            // classes of the storage plane; until then none does.
+            confirmation: None,
         })
     }
 
@@ -595,8 +598,11 @@ impl<P: Ports> Api<P> {
         }
         if let Some((key, fp, at)) = claim {
             let store = self.ports.idempotency();
-            // Only final answers are stored: a 5xx or a 429 (busy storage)
-            // releases the key, so the retry runs again.
+            // Only final answers are stored: a 5xx, a 429 (busy storage) or
+            // storage's `idempotency_key_in_use` (storage is still applying
+            // the first request) releases the key, so the retry runs again
+            // and reaches storage. Each of them is a "not now" with
+            // `Retry-After`, which the answer passes on.
             if no_store && resp.status < 300 {
                 let stored = Stored {
                     status: resp.status,
@@ -610,6 +616,7 @@ impl<P: Ports> Api<P> {
                 // record): not this request's answer, so nothing is stored
                 // and the first request's retry can still reach storage.
                 && code != Some("idempotency_key_reused")
+                && code != Some("idempotency_key_in_use")
             {
                 let stored = Stored {
                     status: replay.status,

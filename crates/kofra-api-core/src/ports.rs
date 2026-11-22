@@ -278,6 +278,23 @@ pub enum StorageError {
     FeedReset,
     /// `idempotency_key_reused`: storage saw the key with another request.
     IdempotencyKeyReused,
+    /// `idempotency_key_in_use`, with `Retry-After`: storage is still
+    /// applying the first request with this key. A "not now": the pipeline
+    /// releases its own claim and never stores it as the request's answer.
+    IdempotencyKeyInUse {
+        /// Seconds to wait.
+        retry_after: u32,
+    },
+    /// `bucket_not_allowed`: the acting member's principal does not hold
+    /// the grant the request needs (a grant wider than its own, or an object
+    /// call on a bucket it has no grant on).
+    GrantNotHeld,
+    /// `invalid_cursor`: storage could not parse the position it was given.
+    InvalidCursor,
+    /// `deletion_not_cancellable`: the deletion was not started by the
+    /// customer (for example for non-payment), so the customer cannot undo
+    /// it.
+    DeletionNotCancellable,
     /// `deletion_already_requested`
     DeletionAlreadyRequested,
     /// `deletion_not_requested`
@@ -315,6 +332,10 @@ impl StorageError {
             Self::GrantLimitReached => "grant_limit_reached",
             Self::FeedReset => "feed_reset",
             Self::IdempotencyKeyReused => "idempotency_key_reused",
+            Self::IdempotencyKeyInUse { .. } => "idempotency_key_in_use",
+            Self::GrantNotHeld => "bucket_not_allowed",
+            Self::InvalidCursor => "invalid_cursor",
+            Self::DeletionNotCancellable => "deletion_not_cancellable",
             Self::DeletionAlreadyRequested => "deletion_already_requested",
             Self::DeletionNotRequested => "deletion_not_requested",
             Self::DeletionFinal => "deletion_final",
@@ -331,11 +352,25 @@ impl From<StorageError> for crate::problem::Problem {
     fn from(e: StorageError) -> Self {
         let p = crate::problem::Problem::new(e.code());
         match e {
-            StorageError::Busy { retry_after } | StorageError::Unavailable { retry_after } => {
-                p.retry_after(retry_after)
-            }
+            StorageError::Busy { retry_after }
+            | StorageError::Unavailable { retry_after }
+            | StorageError::IdempotencyKeyInUse { retry_after } => p.retry_after(retry_after),
             _ => p,
         }
+    }
+}
+
+impl StorageError {
+    /// A "not now": the answer carries `Retry-After` and is never stored as
+    /// the final answer of an idempotent request. The pipeline releases its
+    /// claim on it, so the client's retry reaches storage again. Storage's
+    /// `idempotency_key_in_use`, `tenant_restoring` and `key_moved` are each
+    /// one of these (the last two arrive as [`StorageError::Unavailable`]).
+    pub fn is_not_now(self) -> bool {
+        matches!(
+            self,
+            Self::Busy { .. } | Self::Unavailable { .. } | Self::IdempotencyKeyInUse { .. }
+        )
     }
 }
 
@@ -366,6 +401,28 @@ pub struct ObjectPage {
     pub next: Option<String>,
 }
 
+/// How a request was confirmed by a person (tenancy design §6.4, "What
+/// 'confirmed' means").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Confirmation<'a> {
+    /// A console request (a signed-in session in the console).
+    Console,
+    /// A used confirmation record: the person confirmed this one request on
+    /// the console's confirmation page. The ID is the record's.
+    Record(&'a str),
+}
+
+impl<'a> Confirmation<'a> {
+    /// The confirmation record's ID, if the request has one. It is the
+    /// storage call's `Idempotency-Key` (tenancy design §6.4).
+    pub fn record_id(self) -> Option<&'a str> {
+        match self {
+            Self::Console => None,
+            Self::Record(id) => Some(id),
+        }
+    }
+}
+
 /// Who acts on storage: the member's principal (tenancy design §6.4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Acting<'a> {
@@ -375,6 +432,22 @@ pub struct Acting<'a> {
     pub principal: &'a str,
     /// The idempotency key passed through to storage (writes only).
     pub idempotency_key: Option<&'a str>,
+    /// Whether a person confirmed this request, and how; `None` for an API
+    /// token or agent request. Storage calls that change what a credential
+    /// can open need a confirmation, and a tenant deletion or its undo needs
+    /// a [`Confirmation::Record`]; the API refuses such a call without one
+    /// before it reaches storage.
+    pub confirmation: Option<Confirmation<'a>>,
+}
+
+impl<'a> Acting<'a> {
+    /// The `Idempotency-Key` for the storage call: the confirmation
+    /// record's ID when there is one, else the client's key.
+    pub fn storage_key(&self) -> Option<&'a str> {
+        self.confirmation
+            .and_then(Confirmation::record_id)
+            .or(self.idempotency_key)
+    }
 }
 
 /// The tenant as the account answer needs it.
@@ -390,6 +463,10 @@ pub struct Tenant {
     pub suspension: Option<t::Suspension>,
     /// A confirmed deletion, if any.
     pub deletion: Option<t::Deletion>,
+    /// Storage's sequence number of the record that set `deletion`; `Some`
+    /// exactly when `deletion` is. An undo names it, so a late retry of an
+    /// undo can never cancel a newer deletion.
+    pub deletion_seq: Option<u64>,
     /// Creation time.
     pub created_at: String,
 }
@@ -411,11 +488,34 @@ pub struct Reach {
 /// gives it. Shapes are the public contract types: the storage adapter maps
 /// storage's own shapes to them, so a storage change does not reach clients.
 ///
-/// Every write that carries `acting.idempotency_key` deduplicates by
-/// (principal, key, request) for 24 hours: the same request answers its
-/// first result without running again, and another request with the key is
-/// refused (never answered with the first result). This is what makes a
-/// retry after a lost idempotency record safe.
+/// **Idempotency.** Storage makes a retry after a lost idempotency record
+/// safe; how depends on the call:
+///
+/// - **Opening calls** (`create_bucket`, `create_key`, an `update_key` that
+///   adds or widens a grant) deduplicate by (principal, key, request) for 24
+///   hours when they carry a key ([`Acting::storage_key`]): the same request
+///   answers its first result without running again, and another request
+///   with the key is refused with [`StorageError::IdempotencyKeyReused`]
+///   (never answered with the first result). A replayed key create answers
+///   `secret_access_key: None`: storage never keeps a secret. While the first
+///   request is still being applied, storage answers
+///   [`StorageError::IdempotencyKeyInUse`].
+/// - **Closing calls** (`delete_bucket`, `revoke_key`, a rename, the tenant
+///   deletion) are idempotent by state and keep no record of the key, so
+///   storage never refuses a reused key on them: each request is judged on
+///   its own. A repeated `revoke_key` answers `Ok`; a repeated
+///   `delete_bucket` answers [`StorageError::BucketNotFound`]. A repeated
+///   `delete_tenant` with the key of the deletion in force answers that
+///   deletion; with any other key, `DeletionAlreadyRequested`.
+/// - **The undo of a deletion** (`restore_tenant`) names the deletion it
+///   undoes by its sequence number ([`Tenant::deletion_seq`]); a repeat
+///   after it succeeded answers `Ok`, and a late retry can never cancel a
+///   newer deletion.
+/// - A rename or grant change whose effect the key already has answers the
+///   key and changes nothing.
+///
+/// Any error with `Retry-After` ([`StorageError::is_not_now`]) is a "not
+/// now" that the pipeline never stores as a request's final answer.
 pub trait Storage {
     /// The tenant.
     async fn tenant(&self, tenant: &str) -> Result<Tenant, StorageError>;
@@ -423,8 +523,15 @@ pub trait Storage {
     async fn tenant_reach(&self, tenant: &str) -> Result<Reach, StorageError>;
     /// Schedules the deletion of a tenant (after a console confirmation).
     async fn delete_tenant(&self, acting: Acting<'_>) -> Result<t::Deletion, StorageError>;
-    /// Cancels a scheduled customer deletion.
-    async fn restore_tenant(&self, acting: Acting<'_>) -> Result<(), StorageError>;
+    /// Cancels the scheduled customer deletion set by the record with
+    /// sequence number `deletion_seq` (as [`Tenant::deletion_seq`] showed
+    /// it). Another deletion answers `DeletionNotRequested`; one the customer
+    /// did not start, `DeletionNotCancellable`.
+    async fn restore_tenant(
+        &self,
+        acting: Acting<'_>,
+        deletion_seq: u64,
+    ) -> Result<(), StorageError>;
     /// Buckets in name order.
     async fn buckets(
         &self,
@@ -458,7 +565,12 @@ pub trait Storage {
         name: Option<&str>,
         grants: &[t::GrantInput],
     ) -> Result<t::AccessKeyCreated, StorageError>;
-    /// Renames a key or adds or widens grants.
+    /// Renames a key or adds or widens grants. `grants` are merged into the
+    /// key's own (a grant on a bucket the key already has replaces it; a
+    /// narrowing is refused with `GrantNarrowingRefused`). A storage that
+    /// takes a whole grant list reads the key, merges, and sends the list
+    /// with the version it read, merging again when the key changed in
+    /// between.
     async fn update_key(
         &self,
         acting: Acting<'_>,
@@ -466,7 +578,8 @@ pub trait Storage {
         name: Option<&str>,
         grants: Option<&[t::GrantInput]>,
     ) -> Result<t::AccessKey, StorageError>;
-    /// Revokes a key.
+    /// Revokes a key. Revoking a key that is already revoked answers `Ok`,
+    /// so a retry finishes what the first request started.
     async fn revoke_key(&self, acting: Acting<'_>, id: &str) -> Result<(), StorageError>;
     /// Usage totals.
     async fn usage(&self, tenant: &str) -> Result<t::Usage, StorageError>;

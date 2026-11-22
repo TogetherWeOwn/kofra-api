@@ -322,7 +322,10 @@ fn bucket_limited_tokens_see_only_events_about_their_buckets() {
 }
 
 #[test]
-fn a_retry_after_a_lost_record_does_not_delete_again() {
+fn a_retry_after_a_lost_record_never_deletes_data() {
+    // A bucket delete is a closing call: storage keeps no record of its key
+    // and judges each request on its own (it is idempotent by state). A
+    // retry after the API lost its own record finds no bucket.
     let h = setup();
     let owner = h.owner();
     let delete = || {
@@ -331,10 +334,23 @@ fn a_retry_after_a_lost_record_does_not_delete_again() {
         h.send(r)
     };
     assert_eq!(delete().status, 204);
-    // The record is lost; the bucket is made again by someone else.
+    h.api.ports.idempotency.forget("ws_a", "del");
+    let retry = delete();
+    assert_eq!(
+        (retry.status, code(&retry).as_str()),
+        (404, "bucket_not_found")
+    );
+    // The bucket is made again by someone else and holds data: the retry
+    // cannot delete it, because storage never deletes a bucket that is not
+    // empty.
     h.api.ports.idempotency.forget("ws_a", "del");
     h.api.ports.storage.add_bucket("t_a", "photos", 0, 0);
-    assert_eq!(delete().status, 204);
+    h.api.ports.storage.add_object("t_a", "photos", "a.txt", 3);
+    let retry = delete();
+    assert_eq!(
+        (retry.status, code(&retry).as_str()),
+        (409, "bucket_not_empty")
+    );
     assert!(
         h.api
             .ports
