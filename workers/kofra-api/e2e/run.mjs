@@ -250,7 +250,7 @@ test('invite, sign-up, verification, workspace, API, two-step and recovery', asy
 		me = (await call('POST', '/account/v1/session/resolve', { session })).json;
 		assert.equal(me.needs, null);
 		assert.equal(me.workspaces.length, 1);
-		assert.ok(me.csrf.length > 0, 'a CSRF token');
+		assert.ok(typeof me.csrf === 'string' && me.csrf.length > 0, 'a CSRF token');
 	});
 
 	await t.test('the API answers console assertions and the tokens they make', async () => {
@@ -275,7 +275,10 @@ test('invite, sign-up, verification, workspace, API, two-step and recovery', asy
 		// can run against a deployed copy.
 		assert.equal(tok.status, 201, tok.json?.code);
 		const bearer = tok.json.token;
-		assert.ok(/^kofra_tok_/.test(bearer), 'the token has the kofra_tok_ prefix');
+		assert.ok(
+			typeof bearer === 'string' && /^kofra_tok_/.test(bearer),
+			'the token has the kofra_tok_ prefix'
+		);
 		const pub = await call('GET', '/public/v1/buckets', { token: bearer });
 		assert.equal(pub.status, 200);
 		// Read-only: a write is refused for its scope.
