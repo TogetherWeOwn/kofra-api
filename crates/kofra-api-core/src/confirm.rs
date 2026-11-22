@@ -94,8 +94,13 @@ pub fn of(principal: &Principal) -> Option<Confirmation<'static>> {
     }
 }
 
+/// Whether this build has the test-only confirmations ([`testing`]). The
+/// Worker's wasm32 build refuses to compile when it does.
+pub const TEST_SUPPORT: bool = cfg!(feature = "test-support");
+
 /// Confirmations for tests only: the `test-support` feature, which only
-/// `[dev-dependencies]` enable (a CI test holds that).
+/// `[dev-dependencies]` enable (a CI test holds that, and the Worker's
+/// wasm32 build fails on [`TEST_SUPPORT`]).
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing {
     use super::{Confirmation, Kind};

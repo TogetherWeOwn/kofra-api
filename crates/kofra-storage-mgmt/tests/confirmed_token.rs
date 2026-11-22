@@ -16,8 +16,11 @@
 //!    confirmations are reached from tests only: the `test-support`
 //!    feature is enabled from `[dev-dependencies]` only.
 //!
-//! Comments and a file's `#[cfg(test)] mod tests` are not code for these
-//! rules, nor are test directories.
+//! 4. Only the Worker's settings reader reads its environment.
+//!
+//! Comments and a file's top-level `#[cfg(test)] mod tests` are not code
+//! for these rules, nor are test directories. The Worker's wasm32 build
+//! also refuses to compile with the test-only confirmations.
 
 use std::{fs, path::Path};
 
@@ -94,7 +97,9 @@ fn code_lines(path: &str, text: &str) -> Option<Vec<(usize, String)>> {
     let lines: Vec<&str> = text.lines().collect();
     let mut out = Vec::new();
     for (i, l) in lines.iter().enumerate() {
-        if l.trim() == "#[cfg(test)]" {
+        // Only a top-level test module ends the code; an indented one is
+        // scanned like any other line.
+        if *l == "#[cfg(test)]" {
             let next = lines[i + 1..]
                 .iter()
                 .map(|n| n.trim())
@@ -146,6 +151,20 @@ fn the_confirmed_tokens_secret_is_read_only_by_the_settings() {
     assert_eq!(found, ["workers/kofra-api/src/config.rs"]);
 }
 
+/// The Worker reads its variables and secrets in one place, which hands
+/// them to the settings: no other code can read the confirmed token under
+/// another spelling of its name.
+#[test]
+fn only_the_settings_reader_reads_the_workers_environment() {
+    let files = repository();
+    let found = hits(
+        &files,
+        &["workers/kofra-api/src/lib.rs"],
+        &["Reflect::get(env", ".secret(", ".var(", "secret_store"],
+    );
+    assert!(found.is_empty(), "{found:#?}");
+}
+
 #[test]
 fn only_the_tokens_module_reaches_the_confirmed_token() {
     let files = repository();
@@ -179,7 +198,14 @@ fn only_confirm_decides_that_a_request_is_confirmed() {
             "crates/kofra-api-core/src/ports.rs",
             "crates/kofra-api-core/src/confirm.rs",
         ],
-        &["ConfirmationKind", "confirm::testing", "Confirmation("],
+        &[
+            "ConfirmationKind",
+            "confirm::testing",
+            "testing::",
+            "testing}",
+            "testing,",
+            "Confirmation(",
+        ],
     );
     assert!(what.is_empty(), "{what:#?}");
     let proof = hits(
@@ -228,7 +254,9 @@ fn test_confirmations_are_enabled_from_dev_dependencies_only() {
                 continue;
             }
             seen += 1;
-            let feature_def = path == "crates/kofra-api-core/Cargo.toml" && section == "[features]";
+            let feature_def = path == "crates/kofra-api-core/Cargo.toml"
+                && section == "[features]"
+                && l == "test-support = []";
             assert!(
                 feature_def || section == "[dev-dependencies]",
                 "{path}:{}: `test-support` outside [dev-dependencies]",

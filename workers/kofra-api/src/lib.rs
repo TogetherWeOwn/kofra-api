@@ -18,6 +18,14 @@
 //! Logs carry the request ID, the status and error classes only: never a
 //! token, a body, an address or a secret.
 
+// The test-only confirmations must never reach a deployed Worker: they
+// would let code confirm a request no person confirmed.
+#[cfg(target_arch = "wasm32")]
+const _: () = assert!(
+    !kofra_api_core::confirm::TEST_SUPPORT,
+    "the test-support feature of kofra-api-core is on in a Worker build"
+);
+
 pub mod breach;
 pub mod config;
 pub mod d1;
