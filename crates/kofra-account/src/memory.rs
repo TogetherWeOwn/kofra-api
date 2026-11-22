@@ -998,7 +998,8 @@ impl Throttle for MemoryThrottle {
         now_ms: u64,
     ) -> PortResult<Option<u32>> {
         let mut w = self.windows.borrow_mut();
-        let start = now_ms - now_ms % window_ms.max(1);
+        let window_ms = window_ms.max(1);
+        let start = now_ms - now_ms % window_ms;
         let e = w.entry(key.to_owned()).or_insert((start, 0));
         // The stored window never moves back: a late hit from an older
         // window counts in the newer one.

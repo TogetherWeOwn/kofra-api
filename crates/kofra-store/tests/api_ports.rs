@@ -620,3 +620,12 @@ fn last_use_never_moves_back() {
         Some(T0 + 7_200_000)
     );
 }
+
+#[test]
+fn every_purge_statement_searches_an_index() {
+    let db = db();
+    for s in kofra_store::purge::statements(T0) {
+        let p = plan(&db, &s);
+        assert!(!p.contains("SCAN"), "{}: {p}", s.sql);
+    }
+}
