@@ -10915,8 +10915,10 @@
             "type": "string",
             "enum": [
               "customer",
-              "non_payment"
-            ]
+              "non_payment",
+              "other"
+            ],
+            "description": "Who started the deletion: `customer` (a member of the account),\n`non_payment`, or `other` (Kofra, for example under the terms of\nservice). Only a `customer` deletion can be cancelled through the\nAPI or the console.\n"
           },
           "requested_at": {
             "$ref": "#/components/schemas/Timestamp"

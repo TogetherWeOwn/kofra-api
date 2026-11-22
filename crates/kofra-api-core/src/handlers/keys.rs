@@ -31,6 +31,20 @@ fn key_param<P: Ports>(ctx: &Ctx<'_, P>) -> Result<String, Problem> {
     Ok(id)
 }
 
+/// A key name holds no control character (storage refuses one).
+fn check_name(name: Option<&str>) -> Result<(), Problem> {
+    if name.is_some_and(|n| n.chars().any(char::is_control)) {
+        return Err(Problem::new("validation_failed")
+            .detail("The key name holds a control character.")
+            .errors(vec![FieldError::new(
+                "/name",
+                "invalid_value",
+                "Use a name without control characters such as tabs or line breaks.",
+            )]));
+    }
+    Ok(())
+}
+
 fn key_allowed(p: &Principal, k: &t::AccessKey) -> bool {
     k.grants.iter().all(|g| p.bucket_allowed(g.bucket.as_str()))
 }
@@ -88,6 +102,7 @@ pub(super) async fn create<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Prob
         return Err(Problem::new("internal_error"));
     };
     address_rule(&ctx.principal)?;
+    check_name(body.name.as_ref().map(|n| n.as_str()))?;
     for g in body.grants.as_slice() {
         ctx.principal.check_bucket(g.bucket.as_str())?;
     }
@@ -119,6 +134,7 @@ pub(super) async fn update<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Prob
     let Input::KeyUpdate(body) = &ctx.input else {
         return Err(Problem::new("internal_error"));
     };
+    check_name(body.name().map(|n| n.as_str()))?;
     let storage = ctx.api.ports.storage();
     // Looked up only to hold a bucket-limited token to its buckets; without a
     // limit a retried update gets its first answer from storage.

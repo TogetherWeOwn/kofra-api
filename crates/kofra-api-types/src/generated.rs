@@ -999,6 +999,11 @@ pub struct Deletion {
     ///When the data is cryptographically erased. `null` until confirmed.
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub erase_at: ::std::option::Option<Timestamp>,
+    /**Who started the deletion: `customer` (a member of the account),
+`non_payment`, or `other` (Kofra, for example under the terms of
+service). Only a `customer` deletion can be cancelled through the
+API or the console.
+*/
     pub reason: DeletionReason,
     pub requested_at: Timestamp,
     /**`pending_confirmation`: an Owner must confirm at `confirm_url`
@@ -1007,7 +1012,11 @@ the data is erased at `erase_at` unless cancelled first.
 */
     pub status: DeletionStatus,
 }
-///`DeletionReason`
+/**Who started the deletion: `customer` (a member of the account),
+`non_payment`, or `other` (Kofra, for example under the terms of
+service). Only a `customer` deletion can be cancelled through the
+API or the console.
+*/
 #[derive(
     ::serde::Deserialize,
     ::serde::Serialize,
@@ -1025,12 +1034,15 @@ pub enum DeletionReason {
     Customer,
     #[serde(rename = "non_payment")]
     NonPayment,
+    #[serde(rename = "other")]
+    Other,
 }
 impl ::std::fmt::Display for DeletionReason {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
             Self::Customer => f.write_str("customer"),
             Self::NonPayment => f.write_str("non_payment"),
+            Self::Other => f.write_str("other"),
         }
     }
 }
@@ -1042,6 +1054,7 @@ impl ::std::str::FromStr for DeletionReason {
         match value {
             "customer" => Ok(Self::Customer),
             "non_payment" => Ok(Self::NonPayment),
+            "other" => Ok(Self::Other),
             _ => Err("invalid value".into()),
         }
     }

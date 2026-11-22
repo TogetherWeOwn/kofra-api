@@ -29,7 +29,10 @@ class Deletion:
             status (DeletionStatus): `pending_confirmation`: an Owner must confirm at `confirm_url`
                 before `confirm_by`, or the request lapses. `scheduled`: confirmed;
                 the data is erased at `erase_at` unless cancelled first.
-            reason (DeletionReason):
+            reason (DeletionReason): Who started the deletion: `customer` (a member of the account),
+                `non_payment`, or `other` (Kofra, for example under the terms of
+                service). Only a `customer` deletion can be cancelled through the
+                API or the console.
             requested_at (datetime.datetime): RFC 3339 timestamp in UTC.
             confirm_url (None | str): Console page where a signed-in Owner confirms. `null` once confirmed.
             confirm_by (datetime.datetime | None):

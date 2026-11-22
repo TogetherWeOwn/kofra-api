@@ -3,6 +3,7 @@ from enum import StrEnum
 class DeletionReason(StrEnum):
     CUSTOMER = "customer"
     NON_PAYMENT = "non_payment"
+    OTHER = "other"
 
     def __str__(self) -> str:
         return str(self.value)

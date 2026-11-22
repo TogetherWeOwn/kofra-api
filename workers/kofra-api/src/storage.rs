@@ -2,14 +2,14 @@
 //! keys, usage, objects) and the account service's `Tenancy` (tenant and
 //! principal creation at sign-up).
 //!
-//! **Stub until the storage management entry point (W6) ships.** The
-//! entry point's wire format is not defined yet, so there is no adapter to
-//! write against it. Everything that reaches storage goes through
-//! [`StoragePlane`], the one place the adapter swaps in: `STORAGE_MGMT`
-//! (a service binding to the named entry point) plus the confirmed token
-//! of the tenancy design §6.4.
+//! Everything that reaches storage goes through [`StoragePlane`]. The
+//! `STORAGE_PLANE` setting picks it: `stub` (the default) or `mgmt`, the
+//! storage management plane over the `STORAGE_MGMT` service binding
+//! (`kofra_storage_mgmt`). The switch moves reads and writes together, and
+//! is made only once the plane serves every call on the deployment it is
+//! bound to; no checked-in configuration sets `mgmt`.
 //!
-//! Until then:
+//! The stub:
 //! - tenant creation answers the tenancy design's shapes deterministically
 //!   (`t_` + 16 hex digits of SHA-256 of the workspace ID), so a retry gets
 //!   the same tenant, as the real `m/tref/` record will give;
@@ -25,7 +25,13 @@ use kofra_api_core::{
     ports::{Acting, ObjectPage, Page, Reach, Storage, StorageError, Tenant},
 };
 use kofra_api_types as t;
+use kofra_storage_mgmt::{
+    Method, MgmtStorage, Request as MgmtRequest, Response as MgmtResponse, Tokens, Transport,
+    TransportError,
+};
 use sha2::{Digest, Sha256};
+
+use crate::env::WorkerEnv;
 
 /// How long a refused write asks the client to wait, in seconds.
 pub const RETRY_AFTER_SECS: u32 = 3600;
@@ -37,16 +43,96 @@ pub fn stub_tenant_id(external_ref: &str) -> String {
     format!("t_{hex}")
 }
 
-/// The storage plane: the stub now, the `STORAGE_MGMT` adapter after W6.
+/// The storage plane of one request: the stub (the default), or the
+/// management plane when the `STORAGE_PLANE` setting says `mgmt`.
 pub enum StoragePlane {
     /// No storage yet (see the module docs).
-    Stub(StubStorage),
+    Stub(Box<StubStorage>),
+    /// The management plane over the `STORAGE_MGMT` service binding.
+    Mgmt(MgmtStorage<ServiceTransport, WorkerEnv>),
+}
+
+/// Runs `$e` on the plane in use.
+macro_rules! plane {
+    ($self:expr, $p:ident => $e:expr) => {
+        match $self {
+            StoragePlane::Stub($p) => $e,
+            StoragePlane::Mgmt($p) => $e,
+        }
+    };
 }
 
 impl StoragePlane {
-    /// The plane for this request.
+    /// The stub for this request.
     pub fn stub(now_ms: u64) -> Self {
-        Self::Stub(StubStorage::new(now_ms))
+        Self::Stub(Box::new(StubStorage::new(now_ms)))
+    }
+
+    /// The management plane over `binding`, with the standard service token.
+    /// The confirmed token is added with the token classes; until then every
+    /// call that needs it is refused before the plane is called.
+    pub fn mgmt(binding: worker::Fetcher, token: &str, s3_endpoint: &str) -> Self {
+        Self::Mgmt(MgmtStorage::new(
+            ServiceTransport { binding },
+            WorkerEnv,
+            Tokens::new(token, None),
+            s3_endpoint,
+        ))
+    }
+}
+
+/// The largest answer read from the plane. Its biggest answer, a page of
+/// 1,000 keys with their grants, is far below this.
+pub const MAX_ANSWER_BYTES: usize = 8 * 1024 * 1024;
+
+/// The base URL of requests over the service binding. A service binding
+/// ignores the host; only the path and query reach the plane.
+const BINDING_ORIGIN: &str = "https://storage-mgmt.internal";
+
+/// [`Transport`] over the `STORAGE_MGMT` service binding.
+pub struct ServiceTransport {
+    binding: worker::Fetcher,
+}
+
+impl Transport for ServiceTransport {
+    async fn send(&self, req: &MgmtRequest) -> Result<MgmtResponse, TransportError> {
+        let headers = worker::Headers::new();
+        for (name, value) in &req.headers {
+            headers
+                .set(name, value)
+                .map_err(|_| TransportError::Local)?;
+        }
+        let mut init = worker::RequestInit::new();
+        init.with_method(match req.method {
+            Method::Get => worker::Method::Get,
+            Method::Post => worker::Method::Post,
+            Method::Patch => worker::Method::Patch,
+            Method::Delete => worker::Method::Delete,
+        })
+        .with_headers(headers);
+        if let Some(body) = &req.body {
+            init.with_body(Some(
+                worker::js_sys::Uint8Array::from(body.as_slice()).into(),
+            ));
+        }
+        let mut resp = self
+            .binding
+            .fetch(format!("{BINDING_ORIGIN}{}", req.path), Some(init))
+            .await
+            .map_err(|_| TransportError::Unreachable)?;
+        let retry_after = resp.headers().get("Retry-After").ok().flatten();
+        let body = resp
+            .bytes()
+            .await
+            .map_err(|_| TransportError::Unreachable)?;
+        if body.len() > MAX_ANSWER_BYTES {
+            return Err(TransportError::Local);
+        }
+        Ok(MgmtResponse {
+            status: resp.status_code(),
+            retry_after,
+            body,
+        })
     }
 }
 
@@ -78,13 +164,146 @@ fn not_yet<T>() -> Result<T, StorageError> {
 
 impl Storage for StoragePlane {
     async fn tenant(&self, tenant: &str) -> Result<Tenant, StorageError> {
-        let Self::Stub(s) = self;
-        s.read(tenant).tenant(tenant).await
+        plane!(self, p => p.tenant(tenant).await)
     }
 
     async fn tenant_reach(&self, tenant: &str) -> Result<Reach, StorageError> {
-        let Self::Stub(s) = self;
-        s.read(tenant).tenant_reach(tenant).await
+        plane!(self, p => p.tenant_reach(tenant).await)
+    }
+
+    async fn delete_tenant(&self, acting: Acting<'_>) -> Result<t::Deletion, StorageError> {
+        plane!(self, p => p.delete_tenant(acting).await)
+    }
+
+    async fn restore_tenant(
+        &self,
+        acting: Acting<'_>,
+        deletion_seq: u64,
+    ) -> Result<(), StorageError> {
+        plane!(self, p => p.restore_tenant(acting, deletion_seq).await)
+    }
+
+    async fn buckets(
+        &self,
+        tenant: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Page<t::Bucket>, StorageError> {
+        plane!(self, p => p.buckets(tenant, after, limit).await)
+    }
+
+    async fn bucket(&self, tenant: &str, name: &str) -> Result<t::Bucket, StorageError> {
+        plane!(self, p => p.bucket(tenant, name).await)
+    }
+
+    async fn create_bucket(
+        &self,
+        acting: Acting<'_>,
+        name: &str,
+    ) -> Result<t::Bucket, StorageError> {
+        plane!(self, p => p.create_bucket(acting, name).await)
+    }
+
+    async fn delete_bucket(&self, acting: Acting<'_>, name: &str) -> Result<(), StorageError> {
+        plane!(self, p => p.delete_bucket(acting, name).await)
+    }
+
+    async fn keys(
+        &self,
+        tenant: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Page<t::AccessKey>, StorageError> {
+        plane!(self, p => p.keys(tenant, after, limit).await)
+    }
+
+    async fn key(&self, tenant: &str, id: &str) -> Result<t::AccessKey, StorageError> {
+        plane!(self, p => p.key(tenant, id).await)
+    }
+
+    async fn create_key(
+        &self,
+        acting: Acting<'_>,
+        name: Option<&str>,
+        grants: &[t::GrantInput],
+    ) -> Result<t::AccessKeyCreated, StorageError> {
+        plane!(self, p => p.create_key(acting, name, grants).await)
+    }
+
+    async fn update_key(
+        &self,
+        acting: Acting<'_>,
+        id: &str,
+        name: Option<&str>,
+        grants: Option<&[t::GrantInput]>,
+    ) -> Result<t::AccessKey, StorageError> {
+        plane!(self, p => p.update_key(acting, id, name, grants).await)
+    }
+
+    async fn revoke_key(&self, acting: Acting<'_>, id: &str) -> Result<(), StorageError> {
+        plane!(self, p => p.revoke_key(acting, id).await)
+    }
+
+    async fn usage(&self, tenant: &str) -> Result<t::Usage, StorageError> {
+        plane!(self, p => p.usage(tenant).await)
+    }
+
+    async fn usage_days(
+        &self,
+        tenant: &str,
+        after_day: Option<&str>,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Page<t::UsageDay>, StorageError> {
+        plane!(self, p => p.usage_days(tenant, after_day, after, limit).await)
+    }
+
+    async fn usage_buckets(
+        &self,
+        tenant: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Page<t::BucketUsage>, StorageError> {
+        plane!(self, p => p.usage_buckets(tenant, after, limit).await)
+    }
+
+    async fn events(
+        &self,
+        tenant: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<(Vec<t::Event>, String), StorageError> {
+        plane!(self, p => p.events(tenant, after, limit).await)
+    }
+
+    async fn objects(
+        &self,
+        acting: Acting<'_>,
+        bucket: &str,
+        prefix: Option<&str>,
+        delimiter: Option<&str>,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<ObjectPage, StorageError> {
+        plane!(self, p => p.objects(acting, bucket, prefix, delimiter, after, limit).await)
+    }
+
+    async fn presign(
+        &self,
+        acting: Acting<'_>,
+        request: &t::PresignRequest,
+    ) -> Result<t::PresignedUrl, StorageError> {
+        plane!(self, p => p.presign(acting, request).await)
+    }
+}
+
+impl Storage for StubStorage {
+    async fn tenant(&self, tenant: &str) -> Result<Tenant, StorageError> {
+        self.read(tenant).tenant(tenant).await
+    }
+
+    async fn tenant_reach(&self, tenant: &str) -> Result<Reach, StorageError> {
+        self.read(tenant).tenant_reach(tenant).await
     }
 
     async fn delete_tenant(&self, _acting: Acting<'_>) -> Result<t::Deletion, StorageError> {
@@ -105,13 +324,11 @@ impl Storage for StoragePlane {
         after: Option<&str>,
         limit: usize,
     ) -> Result<Page<t::Bucket>, StorageError> {
-        let Self::Stub(s) = self;
-        s.read(tenant).buckets(tenant, after, limit).await
+        self.read(tenant).buckets(tenant, after, limit).await
     }
 
     async fn bucket(&self, tenant: &str, name: &str) -> Result<t::Bucket, StorageError> {
-        let Self::Stub(s) = self;
-        s.read(tenant).bucket(tenant, name).await
+        self.read(tenant).bucket(tenant, name).await
     }
 
     async fn create_bucket(
@@ -132,13 +349,11 @@ impl Storage for StoragePlane {
         after: Option<&str>,
         limit: usize,
     ) -> Result<Page<t::AccessKey>, StorageError> {
-        let Self::Stub(s) = self;
-        s.read(tenant).keys(tenant, after, limit).await
+        self.read(tenant).keys(tenant, after, limit).await
     }
 
     async fn key(&self, tenant: &str, id: &str) -> Result<t::AccessKey, StorageError> {
-        let Self::Stub(s) = self;
-        s.read(tenant).key(tenant, id).await
+        self.read(tenant).key(tenant, id).await
     }
 
     async fn create_key(
@@ -165,8 +380,7 @@ impl Storage for StoragePlane {
     }
 
     async fn usage(&self, tenant: &str) -> Result<t::Usage, StorageError> {
-        let Self::Stub(s) = self;
-        s.read(tenant).usage(tenant).await
+        self.read(tenant).usage(tenant).await
     }
 
     async fn usage_days(
@@ -176,8 +390,7 @@ impl Storage for StoragePlane {
         after: Option<&str>,
         limit: usize,
     ) -> Result<Page<t::UsageDay>, StorageError> {
-        let Self::Stub(s) = self;
-        s.read(tenant)
+        self.read(tenant)
             .usage_days(tenant, after_day, after, limit)
             .await
     }
@@ -188,8 +401,7 @@ impl Storage for StoragePlane {
         after: Option<&str>,
         limit: usize,
     ) -> Result<Page<t::BucketUsage>, StorageError> {
-        let Self::Stub(s) = self;
-        s.read(tenant).usage_buckets(tenant, after, limit).await
+        self.read(tenant).usage_buckets(tenant, after, limit).await
     }
 
     async fn events(
@@ -198,8 +410,7 @@ impl Storage for StoragePlane {
         after: Option<&str>,
         limit: usize,
     ) -> Result<(Vec<t::Event>, String), StorageError> {
-        let Self::Stub(s) = self;
-        s.read(tenant).events(tenant, after, limit).await
+        self.read(tenant).events(tenant, after, limit).await
     }
 
     async fn objects(
@@ -211,8 +422,7 @@ impl Storage for StoragePlane {
         after: Option<&str>,
         limit: usize,
     ) -> Result<ObjectPage, StorageError> {
-        let Self::Stub(s) = self;
-        s.read(acting.tenant)
+        self.read(acting.tenant)
             .objects(acting, bucket, prefix, delimiter, after, limit)
             .await
     }

@@ -74,6 +74,34 @@ impl MailSettings {
     }
 }
 
+/// Which storage plane serves the API's storage port.
+#[derive(Clone, PartialEq, Eq)]
+pub enum StorageSetting {
+    /// The stub: reads answer an empty tenant, writes wait (the default).
+    Stub,
+    /// The storage management plane over the `STORAGE_MGMT` service
+    /// binding, with its standard service token.
+    Mgmt {
+        /// `STORAGE_MGMT_TOKEN`.
+        token: String,
+    },
+}
+
+impl std::fmt::Debug for StorageSetting {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Stub => "Stub",
+            Self::Mgmt { .. } => "Mgmt",
+        })
+    }
+}
+
+/// A service token as a header carries it: 16 to 4,096 visible ASCII
+/// characters.
+fn service_token(v: &str) -> bool {
+    (16..=4096).contains(&v.len()) && v.bytes().all(|b| b.is_ascii_graphic())
+}
+
 /// Everything the Worker needs from its settings.
 #[derive(Clone)]
 pub struct Settings {
@@ -96,6 +124,8 @@ pub struct Settings {
     pub mail: MailSettings,
     /// Run the breached-password check (off only in local tests).
     pub breach_check: bool,
+    /// The storage plane.
+    pub storage: StorageSetting,
 }
 
 impl std::fmt::Debug for Settings {
@@ -105,6 +135,7 @@ impl std::fmt::Debug for Settings {
             .field("console_origin", &self.console_origin)
             .field("signup", &self.signup)
             .field("mail", &self.mail.mode)
+            .field("storage", &self.storage)
             .finish_non_exhaustive()
     }
 }
@@ -260,6 +291,16 @@ impl Settings {
             Some("off") if local => false,
             _ => return Err(BadSetting("BREACH_CHECK")),
         };
+        // The stub stays the plane until the setting says otherwise.
+        let storage = match get("STORAGE_PLANE").as_deref() {
+            None | Some("stub") => StorageSetting::Stub,
+            Some("mgmt") => StorageSetting::Mgmt {
+                token: get("STORAGE_MGMT_TOKEN")
+                    .filter(|t| service_token(t))
+                    .ok_or(BadSetting("STORAGE_MGMT_TOKEN"))?,
+            },
+            _ => return Err(BadSetting("STORAGE_PLANE")),
+        };
         let account_secret = key(&get, "ACCOUNT_SECRET_KEY")?;
         let console_key = key(&get, "ASSERTION_KEY")?;
         let cursor_key = key(&get, "CURSOR_KEY")?;
@@ -287,6 +328,7 @@ impl Settings {
                 reply_to,
             },
             breach_check,
+            storage,
         })
     }
 
@@ -363,6 +405,38 @@ mod tests {
         assert_eq!(s.api().console_key, Some([0x22; 32]));
         // Debug never shows a key.
         assert!(!format!("{s:?}").contains("11111111"));
+    }
+
+    #[test]
+    fn the_storage_plane_is_the_stub_unless_set_to_mgmt_with_a_token() {
+        assert_eq!(parse(&base()).unwrap().storage, StorageSetting::Stub);
+        let mut m = base();
+        m.insert("STORAGE_PLANE", "stub".to_owned());
+        assert_eq!(parse(&m).unwrap().storage, StorageSetting::Stub);
+        m.insert("STORAGE_PLANE", "mgmt".to_owned());
+        assert_eq!(parse(&m).err(), Some(BadSetting("STORAGE_MGMT_TOKEN")));
+        for bad in ["short", "has a space in it ok", "tab\tseparated-token-x"] {
+            m.insert("STORAGE_MGMT_TOKEN", bad.to_owned());
+            assert_eq!(
+                parse(&m).err(),
+                Some(BadSetting("STORAGE_MGMT_TOKEN")),
+                "{bad}"
+            );
+        }
+        let token = "storage-token-for-tests-0123456789";
+        m.insert("STORAGE_MGMT_TOKEN", token.to_owned());
+        let s = parse(&m).unwrap();
+        assert_eq!(
+            s.storage,
+            StorageSetting::Mgmt {
+                token: token.to_owned()
+            }
+        );
+        // Debug never shows the token.
+        assert!(!format!("{s:?}").contains(token));
+        assert!(format!("{s:?}").contains("Mgmt"));
+        m.insert("STORAGE_PLANE", "real".to_owned());
+        assert_eq!(parse(&m).err(), Some(BadSetting("STORAGE_PLANE")));
     }
 
     #[test]

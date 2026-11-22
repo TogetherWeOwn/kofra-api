@@ -17,6 +17,7 @@ kofra-account = { path = "../../crates/kofra-account" }
 kofra-api-core = { path = "../../crates/kofra-api-core" }
 kofra-api-types = { path = "../../crates/kofra-api-types" }
 kofra-store = { path = "../../crates/kofra-store" }
+kofra-storage-mgmt = { path = "../../crates/kofra-storage-mgmt" }
 serde_json = "1"
 sha1 = "0.10"
 sha2 = "0.10"

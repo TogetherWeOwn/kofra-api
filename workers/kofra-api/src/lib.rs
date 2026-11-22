@@ -42,7 +42,7 @@ use worker::{Context, Env, Request, Response, Result, ScheduleContext, Scheduled
 
 use crate::{
     breach::Breach,
-    config::{BadSetting, Deployment, Settings},
+    config::{BadSetting, Deployment, Settings, StorageSetting},
     d1::D1Db,
     env::WorkerEnv,
     mail::WorkerMailer,
@@ -144,15 +144,27 @@ fn database(env: &Env) -> Option<Rc<D1Db>> {
     env.d1("DB").ok().map(|db| Rc::new(D1Db::new(db)))
 }
 
-fn api(db: &Rc<D1Db>, s: &Settings) -> Api<ApiPorts> {
+/// The storage plane the settings pick. `None` when the management plane
+/// is picked but its binding is missing (the request is refused).
+fn storage_plane(s: &Settings, env: &Env) -> Option<StoragePlane> {
     use kofra_api_core::ports::Env as _;
+    match &s.storage {
+        StorageSetting::Stub => Some(StoragePlane::stub(WorkerEnv.now_ms())),
+        StorageSetting::Mgmt { token } => env
+            .service("STORAGE_MGMT")
+            .ok()
+            .map(|binding| StoragePlane::mgmt(binding, token, &s.s3_endpoint)),
+    }
+}
+
+fn api(db: &Rc<D1Db>, s: &Settings, storage: StoragePlane) -> Api<ApiPorts> {
     Api::new(
         ApiPorts {
             directory: SqlDirectory::new(Rc::clone(db)),
             idempotency: SqlIdempotency::new(Rc::clone(db)),
             audit: SqlAudit::new(Rc::clone(db)),
             rate: SqlRate::new(Rc::clone(db)),
-            storage: StoragePlane::stub(WorkerEnv.now_ms()),
+            storage,
             env: WorkerEnv,
         },
         s.api(),
@@ -175,8 +187,10 @@ fn accounts(
                 ctx,
                 Rc::clone(db),
             ),
+            // With the management plane picked, the stub never hands out a
+            // tenant the plane did not make: no mix of planes.
             tenancy: TenancyPlane {
-                stub: s.deployment != Deployment::Production,
+                stub: s.deployment != Deployment::Production && s.storage == StorageSetting::Stub,
             },
             throttle: SqlThrottle::new(Rc::clone(db), s.subkey(THROTTLE_KEY)),
             breach: Breach {
@@ -327,7 +341,11 @@ async fn fetch(req: Request, env: Env, ctx: Context) -> Result<Response> {
     };
     match target {
         Target::Api => {
-            let api = api(&db, &s);
+            let Some(storage) = storage_plane(&s, &env) else {
+                worker::console_error!("config: no STORAGE_MGMT binding");
+                return problem("internal_error", None);
+            };
+            let api = api(&db, &s, storage);
             let request = kofra_api_core::http::Request {
                 method: p.method,
                 path: p.path,

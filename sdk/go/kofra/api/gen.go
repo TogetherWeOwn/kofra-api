@@ -109,6 +109,7 @@ func (e AuditEntryOutcome) Valid() bool {
 const (
 	DeletionReasonCustomer   DeletionReason = "customer"
 	DeletionReasonNonPayment DeletionReason = "non_payment"
+	DeletionReasonOther      DeletionReason = "other"
 )
 
 // Valid indicates whether the value is a known member of the DeletionReason enum.
@@ -117,6 +118,8 @@ func (e DeletionReason) Valid() bool {
 	case DeletionReasonCustomer:
 		return true
 	case DeletionReasonNonPayment:
+		return true
+	case DeletionReasonOther:
 		return true
 	default:
 		return false
@@ -711,8 +714,13 @@ type Deletion struct {
 	ConfirmUrl *string `json:"confirm_url"`
 
 	// EraseAt When the data is cryptographically erased. `null` until confirmed.
-	EraseAt *Timestamp     `json:"erase_at"`
-	Reason  DeletionReason `json:"reason"`
+	EraseAt *Timestamp `json:"erase_at"`
+
+	// Reason Who started the deletion: `customer` (a member of the account),
+	// `non_payment`, or `other` (Kofra, for example under the terms of
+	// service). Only a `customer` deletion can be cancelled through the
+	// API or the console.
+	Reason DeletionReason `json:"reason"`
 
 	// RequestedAt RFC 3339 timestamp in UTC.
 	RequestedAt Timestamp `json:"requested_at"`
@@ -723,7 +731,10 @@ type Deletion struct {
 	Status DeletionStatus `json:"status"`
 }
 
-// DeletionReason defines model for Deletion.Reason.
+// DeletionReason Who started the deletion: `customer` (a member of the account),
+// `non_payment`, or `other` (Kofra, for example under the terms of
+// service). Only a `customer` deletion can be cancelled through the
+// API or the console.
 type DeletionReason string
 
 // DeletionStatus `pending_confirmation`: an Owner must confirm at `confirm_url`
