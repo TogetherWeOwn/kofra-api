@@ -1793,9 +1793,13 @@ fn a_second_first_set_of_recovery_codes_keeps_the_first() {
     let store = &h.ports().store;
     let first = [[1u8; 32], [2u8; 32]];
     let second = [[3u8; 32], [4u8; 32]];
-    assert!(pollster::block_on(store.init_recovery_codes(&user_id, &first, T0)).unwrap());
+    let epoch = pollster::block_on(store.user(&user_id))
+        .unwrap()
+        .unwrap()
+        .epoch;
+    assert!(pollster::block_on(store.init_recovery_codes(&user_id, &first, epoch, T0)).unwrap());
     // A concurrent enrolment that lost the race stores nothing.
-    assert!(!pollster::block_on(store.init_recovery_codes(&user_id, &second, T0)).unwrap());
+    assert!(!pollster::block_on(store.init_recovery_codes(&user_id, &second, epoch, T0)).unwrap());
     assert_eq!(
         pollster::block_on(store.recovery_codes_left(&user_id)).unwrap(),
         2
@@ -1803,7 +1807,7 @@ fn a_second_first_set_of_recovery_codes_keeps_the_first() {
     assert!(!pollster::block_on(store.take_recovery_code(&user_id, &second[0], T0)).unwrap());
     assert!(pollster::block_on(store.take_recovery_code(&user_id, &first[0], T0)).unwrap());
     // One unused code left: a first set is still refused.
-    assert!(!pollster::block_on(store.init_recovery_codes(&user_id, &second, T0)).unwrap());
+    assert!(!pollster::block_on(store.init_recovery_codes(&user_id, &second, epoch, T0)).unwrap());
     assert!(pollster::block_on(store.take_recovery_code(&user_id, &first[1], T0)).unwrap());
     assert_eq!(
         pollster::block_on(store.recovery_codes_left(&user_id)).unwrap(),
@@ -1966,7 +1970,7 @@ fn credential_writes_reject_stale_foreign_and_missing_keep_sessions() {
         let hash = [1; 32];
         assert!(
             store
-                .init_recovery_codes(&old.user_id, &[hash], T0)
+                .init_recovery_codes(&old.user_id, &[hash], epoch, T0)
                 .await
                 .unwrap()
         );
@@ -1983,7 +1987,14 @@ fn credential_writes_reject_stale_foreign_and_missing_keep_sessions() {
             );
             assert_eq!(
                 store
-                    .enable_totp(&old.user_id, totp::step(T0), epoch, keep, T0 + 1)
+                    .enable_totp(
+                        &old.user_id,
+                        &pending.sealed,
+                        totp::step(T0),
+                        epoch,
+                        keep,
+                        T0 + 1
+                    )
                     .await
                     .unwrap(),
                 None,
@@ -2123,4 +2134,81 @@ fn a_late_close_leaves_an_active_workspace_alone() {
     assert_eq!(before.state, WorkspaceState::Active);
     pollster::block_on(store.close_workspace(&before.id)).unwrap();
     assert_eq!(store.all_workspaces(), vec![before]);
+}
+
+#[test]
+fn a_first_code_set_is_refused_once_a_credential_changed() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    let session = h.stored_session(&s);
+    let store = &h.ports().store;
+    pollster::block_on(async {
+        // Two-step was turned off (the epoch moved) after the factor write
+        // that returned `session.epoch`: its first set must not be stored.
+        store
+            .bump_epoch(&session.user_id, session.epoch, None, T0)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            !store
+                .init_recovery_codes(&session.user_id, &[[9; 32]], session.epoch, T0)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            store.recovery_codes_left(&session.user_id).await.unwrap(),
+            0
+        );
+    });
+}
+
+#[test]
+fn only_the_checked_pending_secret_is_enabled() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    let session = h.stored_session(&s);
+    let begin = h.call("POST", "totp/begin", Some(&s), None);
+    assert_eq!(begin.status, 200);
+    let store = &h.ports().store;
+    let pending = store.totp_row(&session.user_id).unwrap();
+    // A concurrent begin replaced the pending secret after the code was
+    // checked against the first one.
+    let mut other = pending.clone();
+    other.sealed = vec![1, 2, 3];
+    store.set_totp_row(other.clone());
+    assert_eq!(
+        pollster::block_on(store.enable_totp(
+            &session.user_id,
+            &pending.sealed,
+            totp::step(T0),
+            session.epoch,
+            &session.id,
+            T0,
+        ))
+        .unwrap(),
+        None
+    );
+    assert_eq!(store.totp_row(&session.user_id).unwrap(), other);
+}
+
+#[test]
+fn a_stale_session_copy_cannot_put_back_a_level_it_lost() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    h.enable_totp(&s);
+    let read = h.stored_session(&s);
+    assert_eq!(read.level, 2);
+    let store = &h.ports().store;
+    // Another tab turns two-step off: the session moves on at level 1.
+    pollster::block_on(store.disable_totp(&read.user_id, read.epoch, &read.id, T0))
+        .unwrap()
+        .unwrap();
+    // The first tab's re-authentication writes its copy read before that.
+    let mut stale = read.clone();
+    stale.step_at = T0 + 5;
+    assert!(!pollster::block_on(store.update_session(&stale)).unwrap());
+    let now = h.stored_session(&s);
+    assert_eq!(now.level, 1);
+    assert_eq!(now.epoch, read.epoch + 1);
 }

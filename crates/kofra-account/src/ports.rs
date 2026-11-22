@@ -105,8 +105,12 @@ pub trait Store {
     async fn insert_session(&self, session: &SessionRecord) -> PortResult<()>;
     /// A session by token hash.
     async fn session_by_hash(&self, hash: &[u8; 32]) -> PortResult<Option<SessionRecord>>;
-    /// Writes `last_seen_at` and `step_at` and `level` of a session.
-    async fn update_session(&self, session: &SessionRecord) -> PortResult<()>;
+    /// Writes `last_seen_at`, `step_at` and `level` of a session, only while
+    /// its stored epoch is still `session.epoch` (the one the caller read):
+    /// `UPDATE account_sessions SET ... WHERE id = ? AND epoch = ?`. `false`
+    /// (nothing written) if an epoch-raising write re-stamped or retired it
+    /// meanwhile, so a stale copy cannot put back a level it lost.
+    async fn update_session(&self, session: &SessionRecord) -> PortResult<bool>;
     /// Deletes one session of a user; `false` if there was none.
     async fn delete_session(&self, user_id: &str, id: &str) -> PortResult<bool>;
     /// Deletes every session of a user except `keep`; returns how many.
@@ -145,18 +149,23 @@ pub trait Store {
 
     /// The user's authenticator-app credential, enabled or pending.
     async fn totp(&self, user_id: &str) -> PortResult<Option<TotpRecord>>;
-    /// Inserts or replaces pending TOTP only at `expected_epoch`.
-    /// Use one `INSERT ... SELECT ... WHERE account_users.epoch = ?
-    /// ON CONFLICT(user_id) DO UPDATE SET ... WHERE account_totp_credentials.enabled = 0`.
+    /// Inserts or replaces pending TOTP only at `expected_epoch`. Use one
+    /// `INSERT ... SELECT ... FROM account_users WHERE account_users.id = ?
+    /// AND account_users.epoch = ? ON CONFLICT(user_id) DO UPDATE SET
+    /// sealed = excluded.sealed, enabled = 0, last_step = 0, created_at =
+    /// excluded.created_at WHERE account_totp_credentials.enabled = 0`.
     /// Returns `false` if nothing was written.
     async fn begin_totp(&self, record: &TotpRecord, expected_epoch: u64) -> PortResult<bool>;
-    /// Atomically enables pending TOTP at `expected_epoch`, records `step`,
+    /// Atomically enables the pending TOTP record whose sealed secret is
+    /// `sealed` (the one the code was checked against; a record replaced
+    /// meanwhile is not enabled) at `expected_epoch`, records `step`,
     /// raises the epoch, and sets `updated_at`. The keep session must exist,
     /// belong to the user, and be at `expected_epoch`. Sets its epoch and level 2.
     /// Follow the D1 recipe above. Returns the new epoch or `None` with no writes.
     async fn enable_totp(
         &self,
         user_id: &str,
+        sealed: &[u8],
         step: u64,
         expected_epoch: u64,
         keep: &str,
@@ -178,8 +187,9 @@ pub trait Store {
     /// code of this or a later step was accepted already (a replay).
     async fn advance_totp(&self, user_id: &str, step: u64) -> PortResult<bool>;
 
-    /// Replaces the user's recovery codes only at `expected_epoch`.
-    /// In D1, guard every statement of the batch by `account_users.epoch`.
+    /// Replaces the user's recovery codes only at `expected_epoch`. In D1,
+    /// guard every statement of the batch by `EXISTS (SELECT 1 FROM
+    /// account_users WHERE id = ? AND epoch = ?)`.
     /// Returns `false` if the epoch check failed and nothing was written.
     async fn replace_recovery_codes(
         &self,
@@ -189,12 +199,17 @@ pub trait Store {
         now_ms: u64,
     ) -> PortResult<bool>;
     /// Stores a first set of recovery codes only if the user has no unused
-    /// code (one conditional write); `false` if another request stored a set
-    /// first, so that two concurrent enrolments never both hand out a set.
+    /// code and is still at `expected_epoch` (the epoch the factor write
+    /// returned), as one conditional write guarded by `EXISTS (SELECT 1 FROM
+    /// account_users WHERE id = ? AND epoch = ?)`; `false` if another request
+    /// stored a set first (two concurrent enrolments never both hand out a
+    /// set) or a credential changed meanwhile (a set cannot outlive the
+    /// factor being turned off).
     async fn init_recovery_codes(
         &self,
         user_id: &str,
         hashes: &[[u8; 32]],
+        expected_epoch: u64,
         now_ms: u64,
     ) -> PortResult<bool>;
     /// Atomically spends an unused code; `false` if there is none.
