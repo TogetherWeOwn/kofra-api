@@ -25,7 +25,7 @@ T = TypeVar("T", bound="ApiTokenCreate")
 class ApiTokenCreate:
     """ 
         Attributes:
-            name (str): A label for people; not used for access. No control characters.
+            name (str): A label for people; not used for access. It cannot hold a NUL character.
             scopes (list[Scope]): The scopes of a token. Each scope at most once.
             buckets (list[str] | Unset): The only buckets the token can reach. Each bucket at most once.
             allowed_ips (list[str] | Unset): The only client addresses the token is accepted from. Each entry at most once.

@@ -260,10 +260,10 @@ fn token_lists_page_newest_first() {
 }
 
 #[test]
-fn a_token_name_with_control_characters_is_refused() {
+fn a_token_name_with_a_nul_is_refused() {
     let h = setup();
     let owner = h.owner();
-    for name in ["\u{0}ci", "c\ni", "ci\u{7f}"] {
+    for name in ["\u{0}ci", "c\u{0}i", "ci\u{0}"] {
         let r = create(
             &h,
             &owner,
@@ -273,10 +273,13 @@ fn a_token_name_with_control_characters_is_refused() {
         assert_eq!(code(&r), "validation_failed");
         assert_eq!(r.json_body()["errors"][0]["pointer"], "/name");
     }
-    let r = create(
-        &h,
-        &owner,
-        json!({ "name": "ci – build", "scopes": ["buckets:read"] }),
-    );
-    assert_eq!(r.status, 201);
+    // Other characters, control characters included, are accepted as before.
+    for name in ["ci – build", "c\ti", "ci\u{7f}"] {
+        let r = create(
+            &h,
+            &owner,
+            json!({ "name": name, "scopes": ["buckets:read"] }),
+        );
+        assert_eq!(r.status, 201, "{name:?}");
+    }
 }

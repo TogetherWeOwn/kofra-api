@@ -718,6 +718,12 @@ fn a_refused_workspace_insert_never_adds_to_an_existing_workspace() {
         created_at: T0,
     };
     assert!(block_on(s.store.insert_workspace(&ws, &owner("usr_a"), 1)).unwrap());
+    // The first insert stored the provisioning time it was given.
+    let p = s.db.rows(
+        "SELECT tried_at FROM account_provisioning WHERE workspace_id = 'ws_1'",
+        &[],
+    );
+    assert_eq!(p[0].u64("tried_at").unwrap(), T0);
     // usr_b retries the same ID with a cap of 0, with and without a
     // provisioning time: nothing is added to the existing workspace.
     for tried in [None, Some(T0 + 5)] {

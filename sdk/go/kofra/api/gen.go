@@ -532,7 +532,7 @@ type ApiToken struct {
 	// LastUsedAt Last accepted request, to within an hour. `null` if never used.
 	LastUsedAt *Timestamp `json:"last_used_at"`
 
-	// Name A label for people; not used for access. No control characters.
+	// Name A label for people; not used for access. It cannot hold a NUL character.
 	Name   TokenName `json:"name"`
 	Scopes []Scope   `json:"scopes"`
 }
@@ -551,7 +551,7 @@ type ApiTokenCreate struct {
 	// ExpiresInDays Days until the token expires. Default 90.
 	ExpiresInDays *TokenLifetimeDays `json:"expires_in_days,omitempty"`
 
-	// Name A label for people; not used for access. No control characters.
+	// Name A label for people; not used for access. It cannot hold a NUL character.
 	Name TokenName `json:"name"`
 
 	// Scopes The scopes of a token. Each scope at most once.
@@ -588,7 +588,7 @@ type ApiTokenCreated struct {
 	// LastUsedAt Last accepted request, to within an hour. `null` if never used.
 	LastUsedAt *Timestamp `json:"last_used_at"`
 
-	// Name A label for people; not used for access. No control characters.
+	// Name A label for people; not used for access. It cannot hold a NUL character.
 	Name   TokenName `json:"name"`
 	Scopes []Scope   `json:"scopes"`
 
@@ -982,7 +982,7 @@ type TokenId = string
 // TokenLifetimeDays Days until the token expires. Default 90.
 type TokenLifetimeDays = int
 
-// TokenName A label for people; not used for access. No control characters.
+// TokenName A label for people; not used for access. It cannot hold a NUL character.
 type TokenName = string
 
 // TokenScopes The scopes of a token. Each scope at most once.

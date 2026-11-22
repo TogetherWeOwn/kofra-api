@@ -11835,8 +11835,8 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 64,
-        "pattern": "^[^\\x00-\\x1F\\x7F-\\x9F]+$",
-        "description": "A label for people; not used for access. No control characters."
+        "pattern": "^[^\\x00]+$",
+        "description": "A label for people; not used for access. It cannot hold a NUL character."
       },
       "ApiToken": {
         "type": "object",

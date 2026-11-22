@@ -87,11 +87,11 @@ pub(super) async fn create<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Prob
     let Input::TokenCreate(body) = &ctx.input else {
         return Err(Problem::new("internal_error"));
     };
-    // The contract's `TokenName` pattern refuses control characters (a NUL
-    // above all, which SQLite's length() stops at); checked here as well, so
-    // the rule holds whatever validates the body first.
-    if body.name.to_string().chars().any(char::is_control) {
-        return Err(invalid("/name", "A name cannot hold control characters."));
+    // The contract's `TokenName` pattern refuses a NUL: SQLite's length()
+    // stops at one, so such a name was never storable. Checked here as well,
+    // so the rule holds whatever validates the body first.
+    if body.name.to_string().contains('\0') {
+        return Err(invalid("/name", "A name cannot hold a NUL character."));
     }
     let p = &ctx.principal;
 

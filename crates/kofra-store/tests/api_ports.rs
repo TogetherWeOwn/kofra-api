@@ -563,6 +563,8 @@ fn filtered_lists_seek_the_index_of_their_filter() {
         let s = rec.seen.borrow_mut().pop().unwrap();
         let p = plan(&db, &s);
         assert!(p.contains(index), "{p}");
+        // The cursor bounds the index range: the search starts at it.
+        assert!(p.contains("(created_at,id)<(?,?)"), "cursor as range: {p}");
         assert!(!p.contains("TEMP B-TREE"), "no sort step: {p}");
     }
     let dir = SqlDirectory::new(Rc::clone(&rec));
@@ -570,6 +572,7 @@ fn filtered_lists_seek_the_index_of_their_filter() {
     let s = rec.seen.borrow_mut().pop().unwrap();
     let p = plan(&db, &s);
     assert!(p.contains("api_tokens_by_member"), "{p}");
+    assert!(p.contains("(created_at,id)<(?,?)"), "cursor as range: {p}");
 }
 
 #[test]
