@@ -361,6 +361,34 @@ fn a_retry_after_a_lost_record_never_deletes_data() {
 }
 
 #[test]
+fn known_limit_a_retry_after_a_lost_record_deletes_an_empty_bucket_made_again() {
+    // Known limit of the storage plane's rules, pinned so it stays visible:
+    // a bucket delete keeps no record of its key, so when the API has lost
+    // its own record and someone made an empty bucket of that name again in
+    // between, the retry deletes that new, empty bucket (and the grants on
+    // it). No object is lost: a bucket that holds data is never deleted
+    // (see `a_retry_after_a_lost_record_never_deletes_data`).
+    let h = setup();
+    let owner = h.owner();
+    let delete = || {
+        let mut r = h.req("DELETE", "/v1/buckets/photos", Some(&owner));
+        r.headers.push(("Idempotency-Key".into(), "del".into()));
+        h.send(r)
+    };
+    assert_eq!(delete().status, 204);
+    h.api.ports.idempotency.forget("ws_a", "del");
+    h.api.ports.storage.add_bucket("t_a", "photos", 0, 0);
+    assert_eq!(delete().status, 204);
+    assert!(
+        !h.api
+            .ports
+            .storage
+            .bucket_names("t_a")
+            .contains(&"photos".to_owned())
+    );
+}
+
+#[test]
 fn bucket_limited_tokens_see_only_tokens_inside_their_buckets() {
     let h = setup();
     let (limited, _) = h.token(Tok {

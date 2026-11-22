@@ -234,7 +234,17 @@ fn a_tenant_deletion_is_idempotent_by_its_key() {
         s.delete_tenant(keyed(ACT, "del-3")).await.unwrap();
         let tenant = s.tenant("t_a").await.unwrap();
         assert!(tenant.deletion.is_some());
-        assert!(tenant.deletion_seq.unwrap() > seq);
+        let third = tenant.deletion_seq.unwrap();
+        assert!(third > seq);
+        // Only the last undone deletion's key is kept: once a newer undo
+        // replaces it, the first key is a request like any other.
+        s.restore_tenant(ACT, third).await.unwrap();
+        assert_eq!(
+            s.delete_tenant(keyed(ACT, "del-3")).await.unwrap_err(),
+            StorageError::IdempotencyKeyReused
+        );
+        s.delete_tenant(keyed(ACT, "del-1")).await.unwrap();
+        assert!(s.tenant("t_a").await.unwrap().deletion.is_some());
     });
 }
 

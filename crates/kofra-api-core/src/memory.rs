@@ -554,9 +554,10 @@ struct Deletions {
     key: Option<String>,
     /// The sequence number of the last undone deletion.
     last_undone: Option<u64>,
-    /// Keys of deletions that were undone: a deletion request with one of
-    /// them is a replay of an undone request, and is refused.
-    undone_keys: BTreeSet<String>,
+    /// The key of the last undone deletion (one, not a history: a newer
+    /// undo replaces it). A deletion request with it is a replay of the
+    /// undone request, and is refused.
+    last_undone_key: Option<String>,
 }
 
 struct TenantData {
@@ -1049,7 +1050,7 @@ impl Storage for MemoryStorage {
                 Err(StorageError::DeletionAlreadyRequested)
             };
         }
-        if key.is_some_and(|k| data.deletions.undone_keys.contains(k)) {
+        if key.is_some() && data.deletions.last_undone_key.as_deref() == key {
             // The key of a deletion that was undone: a late replay of it
             // must not delete the tenant again.
             return Err(StorageError::IdempotencyKeyReused);
@@ -1101,9 +1102,7 @@ impl Storage for MemoryStorage {
         {
             return Err(StorageError::DeletionFinal);
         }
-        if let Some(key) = data.deletions.key.take() {
-            data.deletions.undone_keys.insert(key);
-        }
+        data.deletions.last_undone_key = data.deletions.key.take();
         data.deletions.last_undone = Some(deletion_seq);
         data.deletions.seq += 1;
         data.tenant.deletion = None;

@@ -435,8 +435,9 @@ pub struct Acting<'a> {
     /// Whether a person confirmed this request, and how; `None` for an API
     /// token or agent request. Storage calls that change what a credential
     /// can open need a confirmation, and a tenant deletion or its undo needs
-    /// a [`Confirmation::Record`]; the API refuses such a call without one
-    /// before it reaches storage.
+    /// a [`Confirmation::Record`]. Choosing it, and refusing such a call
+    /// without one before it reaches storage, comes with the storage plane's
+    /// token classes; until then it is always `None`.
     pub confirmation: Option<Confirmation<'a>>,
 }
 
@@ -500,10 +501,12 @@ pub struct Reach {
 ///   `secret_access_key: None`: storage never keeps a secret. While the first
 ///   request is still being applied, storage answers
 ///   [`StorageError::IdempotencyKeyInUse`].
-/// - **Closing calls** (`delete_bucket`, `revoke_key`, a rename, the tenant
-///   deletion) are idempotent by state and keep no record of the key, so
-///   storage never refuses a reused key on them: each request is judged on
-///   its own. A repeated `revoke_key` answers `Ok`; a repeated
+/// - **Closing calls** (`delete_bucket`, `revoke_key`, the tenant deletion)
+///   are idempotent by state and keep no record of the key, so storage never
+///   refuses a reused key on them: each request is judged on its own. A
+///   rename keeps no record of its own either, but is refused with
+///   `IdempotencyKeyReused` when its key holds an opening call's record. A
+///   repeated `revoke_key` answers `Ok`; a repeated
 ///   `delete_bucket` answers [`StorageError::BucketNotFound`]. A repeated
 ///   `delete_tenant` with the key of the deletion in force answers that
 ///   deletion; with any other key, `DeletionAlreadyRequested`.
@@ -579,7 +582,9 @@ pub trait Storage {
         grants: Option<&[t::GrantInput]>,
     ) -> Result<t::AccessKey, StorageError>;
     /// Revokes a key. Revoking a key that is already revoked answers `Ok`,
-    /// so a retry finishes what the first request started.
+    /// so a retry finishes what the first request started. (A bucket-limited
+    /// token's retry reads the key first, to hold it to its buckets, and a
+    /// revoked key is not found: that retry answers `KeyNotFound`.)
     async fn revoke_key(&self, acting: Acting<'_>, id: &str) -> Result<(), StorageError>;
     /// Usage totals.
     async fn usage(&self, tenant: &str) -> Result<t::Usage, StorageError>;
