@@ -1,4 +1,14 @@
-# osv-scanner configuration for the lockfile scan in CI. No advisory is ignored.
+# osv-scanner configuration for the lockfile scan in CI. One advisory is ignored, below.
 # Add an [[IgnoredVulns]] entry only with a reason and an ignoreUntil date; the
 # organisation's pull request scan does not read this file, so an exception
 # there must be accepted centrally as well.
+
+# chrono is reported as unmaintained (informational: no known vulnerability).
+# It is a required dependency of the Cloudflare workers-rs `worker` crate,
+# which the Worker (workers/kofra-api) is built on; no release of `worker`
+# drops it. The organisation accepts the same advisory centrally for
+# cargo-deny, with the same review date.
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0543"
+ignoreUntil = 2027-02-17T00:00:00Z
+reason = "chrono is unmaintained (informational, no known vulnerability) and is required by the Cloudflare workers-rs worker crate with no maintained alternative; review by 2027-02-17"
