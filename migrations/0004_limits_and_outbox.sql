@@ -13,7 +13,9 @@ CREATE TABLE api_rate_limits (
 CREATE INDEX api_rate_limits_by_tat ON api_rate_limits (tat);
 
 -- The account service's fixed-window throttles (sign-in, mail, codes). The
--- key names an address or a network, so only its SHA-256 is stored.
+-- key names an address or a network, so only its HMAC-SHA256 under a key
+-- derived from the service's secret is stored: an export of this table does
+-- not tell which addresses or networks were throttled.
 CREATE TABLE account_throttle (
   key_hash     BLOB PRIMARY KEY CHECK (length(key_hash) = 32),
   window_start INTEGER NOT NULL,

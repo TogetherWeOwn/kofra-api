@@ -19,6 +19,7 @@
 
 use std::cell::Cell;
 
+use hmac::{Hmac, Mac};
 use kofra_account::{
     model::{
         ChallengePurpose, ChallengeRecord, EmailToken, EventKind, InviteRecord, MemberRecord,
@@ -27,7 +28,7 @@ use kofra_account::{
     },
     ports::{DeletePasskey, InsertPasskey, InsertUser, PortError, PortResult, Store, Throttle},
 };
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 
 use crate::{Db, DbError, Done, Row, Stmt, Value, params, placeholders};
 
@@ -904,16 +905,27 @@ impl<D: Db> Store for SqlStore<D> {
         let none_unused = "NOT EXISTS (SELECT 1 FROM account_recovery_codes \
                            WHERE user_id = ?1 AND used_at IS NULL)";
         if hashes.is_empty() {
-            let d = self
-                .run(
-                    &format!(
-                        "SELECT 1 AS ok FROM account_users \
-                         WHERE id = ?1 AND epoch = ?2 AND {none_unused}"
+            // As with a set: the used codes go, and the answer says whether
+            // the user had no unused code at the epoch.
+            let done = self
+                .batch(&[
+                    Stmt::new(
+                        format!(
+                            "SELECT 1 AS ok FROM account_users \
+                             WHERE id = ?1 AND epoch = ?2 AND {none_unused}"
+                        ),
+                        params![user_id, expected_epoch],
                     ),
-                    params![user_id, expected_epoch],
-                )
+                    Stmt::new(
+                        format!(
+                            "DELETE FROM account_recovery_codes WHERE user_id = ?1 \
+                             AND {USER_AT_E} AND {none_unused}"
+                        ),
+                        params![user_id, expected_epoch],
+                    ),
+                ])
                 .await?;
-            return Ok(!d.rows.is_empty());
+            return Ok(done.first().is_some_and(|d| !d.rows.is_empty()));
         }
         let mut p = params![user_id, expected_epoch, now_ms];
         p.extend(hashes.iter().map(Value::from));
@@ -1394,21 +1406,34 @@ impl<D: Db> Store for SqlStore<D> {
     }
 }
 
-/// Fixed-window counters (`account_throttle`). Keys hold e-mail addresses,
-/// so only their SHA-256 is stored.
+/// Fixed-window counters (`account_throttle`). Keys name e-mail addresses
+/// and networks, which have few enough shapes to be guessed from a plain
+/// hash, so only their HMAC-SHA256 under a server-side key is stored: a
+/// database export does not tell which addresses or networks were throttled.
 pub struct SqlThrottle<D> {
     db: D,
+    key: [u8; 32],
     /// Hits counted, for tests.
     pub hits: Cell<u64>,
 }
 
 impl<D: Db> SqlThrottle<D> {
-    /// Throttles on `db`.
-    pub fn new(db: D) -> Self {
+    /// Throttles on `db`, with keys hashed under `key` (a key of its own,
+    /// derived from the service's secret; never stored).
+    pub fn new(db: D, key: [u8; 32]) -> Self {
         Self {
             db,
+            key,
             hits: Cell::new(0),
         }
+    }
+
+    /// The stored form of a throttle key.
+    pub fn key_hash(&self, key: &str) -> [u8; 32] {
+        let mut mac =
+            <Hmac<Sha256> as Mac>::new_from_slice(&self.key).expect("HMAC takes any key length");
+        mac.update(key.as_bytes());
+        mac.finalize().into_bytes().into()
     }
 }
 
@@ -1422,7 +1447,7 @@ impl<D: Db> Throttle for SqlThrottle<D> {
     ) -> PortResult<Option<u32>> {
         let window = window_ms.max(1);
         let start = now_ms - now_ms % window;
-        let hashed: [u8; 32] = Sha256::digest(key.as_bytes()).into();
+        let hashed = self.key_hash(key);
         let d = self
             .db
             .run(&Stmt::new(

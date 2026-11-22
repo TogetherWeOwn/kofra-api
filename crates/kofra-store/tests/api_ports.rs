@@ -410,29 +410,81 @@ fn rate_limits_match_gcra_over_random_calls() {
 
 #[test]
 fn the_purge_deletes_only_what_has_expired() {
+    const DAY: u64 = 86_400_000;
     let db = db();
     db.exec(
-        "INSERT INTO api_rate_limits (key, policy, tat) VALUES ('a', 'p', ?1), ('b', 'p', ?2)",
-        &[Value::from(T0 - 1), Value::from(T0 + 1)],
+        "INSERT INTO account_users (id, email, email_key, name, password_hash, epoch, created_at, \
+         updated_at) VALUES ('usr_p', 'p@example.com', 'p@example.com', 'P', 'h', 0, 1, 1)",
+        &[],
     );
-    db.exec(
-        "INSERT INTO api_idempotency (workspace_id, key, fingerprint, claimed_at, state) \
-         VALUES ('ws', 'old', ?1, ?2, 'pending'), ('ws', 'new', ?1, ?3, 'pending')",
-        &[
-            Value::Blob(vec![0; 32]),
-            Value::from(T0 - 86_400_001),
-            Value::from(T0 - 1),
-        ],
-    );
-    db.exec(
-        "INSERT INTO account_mail_outbox (to_addr, subject, text_body, created_at) \
-         VALUES ('a', 's', 't', ?1), ('b', 's', 't', ?2)",
-        &[Value::from(T0 - 3_600_001), Value::from(T0)],
-    );
+    // One row that has expired and one that has not, per table.
+    let cases: [(&str, &str, u64, u64); 8] = [
+        (
+            "api_rate_limits",
+            "INSERT INTO api_rate_limits (key, policy, tat) VALUES (?1, 'p', ?2)",
+            T0 - 1,
+            T0 + 1,
+        ),
+        (
+            "account_throttle",
+            "INSERT INTO account_throttle (key_hash, window_start, hits) VALUES (randomblob(32), ?2, 1)",
+            T0 - DAY - 1,
+            T0 - DAY + 1,
+        ),
+        (
+            "api_idempotency",
+            "INSERT INTO api_idempotency (workspace_id, key, fingerprint, claimed_at, state) \
+             VALUES ('ws', ?1, zeroblob(32), ?2, 'pending')",
+            T0 - DAY - 1,
+            T0 - 1,
+        ),
+        (
+            "account_challenges",
+            "INSERT INTO account_challenges (id, purpose, challenge, created_at, expires_at) \
+             VALUES (?1, 'login', zeroblob(32), 1, ?2)",
+            T0,
+            T0 + 1,
+        ),
+        (
+            "account_sessions",
+            "INSERT INTO account_sessions (id, user_id, epoch, token_hash, stage, level, step_at, \
+             created_at, last_seen_at, expires_at) VALUES (?1, 'usr_p', 0, randomblob(32), 'full', \
+             1, 1, 1, 1, ?2)",
+            T0,
+            T0 + 1,
+        ),
+        (
+            "account_email_tokens",
+            "INSERT INTO account_email_tokens (token_hash, purpose, user_id, email, epoch, created_at, \
+             expires_at) VALUES (randomblob(32), 'verify', 'usr_p', ?1, 0, 1, ?2)",
+            T0 - DAY,
+            T0 - DAY + 1,
+        ),
+        (
+            "account_mail_outbox",
+            "INSERT INTO account_mail_outbox (to_addr, subject, text_body, created_at) \
+             VALUES (?1, 's', 't', ?2)",
+            T0 - 3_600_001,
+            T0,
+        ),
+        (
+            "account_security_events",
+            "INSERT INTO account_security_events (id, user_id, kind, at) VALUES (?1, 'usr_p', 'sign_in', ?2)",
+            T0 - 400 * DAY - 1,
+            T0 - 400 * DAY + 1,
+        ),
+    ];
+    for (table, insert, old, new) in cases {
+        db.exec(insert, &[format!("{table}-old").into(), Value::from(old)]);
+        db.exec(insert, &[format!("{table}-new").into(), Value::from(new)]);
+    }
     let deleted = block_on(kofra_store::purge::run(&*db, T0)).unwrap();
-    assert_eq!(deleted.iter().sum::<u64>(), 3);
-    let left = |sql: &str| db.rows(sql, &[]).len();
-    assert_eq!(left("SELECT key FROM api_rate_limits"), 1);
-    assert_eq!(left("SELECT key FROM api_idempotency"), 1);
-    assert_eq!(left("SELECT id FROM account_mail_outbox"), 1);
+    assert_eq!(deleted, vec![1; 8]);
+    for (table, ..) in cases {
+        assert_eq!(
+            db.rows(&format!("SELECT 1 FROM {table}"), &[]).len(),
+            1,
+            "{table} keeps its live row"
+        );
+    }
 }

@@ -583,7 +583,7 @@ impl TestPorts {
             },
             mailer: MemoryMailer::default(),
             tenancy: StubTenancy::default(),
-            throttle: SqlThrottle::new(db),
+            throttle: SqlThrottle::new(db, [7; 32]),
             breach: MemoryBreach::default(),
             env: TestEnv::new(now_ms),
         }

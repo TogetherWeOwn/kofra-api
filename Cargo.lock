@@ -623,6 +623,7 @@ dependencies = [
  "base64",
  "ciborium",
  "ed25519-dalek",
+ "hmac 0.12.1",
  "kofra-account",
  "kofra-api-core",
  "p256",

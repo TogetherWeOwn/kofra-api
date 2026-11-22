@@ -569,3 +569,110 @@ fn a_keep_session_ahead_of_its_user_never_lets_a_batch_through() {
             .is_empty()
     );
 }
+
+#[test]
+fn address_changes_refuse_a_taken_address_and_a_stale_epoch() {
+    let s = setup();
+    assert!(!s.unchanged(|| {
+        block_on(
+            s.store
+                .set_email("usr_a", "B@example.com", "b@example.com", 3, T0),
+        )
+        .unwrap()
+    }));
+    assert!(!s.unchanged(|| {
+        block_on(
+            s.store
+                .set_email("usr_a", "c@example.com", "c@example.com", 2, T0),
+        )
+        .unwrap()
+    }));
+    assert!(
+        block_on(
+            s.store
+                .set_email("usr_a", "C@example.com", "c@example.com", 3, T0 + 1)
+        )
+        .unwrap()
+    );
+    let u = block_on(s.store.user("usr_a")).unwrap().unwrap();
+    assert_eq!(
+        (u.email.as_str(), u.email_key.as_str()),
+        ("C@example.com", "c@example.com")
+    );
+    assert_eq!(u.email_verified_at, Some(T0 + 1));
+    assert_eq!(u.epoch, 3);
+}
+
+#[test]
+fn workspaces_still_setting_up_come_oldest_first_with_their_last_attempt() {
+    let s = setup();
+    for (id, at) in [("ws_b", T0 + 2), ("ws_a", T0 + 1), ("ws_c", T0 + 3)] {
+        let ws = WorkspaceRecord {
+            id: id.into(),
+            name: "W".into(),
+            tenant_id: None,
+            state: WorkspaceState::SettingUp,
+            provision_tried_at: None,
+            created_at: at,
+        };
+        let owner = MemberRecord {
+            workspace_id: id.into(),
+            user_id: "usr_b".into(),
+            role: Role::Owner,
+            active: true,
+            created_at: at,
+        };
+        assert!(block_on(s.store.insert_workspace(&ws, &owner, 5)).unwrap());
+    }
+    assert!(block_on(s.store.claim_provisioning("ws_b", T0, T0 + 10)).unwrap());
+    block_on(s.store.set_tenant("ws_c", "t_c")).unwrap();
+    let left = block_on(s.store.workspaces_setting_up(10)).unwrap();
+    let got: Vec<_> = left
+        .iter()
+        .map(|w| (w.id.as_str(), w.provision_tried_at))
+        .collect();
+    assert_eq!(got, vec![("ws_a", None), ("ws_b", Some(T0 + 10))]);
+    assert_eq!(block_on(s.store.workspaces_setting_up(1)).unwrap().len(), 1);
+    assert_eq!(
+        block_on(s.store.owners("ws_a")).unwrap(),
+        vec!["usr_b".to_owned()]
+    );
+}
+
+#[test]
+fn an_empty_first_set_still_clears_used_codes() {
+    let s = setup();
+    assert!(block_on(s.store.replace_recovery_codes("usr_a", &[[1; 32]], 3, T0)).unwrap());
+    assert!(block_on(s.store.take_recovery_code("usr_a", &[1; 32], T0)).unwrap());
+    assert!(!block_on(s.store.init_recovery_codes("usr_a", &[], 2, T0)).unwrap());
+    assert!(block_on(s.store.init_recovery_codes("usr_a", &[], 3, T0)).unwrap());
+    assert!(
+        s.db.rows(
+            "SELECT 1 FROM account_recovery_codes WHERE user_id = 'usr_a'",
+            &[]
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn throttle_keys_are_stored_under_a_keyed_hash_only() {
+    use kofra_account::ports::Throttle;
+    use kofra_store::account::SqlThrottle;
+    let db = Rc::new(SqliteDb::new());
+    let a = SqlThrottle::new(Rc::clone(&db), [1; 32]);
+    let b = SqlThrottle::new(Rc::clone(&db), [2; 32]);
+    let key = "login:ip:198.51.100.23";
+    assert_ne!(a.key_hash(key), b.key_hash(key));
+    assert_eq!(block_on(a.hit(key, 1, 60_000, T0)).unwrap(), None);
+    assert_eq!(block_on(a.hit(key, 1, 60_000, T0)).unwrap(), Some(60));
+    let stored = db.rows("SELECT key_hash FROM account_throttle", &[]);
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].hash("key_hash").unwrap(), a.key_hash(key));
+    // A plain SHA-256 of the key, the guessable form, is not what is stored.
+    use sha2::{Digest, Sha256};
+    let plain: [u8; 32] = Sha256::digest(key.as_bytes()).into();
+    assert_ne!(stored[0].hash("key_hash").unwrap(), plain);
+    // The next window starts over.
+    assert_eq!(block_on(a.hit(key, 1, 60_000, T0 + 60_000)).unwrap(), None);
+}

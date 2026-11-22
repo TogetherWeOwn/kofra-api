@@ -21,7 +21,7 @@ pub fn statements(now_ms: u64) -> Vec<Stmt> {
             "DELETE FROM api_rate_limits WHERE tat < ?1",
             params![now_ms],
         ),
-        // Throttle windows are at most an hour long.
+        // The longest throttle window is a day (workspace creation).
         Stmt::new(
             "DELETE FROM account_throttle WHERE window_start < ?1",
             params![before(DAY)],
