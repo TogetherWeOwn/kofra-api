@@ -4,6 +4,7 @@
 //! (fail closed); the error names the setting, never its value.
 
 use kofra_account::SignupMode;
+use kofra_storage_mgmt::Tokens;
 
 /// Where this copy runs. Production refuses the test-only mail modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,15 +76,19 @@ impl MailSettings {
 }
 
 /// Which storage plane serves the API's storage port.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub enum StorageSetting {
     /// The stub: reads answer an empty tenant, writes wait (the default).
     Stub,
     /// The storage management plane over the `STORAGE_MGMT` service
-    /// binding, with its standard service token.
+    /// binding, with its two service tokens.
     Mgmt {
-        /// `STORAGE_MGMT_TOKEN`.
-        token: String,
+        /// `STORAGE_MGMT_TOKEN` (standard) and
+        /// `STORAGE_MGMT_TOKEN_CONFIRMED` (confirmed). This is the only
+        /// place the confirmed token is read; from here it goes straight
+        /// into [`Tokens`], which hands it out only behind the confirmation
+        /// checks.
+        tokens: Tokens,
     },
 }
 
@@ -294,11 +299,17 @@ impl Settings {
         // The stub stays the plane until the setting says otherwise.
         let storage = match get("STORAGE_PLANE").as_deref() {
             None | Some("stub") => StorageSetting::Stub,
-            Some("mgmt") => StorageSetting::Mgmt {
-                token: get("STORAGE_MGMT_TOKEN")
+            Some("mgmt") => {
+                let standard = get("STORAGE_MGMT_TOKEN")
                     .filter(|t| service_token(t))
-                    .ok_or(BadSetting("STORAGE_MGMT_TOKEN"))?,
-            },
+                    .ok_or(BadSetting("STORAGE_MGMT_TOKEN"))?;
+                let confirmed = get("STORAGE_MGMT_TOKEN_CONFIRMED")
+                    .filter(|t| service_token(t) && *t != standard)
+                    .ok_or(BadSetting("STORAGE_MGMT_TOKEN_CONFIRMED"))?;
+                StorageSetting::Mgmt {
+                    tokens: Tokens::new(standard, confirmed),
+                }
+            }
             _ => return Err(BadSetting("STORAGE_PLANE")),
         };
         let account_secret = key(&get, "ACCOUNT_SECRET_KEY")?;
@@ -408,11 +419,14 @@ mod tests {
     }
 
     #[test]
-    fn the_storage_plane_is_the_stub_unless_set_to_mgmt_with_a_token() {
-        assert_eq!(parse(&base()).unwrap().storage, StorageSetting::Stub);
+    fn the_storage_plane_is_the_stub_unless_set_to_mgmt_with_both_tokens() {
+        assert!(matches!(
+            parse(&base()).unwrap().storage,
+            StorageSetting::Stub
+        ));
         let mut m = base();
         m.insert("STORAGE_PLANE", "stub".to_owned());
-        assert_eq!(parse(&m).unwrap().storage, StorageSetting::Stub);
+        assert!(matches!(parse(&m).unwrap().storage, StorageSetting::Stub));
         m.insert("STORAGE_PLANE", "mgmt".to_owned());
         assert_eq!(parse(&m).err(), Some(BadSetting("STORAGE_MGMT_TOKEN")));
         for bad in ["short", "has a space in it ok", "tab\tseparated-token-x"] {
@@ -425,16 +439,30 @@ mod tests {
         }
         let token = "storage-token-for-tests-0123456789";
         m.insert("STORAGE_MGMT_TOKEN", token.to_owned());
-        let s = parse(&m).unwrap();
+        // The confirmed token is required too, well formed, and its own.
         assert_eq!(
-            s.storage,
-            StorageSetting::Mgmt {
-                token: token.to_owned()
-            }
+            parse(&m).err(),
+            Some(BadSetting("STORAGE_MGMT_TOKEN_CONFIRMED"))
         );
-        // Debug never shows the token.
-        assert!(!format!("{s:?}").contains(token));
-        assert!(format!("{s:?}").contains("Mgmt"));
+        for bad in ["short", "has a space in it ok", token] {
+            m.insert("STORAGE_MGMT_TOKEN_CONFIRMED", bad.to_owned());
+            assert_eq!(
+                parse(&m).err(),
+                Some(BadSetting("STORAGE_MGMT_TOKEN_CONFIRMED")),
+                "{bad}"
+            );
+        }
+        let confirmed = "confirmed-token-for-tests-9876543210";
+        m.insert("STORAGE_MGMT_TOKEN_CONFIRMED", confirmed.to_owned());
+        let s = parse(&m).unwrap();
+        assert!(matches!(s.storage, StorageSetting::Mgmt { .. }));
+        // Debug never shows a token.
+        let shown = format!("{s:?}");
+        assert!(
+            !shown.contains(token) && !shown.contains(confirmed),
+            "{shown}"
+        );
+        assert!(shown.contains("Mgmt"));
         m.insert("STORAGE_PLANE", "real".to_owned());
         assert_eq!(parse(&m).err(), Some(BadSetting("STORAGE_PLANE")));
     }

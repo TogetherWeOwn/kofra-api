@@ -169,6 +169,10 @@ def sync_detailed(
     token limited to some client addresses cannot create keys
     (`ip_not_allowed`): access keys have no address limit yet.
 
+    A key with any `read_write` grant is created in the console: a request
+    with an API token is refused with `confirmation_required`. A key whose
+    grants are all `read` needs no confirmation.
+
     Through the MCP tool `keys_create`, the secret is not in the tool
     result: the result links to a console page that shows it once.
 
@@ -222,6 +226,10 @@ def sync(
     token limited to some client addresses cannot create keys
     (`ip_not_allowed`): access keys have no address limit yet.
 
+    A key with any `read_write` grant is created in the console: a request
+    with an API token is refused with `confirmation_required`. A key whose
+    grants are all `read` needs no confirmation.
+
     Through the MCP tool `keys_create`, the secret is not in the tool
     result: the result links to a console page that shows it once.
 
@@ -269,6 +277,10 @@ async def asyncio_detailed(
     bucket outside the token's bucket list with `bucket_not_allowed`. A
     token limited to some client addresses cannot create keys
     (`ip_not_allowed`): access keys have no address limit yet.
+
+    A key with any `read_write` grant is created in the console: a request
+    with an API token is refused with `confirmation_required`. A key whose
+    grants are all `read` needs no confirmation.
 
     Through the MCP tool `keys_create`, the secret is not in the tool
     result: the result links to a console page that shows it once.
@@ -322,6 +334,10 @@ async def asyncio(
     bucket outside the token's bucket list with `bucket_not_allowed`. A
     token limited to some client addresses cannot create keys
     (`ip_not_allowed`): access keys have no address limit yet.
+
+    A key with any `read_write` grant is created in the console: a request
+    with an API token is refused with `confirmation_required`. A key whose
+    grants are all `read` needs no confirmation.
 
     Through the MCP tool `keys_create`, the secret is not in the tool
     result: the result links to a console page that shows it once.

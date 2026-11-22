@@ -130,7 +130,10 @@ def sync_detailed(
 
      Cancels a deletion that is waiting for confirmation or scheduled, as
     long as `erase_at` has not passed. The account, its buckets and its keys
-    work again at once.
+    work again at once. A deletion request that is still waiting for
+    confirmation is cancelled by any request. A scheduled deletion is
+    cancelled only on the console's confirmation page; any other request
+    is refused with `confirmation_required`.
 
     Scopes: `account:delete`.
 
@@ -167,7 +170,10 @@ def sync(
 
      Cancels a deletion that is waiting for confirmation or scheduled, as
     long as `erase_at` has not passed. The account, its buckets and its keys
-    work again at once.
+    work again at once. A deletion request that is still waiting for
+    confirmation is cancelled by any request. A scheduled deletion is
+    cancelled only on the console's confirmation page; any other request
+    is refused with `confirmation_required`.
 
     Scopes: `account:delete`.
 
@@ -199,7 +205,10 @@ async def asyncio_detailed(
 
      Cancels a deletion that is waiting for confirmation or scheduled, as
     long as `erase_at` has not passed. The account, its buckets and its keys
-    work again at once.
+    work again at once. A deletion request that is still waiting for
+    confirmation is cancelled by any request. A scheduled deletion is
+    cancelled only on the console's confirmation page; any other request
+    is refused with `confirmation_required`.
 
     Scopes: `account:delete`.
 
@@ -236,7 +245,10 @@ async def asyncio(
 
      Cancels a deletion that is waiting for confirmation or scheduled, as
     long as `erase_at` has not passed. The account, its buckets and its keys
-    work again at once.
+    work again at once. A deletion request that is still waiting for
+    confirmation is cancelled by any request. A scheduled deletion is
+    cancelled only on the console's confirmation page; any other request
+    is refused with `confirmation_required`.
 
     Scopes: `account:delete`.
 

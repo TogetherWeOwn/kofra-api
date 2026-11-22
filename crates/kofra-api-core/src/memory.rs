@@ -11,6 +11,7 @@ use kofra_api_types as t;
 
 use crate::{
     audit::{AuditFilter, AuditRecord, Outcome},
+    confirm,
     idempotency::{Begin, Stored},
     ids,
     ports::*,
@@ -1039,6 +1040,7 @@ impl Storage for MemoryStorage {
     }
 
     async fn delete_tenant(&self, acting: Acting<'_>) -> Result<t::Deletion, StorageError> {
+        acting.require(confirm::DELETE_TENANT)?;
         let mut data = self.write(acting.tenant)?;
         let key = acting.storage_key();
         if let Some(deletion) = &data.tenant.deletion {
@@ -1078,6 +1080,7 @@ impl Storage for MemoryStorage {
         acting: Acting<'_>,
         deletion_seq: u64,
     ) -> Result<(), StorageError> {
+        acting.require(confirm::RESTORE_TENANT)?;
         let mut data = self.write(acting.tenant)?;
         let Some(deletion) = data.tenant.deletion.as_ref() else {
             // A repeat of an undo that succeeded answers `Ok`; any other
@@ -1166,6 +1169,7 @@ impl Storage for MemoryStorage {
     }
 
     async fn delete_bucket(&self, acting: Acting<'_>, name: &str) -> Result<(), StorageError> {
+        acting.require(confirm::DELETE_BUCKET)?;
         // Closing, so idempotent by state: a repeat finds no bucket.
         let mut data = self.write(acting.tenant)?;
         let bucket = data.buckets.get(name).ok_or(StorageError::BucketNotFound)?;
@@ -1215,6 +1219,7 @@ impl Storage for MemoryStorage {
         name: Option<&str>,
         grants: &[t::GrantInput],
     ) -> Result<t::AccessKeyCreated, StorageError> {
+        acting.require(confirm::create_key(grants))?;
         let mut data = self.write(acting.tenant)?;
         let request = format!(
             "key\n{}\n{}",
@@ -1293,6 +1298,7 @@ impl Storage for MemoryStorage {
         name: Option<&str>,
         grants: Option<&[t::GrantInput]>,
     ) -> Result<t::AccessKey, StorageError> {
+        acting.require(confirm::update_key(grants))?;
         let mut data = self.write(acting.tenant)?;
         let request = format!(
             "update-key\n{id}\n{}\n{}",
@@ -1511,11 +1517,13 @@ mod tests {
     use crate::{audit::ActorType, ratelimit::CREDENTIAL_DEFAULT, scope::ScopeSet};
     use pollster::block_on;
 
+    /// A console request: these tests are about storage's own rules, so
+    /// every call is confirmed (`confirm` has the confirmation rules).
     const ACT: Acting<'static> = Acting {
         tenant: "tenant",
         principal: "usr_a",
         idempotency_key: None,
-        confirmation: None,
+        confirmation: Some(crate::ports::Confirmation::Console),
     };
 
     fn storage_fixture() -> Memory {

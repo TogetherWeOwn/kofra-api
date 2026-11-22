@@ -8,7 +8,7 @@ use common::fake::{Fake, MEMBER, NOW, OWNER, TENANT};
 use common::*;
 use kofra_api_core::ports::{Confirmation, Storage, StorageError};
 use kofra_api_types as t;
-use kofra_storage_mgmt::{MgmtStorage, Request, Response, Tokens, Transport, TransportError};
+use kofra_storage_mgmt::{MgmtStorage, Request, Response, Transport, TransportError};
 use mgmt_types::codes::Code;
 use pollster::block_on;
 use serde_json::json;
@@ -93,13 +93,14 @@ fn a_key_that_can_write_needs_a_confirmed_request_and_a_replay_has_no_secret() {
     let (fake, _) = plane();
     let s = with(&fake);
     let rw = [grant("photos", "read_write")];
-    // Not confirmed: refused before the plane hears of it.
+    // Not confirmed: refused before the plane hears of it, even before
+    // the bucket's name is resolved.
     let plain = acting(TENANT, OWNER, Some("k-2"), None);
     assert_eq!(
         block_on(s.create_key(plain, None, &rw)).unwrap_err(),
-        StorageError::Upstream
+        StorageError::ConfirmationRequired
     );
-    assert!(writes(&fake).is_empty());
+    assert!(fake.requests().is_empty());
     let confirmed = acting(TENANT, OWNER, Some("k-2"), CONSOLE);
     let first = block_on(s.create_key(confirmed, Some("w"), &rw)).unwrap();
     assert!(first.secret_access_key.is_some());
@@ -117,22 +118,6 @@ fn a_key_that_can_write_needs_a_confirmed_request_and_a_replay_has_no_secret() {
         class(writes(&fake).last().unwrap()),
         Some(kofra_storage_mgmt::TokenClass::Standard)
     );
-}
-
-#[test]
-fn without_the_confirmed_token_a_call_that_needs_it_is_refused_before_the_plane() {
-    let fake = Fake::new();
-    let s = MgmtStorage::new(&fake, TestEnv::default(), Tokens::new(STANDARD, None), S3);
-    let a = acting(TENANT, OWNER, Some("k"), Some(Confirmation::Record("cfm")));
-    assert_eq!(
-        block_on(s.delete_tenant(a)).unwrap_err(),
-        StorageError::Upstream
-    );
-    assert_eq!(
-        block_on(s.delete_bucket(a, "backups")).unwrap_err(),
-        StorageError::Upstream
-    );
-    assert!(writes(&fake).is_empty());
 }
 
 #[test]
@@ -181,13 +166,19 @@ fn a_rename_takes_the_standard_token_and_a_widening_the_confirmed_one() {
         serde_json::from_slice::<serde_json::Value>(patch.body.as_ref().unwrap()).unwrap(),
         json!({ "name": "renamed", "if_seq": 1 })
     );
-    // Adding a grant without a confirmation: refused, nothing written.
-    let before = writes(&fake).len();
+    // Adding a grant without a confirmation: refused before any call, the
+    // key's read included.
+    let before = fake.requests().len();
     assert_eq!(
         block_on(s.update_key(plain, &id, None, Some(&[grant("backups", "read")]))).unwrap_err(),
-        StorageError::Upstream
+        StorageError::ConfirmationRequired
     );
-    assert_eq!(writes(&fake).len(), before);
+    // So is one the key already holds: the check comes before the read.
+    assert_eq!(
+        block_on(s.update_key(plain, &id, None, Some(&[grant("photos", "read")]))).unwrap_err(),
+        StorageError::ConfirmationRequired
+    );
+    assert_eq!(fake.requests().len(), before);
     // Confirmed, the whole merged list goes out.
     let confirmed = acting(TENANT, OWNER, Some("u-2"), CONSOLE);
     let k =
@@ -545,15 +536,18 @@ fn a_deletion_needs_a_confirmation_record_and_its_undo_names_its_seq() {
     let s = with(&fake);
     // A console request alone is not enough for a tenant deletion.
     let console = acting(TENANT, OWNER, Some("x"), CONSOLE);
-    assert_eq!(
-        block_on(s.delete_tenant(console)).unwrap_err(),
-        StorageError::Upstream
-    );
-    assert_eq!(
-        block_on(s.restore_tenant(console, 1)).unwrap_err(),
-        StorageError::Upstream
-    );
-    assert!(writes(&fake).is_empty());
+    let plain = acting(TENANT, OWNER, Some("x"), None);
+    for a in [console, plain] {
+        assert_eq!(
+            block_on(s.delete_tenant(a)).unwrap_err(),
+            StorageError::ConfirmationRequired
+        );
+        assert_eq!(
+            block_on(s.restore_tenant(a, 1)).unwrap_err(),
+            StorageError::ConfirmationRequired
+        );
+    }
+    assert!(fake.requests().is_empty());
     let first = acting(TENANT, OWNER, None, Some(Confirmation::Record("cfm_d1")));
     let d = block_on(s.delete_tenant(first)).unwrap();
     assert_eq!(d.reason, t::DeletionReason::Customer);
@@ -879,5 +873,117 @@ fn absolute_limits_map_to_their_own_errors() {
             want,
             "{code}"
         );
+
+/// The token class of every write, per call and per confirmation: a call
+/// that needs a confirmation takes the confirmed token only with one, and
+/// is refused before any request without it; a tenant deletion and its
+/// undo take it only with a confirmation record; every other write takes
+/// the standard token, confirmed or not.
+#[test]
+fn every_write_takes_the_token_class_its_confirmation_allows() {
+    use kofra_storage_mgmt::TokenClass::{Confirmed, Standard};
+    #[derive(Clone, Copy, Debug)]
+    enum Call {
+        DeleteBucket,
+        CreateKeyRw,
+        WidenKey,
+        DeleteTenant,
+        RestoreTenant,
+        CreateBucket,
+        CreateKeyRo,
+        RenameKey,
+        RevokeKey,
+    }
+    const RECORD: Option<Confirmation<'static>> = Some(Confirmation::Record("cfm_t"));
+    let refused = None;
+    for (call, none, console, record) in [
+        (
+            Call::DeleteBucket,
+            refused,
+            Some(Confirmed),
+            Some(Confirmed),
+        ),
+        (Call::CreateKeyRw, refused, Some(Confirmed), Some(Confirmed)),
+        (Call::WidenKey, refused, Some(Confirmed), Some(Confirmed)),
+        (Call::DeleteTenant, refused, refused, Some(Confirmed)),
+        (Call::RestoreTenant, refused, refused, Some(Confirmed)),
+        (
+            Call::CreateBucket,
+            Some(Standard),
+            Some(Standard),
+            Some(Standard),
+        ),
+        (
+            Call::CreateKeyRo,
+            Some(Standard),
+            Some(Standard),
+            Some(Standard),
+        ),
+        (
+            Call::RenameKey,
+            Some(Standard),
+            Some(Standard),
+            Some(Standard),
+        ),
+        (
+            Call::RevokeKey,
+            Some(Standard),
+            Some(Standard),
+            Some(Standard),
+        ),
+    ] {
+        for (confirmation, want) in [(None, none), (CONSOLE, console), (RECORD, record)] {
+            let (fake, _) = plane();
+            let s = with(&fake);
+            let id = new_key(&s, "read");
+            let sent_before = fake.requests().len();
+            let a = acting(TENANT, OWNER, Some("k"), confirmation);
+            let result = block_on(async {
+                match call {
+                    Call::DeleteBucket => s.delete_bucket(a, "backups").await,
+                    Call::CreateKeyRw => s
+                        .create_key(a, None, &[grant("photos", "read_write")])
+                        .await
+                        .map(drop),
+                    Call::WidenKey => s
+                        .update_key(a, &id, None, Some(&[grant("photos", "read_write")]))
+                        .await
+                        .map(drop),
+                    Call::DeleteTenant => s.delete_tenant(a).await.map(drop),
+                    Call::RestoreTenant => s.restore_tenant(a, 1).await,
+                    Call::CreateBucket => s.create_bucket(a, "music").await.map(drop),
+                    Call::CreateKeyRo => s
+                        .create_key(a, None, &[grant("photos", "read")])
+                        .await
+                        .map(drop),
+                    Call::RenameKey => s.update_key(a, &id, Some("x"), None).await.map(drop),
+                    Call::RevokeKey => s.revoke_key(a, &id).await,
+                }
+            });
+            let label = format!("{call:?} {confirmation:?}");
+            match want {
+                None => {
+                    assert_eq!(result, Err(StorageError::ConfirmationRequired), "{label}");
+                    assert_eq!(fake.requests().len(), sent_before, "{label}: nothing sent");
+                }
+                Some(class_wanted) => {
+                    // The call's own write, sent after the setup's.
+                    let sent = fake.requests();
+                    let write = sent[sent_before..]
+                        .iter()
+                        .rev()
+                        .find(|r| r.method != kofra_storage_mgmt::Method::Get)
+                        .unwrap_or_else(|| panic!("{label}: no write sent"));
+                    assert_eq!(class(write), Some(class_wanted), "{label}");
+                    // Every request of the call carries one of the two tokens.
+                    assert!(
+                        fake.requests()[sent_before..]
+                            .iter()
+                            .all(|r| class(r).is_some()),
+                        "{label}"
+                    );
+                }
+            }
+        }
     }
 }

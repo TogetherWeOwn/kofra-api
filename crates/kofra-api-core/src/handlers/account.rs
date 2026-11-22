@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 
 use super::{plan, to_json};
 use crate::{
+    confirm,
     pipeline::{Ctx, Reply},
     ports::{DeletionRequest, Directory, Ports, Storage, Tenant},
     problem::Problem,
@@ -121,6 +122,9 @@ pub(super) async fn cancel_deletion<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Re
         let seq = t
             .deletion_seq
             .ok_or_else(|| Problem::new("internal_error"))?;
+        // Undoing a deletion storage holds needs a used confirmation record,
+        // also from the console.
+        ctx.require(confirm::RESTORE_TENANT)?;
         let storage = ctx.api.ports.storage();
         storage.restore_tenant(ctx.acting()?, seq).await?;
         storage.tenant(ctx.tenant_id()?).await?

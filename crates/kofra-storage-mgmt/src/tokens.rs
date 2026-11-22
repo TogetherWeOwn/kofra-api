@@ -1,34 +1,89 @@
-//! The plane's two service tokens. Which one a call takes is the plane's
-//! rule ([`crate::storage`] picks it per call); the token values come from
-//! the Worker's secrets and are never logged.
+//! The plane's two service tokens, and the only module that hands out the
+//! confirmed one (tenancy design §6.4).
+//!
+//! A call gets a [`Pass`] here and the token of that pass, nothing else:
+//!
+//! - [`Tokens::pass`] checks the request's confirmation against what the
+//!   call needs ([`kofra_api_core::confirm`]): a call that needs nothing
+//!   takes the standard token; one that needs a confirmation takes the
+//!   confirmed token only when the request carries one, and is refused with
+//!   `confirmation_required` otherwise, before the plane is called.
+//! - [`Tokens::signup_pass`]: sign-up and its retry cron, which the person
+//!   signing up confirmed, take the confirmed token. Only the tenancy port
+//!   calls it.
+//!
+//! A [`Pass`] can only be made in this module, the token values never leave
+//! it except into the `Authorization` header of a request, and neither is
+//! ever logged. A CI test (`tests/confirmed_token.rs`) keeps the confirmed
+//! token's secret name, the confirmed class and the sign-up pass out of
+//! every other source file.
 
 use std::fmt;
 
+use kofra_api_core::{
+    confirm::{self, Need},
+    ports::{Confirmation, StorageError},
+};
 pub use mgmt_types::idem::TokenClass;
 
 /// The service tokens the adapter holds.
 #[derive(Clone)]
 pub struct Tokens {
     standard: String,
-    confirmed: Option<String>,
+    confirmed: String,
+}
+
+/// Which token a call takes, as decided by [`Tokens`]. It cannot be made
+/// outside this module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Pass(TokenClass);
+
+impl Pass {
+    /// The standard token: every read, and every write that needs no
+    /// confirmation.
+    pub(crate) const STANDARD: Pass = Pass(TokenClass::Standard);
+
+    /// The token class, for the request fingerprint and the tests.
+    pub fn class(self) -> TokenClass {
+        self.0
+    }
 }
 
 impl Tokens {
-    /// The standard token, and the confirmed one when this deployment holds
-    /// it. Without it, every call that needs it is refused before the plane
-    /// is called.
-    pub fn new(standard: impl Into<String>, confirmed: Option<String>) -> Self {
+    /// The standard and the confirmed token, as the Worker's secrets hold
+    /// them. They must differ; the Worker's settings refuse a deployment
+    /// where they do not.
+    pub fn new(standard: impl Into<String>, confirmed: impl Into<String>) -> Self {
         Self {
             standard: standard.into(),
-            confirmed,
+            confirmed: confirmed.into(),
         }
     }
 
-    /// The token of `class`, if held.
-    pub fn get(&self, class: TokenClass) -> Option<&str> {
-        match class {
-            TokenClass::Standard => Some(self.standard.as_str()),
-            TokenClass::Confirmed => self.confirmed.as_deref(),
+    /// The pass of a call that needs `need`, for a request confirmed as
+    /// `confirmation` says; `ConfirmationRequired` when that is not enough.
+    pub(crate) fn pass(
+        &self,
+        confirmation: Option<Confirmation<'_>>,
+        need: Need,
+    ) -> Result<Pass, StorageError> {
+        confirm::check(confirmation, need)?;
+        Ok(match need {
+            Need::Nothing => Pass::STANDARD,
+            Need::Confirmation | Need::Record => Pass(TokenClass::Confirmed),
+        })
+    }
+
+    /// The pass of sign-up and its retry cron (the tenancy port only).
+    pub(crate) fn signup_pass(&self) -> Pass {
+        Pass(TokenClass::Confirmed)
+    }
+
+    /// The token of `pass`, for the `Authorization` header only.
+    pub(crate) fn token(&self, pass: Pass) -> &str {
+        match pass.0 {
+            TokenClass::Standard => &self.standard,
+            TokenClass::Confirmed => &self.confirmed,
         }
     }
 }
@@ -37,7 +92,39 @@ impl fmt::Debug for Tokens {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Tokens")
             .field("standard", &"<secret>")
-            .field("confirmed", &self.confirmed.as_ref().map(|_| "<secret>"))
+            .field("confirmed", &"<secret>")
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_confirmed_token_needs_the_confirmation_its_call_needs() {
+        let t = Tokens::new("standard-token-0123456789", "confirmed-token-0123456789");
+        let console = Some(Confirmation::Console);
+        let record = Some(Confirmation::Record("cnf_1"));
+        for c in [None, console, record] {
+            let p = t.pass(c, Need::Nothing).unwrap();
+            assert_eq!(t.token(p), "standard-token-0123456789");
+        }
+        let refused = Err(StorageError::ConfirmationRequired);
+        assert_eq!(t.pass(None, Need::Confirmation), refused);
+        assert_eq!(t.pass(None, Need::Record), refused);
+        assert_eq!(t.pass(console, Need::Record), refused);
+        for (c, need) in [
+            (console, Need::Confirmation),
+            (record, Need::Confirmation),
+            (record, Need::Record),
+        ] {
+            let p = t.pass(c, need).unwrap();
+            assert_eq!(p.class(), TokenClass::Confirmed);
+            assert_eq!(t.token(p), "confirmed-token-0123456789");
+        }
+        assert_eq!(t.token(t.signup_pass()), "confirmed-token-0123456789");
+        let shown = format!("{t:?}");
+        assert!(!shown.contains("0123456789"), "{shown}");
     }
 }

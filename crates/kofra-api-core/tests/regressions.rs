@@ -327,9 +327,9 @@ fn a_retry_after_a_lost_record_never_deletes_data() {
     // and judges each request on its own (it is idempotent by state). A
     // retry after the API lost its own record finds no bucket.
     let h = setup();
-    let owner = h.owner();
+    // A console request: a bucket delete needs a person's confirmation.
     let delete = || {
-        let mut r = h.req("DELETE", "/v1/buckets/photos", Some(&owner));
+        let mut r = h.console_req("DELETE", "/v1/buckets/photos", "usr_owner");
         r.headers.push(("Idempotency-Key".into(), "del".into()));
         h.send(r)
     };
@@ -369,9 +369,9 @@ fn known_limit_a_retry_after_a_lost_record_deletes_an_empty_bucket_made_again() 
     // it). No object is lost: a bucket that holds data is never deleted
     // (see `a_retry_after_a_lost_record_never_deletes_data`).
     let h = setup();
-    let owner = h.owner();
+    // A console request: a bucket delete needs a person's confirmation.
     let delete = || {
-        let mut r = h.req("DELETE", "/v1/buckets/photos", Some(&owner));
+        let mut r = h.console_req("DELETE", "/v1/buckets/photos", "usr_owner");
         r.headers.push(("Idempotency-Key".into(), "del".into()));
         h.send(r)
     };

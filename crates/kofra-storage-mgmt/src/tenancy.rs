@@ -11,9 +11,8 @@
 //!   member's user ID as `owner_ref`, the grants of the member's role, no
 //!   acting header (no member acts yet at sign-up) and the key
 //!   `<workspace id>/<owner_ref>`. A retry finds the same principal.
-//! - Both take the confirmed token: sign-up and its retries are confirmed
-//!   by the person signing up. Without it held, nothing is sent and the
-//!   call answers `Retry` (with a page: the deployment is incomplete).
+//! - Both take the confirmed token ([`Tokens::signup_pass`]): sign-up and
+//!   its retries are confirmed by the person signing up.
 //! - `external_ref_retired` (the workspace's tenant was shredded) is
 //!   `Gone`. A "not now" is a silent `Retry`: the codes `cap_reached`,
 //!   `service_unavailable`, `tenant_restoring`, `key_moved` and
@@ -37,7 +36,7 @@ use mgmt_types::{
 
 use crate::{
     codes::{Refusal, tenancy_refusal},
-    tokens::{TokenClass, Tokens},
+    tokens::Tokens,
     transport::{Method, Request, Transport, TransportError},
 };
 
@@ -102,10 +101,7 @@ impl<T: Transport, P: Pager> MgmtTenancy<T, P> {
         key: &str,
         body: Vec<u8>,
     ) -> Result<X, TenancyError> {
-        let Some(token) = self.tokens.get(TokenClass::Confirmed) else {
-            self.pager.page(call, "confirmed_token_missing");
-            return Err(TenancyError::Retry);
-        };
+        let token = self.tokens.token(self.tokens.signup_pass());
         let req = Request {
             method: Method::Post,
             path,

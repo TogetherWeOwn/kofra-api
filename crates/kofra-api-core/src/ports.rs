@@ -297,6 +297,10 @@ pub enum StorageError {
     GrantNotHeld,
     /// `invalid_cursor`: storage could not parse the position it was given.
     InvalidCursor,
+    /// `confirmation_required`: the call needs a person's confirmation that
+    /// this request does not carry ([`crate::confirm`]). Refused before
+    /// anything changes; never stored as the request's answer.
+    ConfirmationRequired,
     /// `deletion_not_cancellable`: the deletion was not started by the
     /// customer (for example for non-payment), so the customer cannot undo
     /// it.
@@ -343,6 +347,7 @@ impl StorageError {
             Self::IdempotencyKeyInUse { .. } => "idempotency_key_in_use",
             Self::GrantNotHeld => "bucket_not_allowed",
             Self::InvalidCursor => "invalid_cursor",
+            Self::ConfirmationRequired => "confirmation_required",
             Self::DeletionNotCancellable => "deletion_not_cancellable",
             Self::DeletionAlreadyRequested => "deletion_already_requested",
             Self::DeletionNotRequested => "deletion_not_requested",
@@ -441,11 +446,11 @@ pub struct Acting<'a> {
     /// The idempotency key passed through to storage (writes only).
     pub idempotency_key: Option<&'a str>,
     /// Whether a person confirmed this request, and how; `None` for an API
-    /// token or agent request. Storage calls that change what a credential
-    /// can open need a confirmation, and a tenant deletion or its undo needs
-    /// a [`Confirmation::Record`]. Choosing it, and refusing such a call
-    /// without one before it reaches storage, comes with the storage plane's
-    /// token classes; until then it is always `None`.
+    /// token or agent request. A bucket delete, a key that can write and a
+    /// grant change need a confirmation, and a tenant deletion or its undo
+    /// needs a [`Confirmation::Record`] ([`crate::confirm`]). The pipeline
+    /// sets it ([`crate::confirm::of`]); every storage checks it with
+    /// [`Acting::require`] before it changes anything.
     pub confirmation: Option<Confirmation<'a>>,
 }
 

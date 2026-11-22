@@ -1363,7 +1363,10 @@ type ClientInterface interface {
 	//
 	// Cancels a deletion that is waiting for confirmation or scheduled, as
 	// long as `erase_at` has not passed. The account, its buckets and its keys
-	// work again at once.
+	// work again at once. A deletion request that is still waiting for
+	// confirmation is cancelled by any request. A scheduled deletion is
+	// cancelled only on the console's confirmation page; any other request
+	// is refused with `confirmation_required`.
 	//
 	// Scopes: `account:delete`.
 	//
@@ -1418,7 +1421,9 @@ type ClientInterface interface {
 	//
 	// Deletes an empty bucket and every access key grant on it. A bucket that
 	// still holds objects is refused with `bucket_not_empty`; delete the
-	// objects through the S3 endpoint first. Deletion is final.
+	// objects through the S3 endpoint first. Deletion is final, so it is
+	// done in the console: a request with an API token is refused with
+	// `confirmation_required`. A dry run needs no confirmation.
 	//
 	// Scopes: `buckets:delete`.
 	//
@@ -1490,6 +1495,10 @@ type ClientInterface interface {
 	// token limited to some client addresses cannot create keys
 	// (`ip_not_allowed`): access keys have no address limit yet.
 	//
+	// A key with any `read_write` grant is created in the console: a request
+	// with an API token is refused with `confirmation_required`. A key whose
+	// grants are all `read` needs no confirmation.
+	//
 	// Through the MCP tool `keys_create`, the secret is not in the tool
 	// result: the result links to a console page that shows it once.
 	//
@@ -1515,6 +1524,10 @@ type ClientInterface interface {
 	// bucket outside the token's bucket list with `bucket_not_allowed`. A
 	// token limited to some client addresses cannot create keys
 	// (`ip_not_allowed`): access keys have no address limit yet.
+	//
+	// A key with any `read_write` grant is created in the console: a request
+	// with an API token is refused with `confirmation_required`. A key whose
+	// grants are all `read` needs no confirmation.
 	//
 	// Through the MCP tool `keys_create`, the secret is not in the tool
 	// result: the result links to a console page that shows it once.
@@ -1542,6 +1555,9 @@ type ClientInterface interface {
 	// Renames a key, or adds or widens its grants. A grant is never narrowed
 	// (`read_write` to `read`) or removed: create a new key with the narrower
 	// access and revoke this one. Grants not listed are left as they are.
+	// A request that lists grants is made in the console: with an API token
+	// it is refused with `confirmation_required`. A rename needs no
+	// confirmation.
 	//
 	// Scopes: `keys:write`.
 	//
@@ -1555,6 +1571,9 @@ type ClientInterface interface {
 	// Renames a key, or adds or widens its grants. A grant is never narrowed
 	// (`read_write` to `read`) or removed: create a new key with the narrower
 	// access and revoke this one. Grants not listed are left as they are.
+	// A request that lists grants is made in the console: with an API token
+	// it is refused with `confirmation_required`. A rename needs no
+	// confirmation.
 	//
 	// Scopes: `keys:write`.
 	//
@@ -1738,7 +1757,10 @@ func (c *Client) AccountGet(ctx context.Context, reqEditors ...RequestEditorFn) 
 //
 // Cancels a deletion that is waiting for confirmation or scheduled, as
 // long as `erase_at` has not passed. The account, its buckets and its keys
-// work again at once.
+// work again at once. A deletion request that is still waiting for
+// confirmation is cancelled by any request. A scheduled deletion is
+// cancelled only on the console's confirmation page; any other request
+// is refused with `confirmation_required`.
 //
 // Scopes: `account:delete`.
 //
@@ -1843,7 +1865,9 @@ func (c *Client) BucketsCreate(ctx context.Context, params *BucketsCreateParams,
 //
 // Deletes an empty bucket and every access key grant on it. A bucket that
 // still holds objects is refused with `bucket_not_empty`; delete the
-// objects through the S3 endpoint first. Deletion is final.
+// objects through the S3 endpoint first. Deletion is final, so it is
+// done in the console: a request with an API token is refused with
+// `confirmation_required`. A dry run needs no confirmation.
 //
 // Scopes: `buckets:delete`.
 //
@@ -1965,6 +1989,10 @@ func (c *Client) KeysList(ctx context.Context, params *KeysListParams, reqEditor
 // token limited to some client addresses cannot create keys
 // (`ip_not_allowed`): access keys have no address limit yet.
 //
+// A key with any `read_write` grant is created in the console: a request
+// with an API token is refused with `confirmation_required`. A key whose
+// grants are all `read` needs no confirmation.
+//
 // Through the MCP tool `keys_create`, the secret is not in the tool
 // result: the result links to a console page that shows it once.
 //
@@ -2000,6 +2028,10 @@ func (c *Client) KeysCreateWithBody(ctx context.Context, params *KeysCreateParam
 // bucket outside the token's bucket list with `bucket_not_allowed`. A
 // token limited to some client addresses cannot create keys
 // (`ip_not_allowed`): access keys have no address limit yet.
+//
+// A key with any `read_write` grant is created in the console: a request
+// with an API token is refused with `confirmation_required`. A key whose
+// grants are all `read` needs no confirmation.
 //
 // Through the MCP tool `keys_create`, the secret is not in the tool
 // result: the result links to a console page that shows it once.
@@ -2047,6 +2079,9 @@ func (c *Client) KeysRevoke(ctx context.Context, keyId KeyIdPath, params *KeysRe
 // Renames a key, or adds or widens its grants. A grant is never narrowed
 // (`read_write` to `read`) or removed: create a new key with the narrower
 // access and revoke this one. Grants not listed are left as they are.
+// A request that lists grants is made in the console: with an API token
+// it is refused with `confirmation_required`. A rename needs no
+// confirmation.
 //
 // Scopes: `keys:write`.
 //
@@ -2070,6 +2105,9 @@ func (c *Client) KeysUpdateWithBody(ctx context.Context, keyId KeyIdPath, params
 // Renames a key, or adds or widens its grants. A grant is never narrowed
 // (`read_write` to `read`) or removed: create a new key with the narrower
 // access and revoke this one. Grants not listed are left as they are.
+// A request that lists grants is made in the console: with an API token
+// it is refused with `confirmation_required`. A rename needs no
+// confirmation.
 //
 // Scopes: `keys:write`.
 //
@@ -3708,7 +3746,10 @@ type ClientWithResponsesInterface interface {
 	//
 	// Cancels a deletion that is waiting for confirmation or scheduled, as
 	// long as `erase_at` has not passed. The account, its buckets and its keys
-	// work again at once.
+	// work again at once. A deletion request that is still waiting for
+	// confirmation is cancelled by any request. A scheduled deletion is
+	// cancelled only on the console's confirmation page; any other request
+	// is refused with `confirmation_required`.
 	//
 	// Scopes: `account:delete`.
 	//
@@ -3769,7 +3810,9 @@ type ClientWithResponsesInterface interface {
 	//
 	// Deletes an empty bucket and every access key grant on it. A bucket that
 	// still holds objects is refused with `bucket_not_empty`; delete the
-	// objects through the S3 endpoint first. Deletion is final.
+	// objects through the S3 endpoint first. Deletion is final, so it is
+	// done in the console: a request with an API token is refused with
+	// `confirmation_required`. A dry run needs no confirmation.
 	//
 	// Scopes: `buckets:delete`.
 	//
@@ -3851,6 +3894,10 @@ type ClientWithResponsesInterface interface {
 	// token limited to some client addresses cannot create keys
 	// (`ip_not_allowed`): access keys have no address limit yet.
 	//
+	// A key with any `read_write` grant is created in the console: a request
+	// with an API token is refused with `confirmation_required`. A key whose
+	// grants are all `read` needs no confirmation.
+	//
 	// Through the MCP tool `keys_create`, the secret is not in the tool
 	// result: the result links to a console page that shows it once.
 	//
@@ -3876,6 +3923,10 @@ type ClientWithResponsesInterface interface {
 	// bucket outside the token's bucket list with `bucket_not_allowed`. A
 	// token limited to some client addresses cannot create keys
 	// (`ip_not_allowed`): access keys have no address limit yet.
+	//
+	// A key with any `read_write` grant is created in the console: a request
+	// with an API token is refused with `confirmation_required`. A key whose
+	// grants are all `read` needs no confirmation.
 	//
 	// Through the MCP tool `keys_create`, the secret is not in the tool
 	// result: the result links to a console page that shows it once.
@@ -3905,6 +3956,9 @@ type ClientWithResponsesInterface interface {
 	// Renames a key, or adds or widens its grants. A grant is never narrowed
 	// (`read_write` to `read`) or removed: create a new key with the narrower
 	// access and revoke this one. Grants not listed are left as they are.
+	// A request that lists grants is made in the console: with an API token
+	// it is refused with `confirmation_required`. A rename needs no
+	// confirmation.
 	//
 	// Scopes: `keys:write`.
 	//
@@ -3918,6 +3972,9 @@ type ClientWithResponsesInterface interface {
 	// Renames a key, or adds or widens its grants. A grant is never narrowed
 	// (`read_write` to `read`) or removed: create a new key with the narrower
 	// access and revoke this one. Grants not listed are left as they are.
+	// A request that lists grants is made in the console: with an API token
+	// it is refused with `confirmation_required`. A rename needs no
+	// confirmation.
 	//
 	// Scopes: `keys:write`.
 	//
@@ -7921,7 +7978,10 @@ func (c *ClientWithResponses) AccountGetWithResponse(ctx context.Context, reqEdi
 //
 // Cancels a deletion that is waiting for confirmation or scheduled, as
 // long as `erase_at` has not passed. The account, its buckets and its keys
-// work again at once.
+// work again at once. A deletion request that is still waiting for
+// confirmation is cancelled by any request. A scheduled deletion is
+// cancelled only on the console's confirmation page; any other request
+// is refused with `confirmation_required`.
 //
 // Scopes: `account:delete`.
 //
@@ -8012,7 +8072,9 @@ func (c *ClientWithResponses) BucketsCreateWithResponse(ctx context.Context, par
 //
 // Deletes an empty bucket and every access key grant on it. A bucket that
 // still holds objects is refused with `bucket_not_empty`; delete the
-// objects through the S3 endpoint first. Deletion is final.
+// objects through the S3 endpoint first. Deletion is final, so it is
+// done in the console: a request with an API token is refused with
+// `confirmation_required`. A dry run needs no confirmation.
 //
 // Scopes: `buckets:delete`.
 //
@@ -8124,6 +8186,10 @@ func (c *ClientWithResponses) KeysListWithResponse(ctx context.Context, params *
 // token limited to some client addresses cannot create keys
 // (`ip_not_allowed`): access keys have no address limit yet.
 //
+// A key with any `read_write` grant is created in the console: a request
+// with an API token is refused with `confirmation_required`. A key whose
+// grants are all `read` needs no confirmation.
+//
 // Through the MCP tool `keys_create`, the secret is not in the tool
 // result: the result links to a console page that shows it once.
 //
@@ -8155,6 +8221,10 @@ func (c *ClientWithResponses) KeysCreateWithBodyWithResponse(ctx context.Context
 // bucket outside the token's bucket list with `bucket_not_allowed`. A
 // token limited to some client addresses cannot create keys
 // (`ip_not_allowed`): access keys have no address limit yet.
+//
+// A key with any `read_write` grant is created in the console: a request
+// with an API token is refused with `confirmation_required`. A key whose
+// grants are all `read` needs no confirmation.
 //
 // Through the MCP tool `keys_create`, the secret is not in the tool
 // result: the result links to a console page that shows it once.
@@ -8196,6 +8266,9 @@ func (c *ClientWithResponses) KeysRevokeWithResponse(ctx context.Context, keyId 
 // Renames a key, or adds or widens its grants. A grant is never narrowed
 // (`read_write` to `read`) or removed: create a new key with the narrower
 // access and revoke this one. Grants not listed are left as they are.
+// A request that lists grants is made in the console: with an API token
+// it is refused with `confirmation_required`. A rename needs no
+// confirmation.
 //
 // Scopes: `keys:write`.
 //
@@ -8215,6 +8288,9 @@ func (c *ClientWithResponses) KeysUpdateWithBodyWithResponse(ctx context.Context
 // Renames a key, or adds or widens its grants. A grant is never narrowed
 // (`read_write` to `read`) or removed: create a new key with the narrower
 // access and revoke this one. Grants not listed are left as they are.
+// A request that lists grants is made in the console: with an API token
+// it is refused with `confirmation_required`. A rename needs no
+// confirmation.
 //
 // Scopes: `keys:write`.
 //

@@ -16,6 +16,7 @@
 pub mod audit;
 pub mod auth;
 pub mod cidr;
+pub mod confirm;
 pub mod cursor;
 pub mod handlers;
 pub mod http;

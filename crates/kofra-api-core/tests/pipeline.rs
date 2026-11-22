@@ -349,7 +349,8 @@ fn the_account_state_gates_operations() {
     );
     assert_eq!(h.call("GET", "/v1/buckets", &owner, None).status, 200);
     assert_eq!(
-        h.call("DELETE", "/v1/buckets/photos", &owner, None).status,
+        h.console_call("DELETE", "/v1/buckets/photos", "usr_owner", None)
+            .status,
         204
     );
 
@@ -501,7 +502,15 @@ fn every_operation_is_served_and_answers_in_its_contract_shape() {
     let mut seen = std::collections::BTreeSet::from(["keys.create"]);
     for (method, target, body, want) in calls {
         h.api.ports.env.advance(1000);
-        let r = h.call(method, &target, &owner, body);
+        // A bucket delete and a grant change need a person's confirmation:
+        // they run as console requests (the API token's refusal is tested
+        // in `confirmation.rs`).
+        let confirmed = (method == "DELETE" && target == "/v1/buckets/fresh") || method == "PATCH";
+        let r = if confirmed {
+            h.console_call(method, &target, "usr_owner", body)
+        } else {
+            h.call(method, &target, &owner, body)
+        };
         assert_eq!(r.status, want, "{method} {target}: {}", r.json_body());
         let path = target.split('?').next().unwrap_or_default().to_owned();
         if let Ok(m) = kofra_api_core::router::route(method, &path) {
@@ -589,11 +598,11 @@ fn a_refused_dry_run_is_recorded_as_one() {
 #[test]
 fn dry_run_false_is_the_same_request_as_no_dry_run() {
     let h = setup();
-    let owner = h.owner();
-    let mut r = h.req("DELETE", "/v1/buckets/photos?dry_run=false", Some(&owner));
+    // A console request: a bucket delete needs a person's confirmation.
+    let mut r = h.console_req("DELETE", "/v1/buckets/photos?dry_run=false", "usr_owner");
     r.headers.push(("Idempotency-Key".into(), "d1".into()));
     assert_eq!(h.send(r).status, 204);
-    let mut r = h.req("DELETE", "/v1/buckets/photos", Some(&owner));
+    let mut r = h.console_req("DELETE", "/v1/buckets/photos", "usr_owner");
     r.headers.push(("Idempotency-Key".into(), "d1".into()));
     let again = h.send(r);
     assert_eq!(

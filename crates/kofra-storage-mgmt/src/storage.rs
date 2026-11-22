@@ -1,7 +1,8 @@
 //! [`MgmtStorage`]: the storage port over the management plane.
 
-use kofra_api_core::ports::{
-    Acting, Confirmation, Env, ObjectPage, Page, Reach, Storage, StorageError, Tenant,
+use kofra_api_core::{
+    confirm,
+    ports::{Acting, Env, ObjectPage, Page, Reach, Storage, StorageError, Tenant},
 };
 use kofra_api_types as t;
 use mgmt_types::{
@@ -15,7 +16,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use crate::{
     codes::{Refusal, storage_error},
     shape,
-    tokens::{TokenClass, Tokens},
+    tokens::{Pass, Tokens},
     transport::{Method, Request, Response, Transport, TransportError},
 };
 
@@ -42,7 +43,7 @@ pub struct MgmtStorage<T, E> {
 struct Call {
     method: Method,
     path: String,
-    class: TokenClass,
+    pass: Pass,
     acting: Option<String>,
     key: Option<String>,
     body: Option<Vec<u8>>,
@@ -53,7 +54,7 @@ impl Call {
         Self {
             method: Method::Get,
             path,
-            class: TokenClass::Standard,
+            pass: Pass::STANDARD,
             acting: None,
             key: None,
             body: None,
@@ -82,18 +83,6 @@ fn list(after: Option<&str>, n: usize) -> List {
     List {
         after: after.map(str::to_owned),
         limit: limit(n),
-    }
-}
-
-/// The token class of a call that needs the confirmed token: only for a
-/// confirmed request, and for a tenant deletion or its undo only with a
-/// used confirmation record. Anything else is refused before the plane is
-/// called (the API should not have made the call).
-fn confirmed(acting: &Acting<'_>, record: bool) -> Result<TokenClass, StorageError> {
-    match acting.confirmation {
-        Some(Confirmation::Record(_)) => Ok(TokenClass::Confirmed),
-        Some(Confirmation::Console) if !record => Ok(TokenClass::Confirmed),
-        _ => Err(UPSTREAM),
     }
 }
 
@@ -157,7 +146,7 @@ impl<T: Transport, E: Env> MgmtStorage<T, E> {
     }
 
     async fn send(&self, call: &Call) -> Result<Response, StorageError> {
-        let token = self.tokens.get(call.class).ok_or(UPSTREAM)?;
+        let token = self.tokens.token(call.pass);
         let mut req = Request {
             method: call.method,
             path: call.path.clone(),
@@ -313,7 +302,9 @@ impl<T: Transport, E: Env> Storage for MgmtStorage<T, E> {
         let call = Call {
             method: Method::Delete,
             path: path(paths::tenant_delete(acting.tenant, HOLD_DAYS))?,
-            class: confirmed(&acting, true)?,
+            pass: self
+                .tokens
+                .pass(acting.confirmation, confirm::DELETE_TENANT)?,
             acting: Some(acting.principal.to_owned()),
             key: Some(self.write_key(&acting)),
             body: None,
@@ -330,7 +321,9 @@ impl<T: Transport, E: Env> Storage for MgmtStorage<T, E> {
         let call = Call {
             method: Method::Post,
             path: path(paths::tenant_restore(acting.tenant))?,
-            class: confirmed(&acting, true)?,
+            pass: self
+                .tokens
+                .pass(acting.confirmation, confirm::RESTORE_TENANT)?,
             acting: Some(acting.principal.to_owned()),
             key: Some(self.write_key(&acting)),
             body: Some(json(&w::TenantRestore { deletion_seq })?),
@@ -371,7 +364,7 @@ impl<T: Transport, E: Env> Storage for MgmtStorage<T, E> {
         let call = Call {
             method: Method::Post,
             path: path(paths::buckets(acting.tenant))?,
-            class: TokenClass::Standard,
+            pass: Pass::STANDARD,
             acting: Some(acting.principal.to_owned()),
             key: Some(self.write_key(&acting)),
             body: Some(json(&w::BucketCreate {
@@ -383,12 +376,15 @@ impl<T: Transport, E: Env> Storage for MgmtStorage<T, E> {
     }
 
     async fn delete_bucket(&self, acting: Acting<'_>, name: &str) -> Result<(), StorageError> {
-        let class = confirmed(&acting, false)?;
+        // Before the name is resolved: no storage call without it.
+        let pass = self
+            .tokens
+            .pass(acting.confirmation, confirm::DELETE_BUCKET)?;
         let b = self.resolve(acting.tenant, &[name]).await?;
         let call = Call {
             method: Method::Delete,
             path: path(paths::bucket(acting.tenant, &b[0].id))?,
-            class,
+            pass,
             acting: Some(acting.principal.to_owned()),
             key: Some(self.write_key(&acting)),
             body: None,
@@ -426,17 +422,16 @@ impl<T: Transport, E: Env> Storage for MgmtStorage<T, E> {
         name: Option<&str>,
         grants: &[t::GrantInput],
     ) -> Result<t::AccessKeyCreated, StorageError> {
-        // A key that can write needs the confirmed token.
-        let class = if grants.iter().all(|g| g.access == t::GrantInputAccess::Read) {
-            TokenClass::Standard
-        } else {
-            confirmed(&acting, false)?
-        };
+        // A key that can write needs the confirmed token, decided before
+        // any name is resolved.
+        let pass = self
+            .tokens
+            .pass(acting.confirmation, confirm::create_key(grants))?;
         let wanted = self.resolve_grants(acting.tenant, grants).await?;
         let call = Call {
             method: Method::Post,
             path: path(paths::keys(acting.tenant))?,
-            class,
+            pass,
             acting: Some(acting.principal.to_owned()),
             key: Some(self.write_key(&acting)),
             body: Some(json(&w::KeyCreate {
@@ -459,6 +454,12 @@ impl<T: Transport, E: Env> Storage for MgmtStorage<T, E> {
         name: Option<&str>,
         grants: Option<&[t::GrantInput]>,
     ) -> Result<t::AccessKey, StorageError> {
+        // A grant change needs a confirmation, checked before any storage
+        // call; the confirmed token is then used only when the merge adds
+        // or widens a grant.
+        let grant_pass = self
+            .tokens
+            .pass(acting.confirmation, confirm::update_key(grants))?;
         let wanted = match grants {
             Some(g) => self.resolve_grants(acting.tenant, g).await?,
             None => Vec::new(),
@@ -475,17 +476,17 @@ impl<T: Transport, E: Env> Storage for MgmtStorage<T, E> {
                 // The key already has this: nothing to write.
                 return shape::key(&current)?.ok_or(StorageError::KeyNotFound);
             }
-            // Adding or widening a grant needs the confirmed token; a
-            // rename takes the standard one.
-            let class = if merged.is_some() {
-                confirmed(&acting, false)?
+            // Adding or widening a grant takes the confirmed token; a
+            // rename the standard one.
+            let pass = if merged.is_some() {
+                grant_pass
             } else {
-                TokenClass::Standard
+                Pass::STANDARD
             };
             let call = Call {
                 method: Method::Patch,
                 path: p.clone(),
-                class,
+                pass,
                 acting: Some(acting.principal.to_owned()),
                 key: Some(key.clone()),
                 body: Some(json(&w::KeyUpdate {
@@ -514,7 +515,7 @@ impl<T: Transport, E: Env> Storage for MgmtStorage<T, E> {
         let call = Call {
             method: Method::Delete,
             path: paths::key(acting.tenant, id).ok_or(StorageError::KeyNotFound)?,
-            class: TokenClass::Standard,
+            pass: Pass::STANDARD,
             acting: Some(acting.principal.to_owned()),
             key: Some(self.write_key(&acting)),
             body: None,
@@ -601,7 +602,7 @@ impl<T: Transport, E: Env> Storage for MgmtStorage<T, E> {
         let call = Call {
             method: Method::Post,
             path: path(paths::objects_list(acting.tenant))?,
-            class: TokenClass::Standard,
+            pass: Pass::STANDARD,
             acting: Some(acting.principal.to_owned()),
             key: None,
             body: Some(json(&w::ObjectList {
@@ -637,7 +638,7 @@ impl<T: Transport, E: Env> Storage for MgmtStorage<T, E> {
         let call = Call {
             method: Method::Post,
             path: path(paths::objects_presign(acting.tenant))?,
-            class: TokenClass::Standard,
+            pass: Pass::STANDARD,
             acting: Some(acting.principal.to_owned()),
             key: None,
             body: Some(json(&w::Presign {

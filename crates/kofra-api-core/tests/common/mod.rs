@@ -204,6 +204,21 @@ impl H {
         r.ingress = Ingress::Console;
         r
     }
+
+    /// A console request of `user` in `ws_a`: a confirmed request.
+    pub fn console_call(
+        &self,
+        method: &str,
+        target: &str,
+        user: &str,
+        body: Option<Value>,
+    ) -> Response {
+        let mut r = self.console_req(method, target, user);
+        if let Some(b) = body {
+            r = Self::with_body(r, &b);
+        }
+        self.send(r)
+    }
 }
 
 pub fn code(resp: &Response) -> String {

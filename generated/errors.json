@@ -91,6 +91,16 @@
       "docs_url": "https://kofra.app/docs/errors/bucket_not_allowed.md"
     },
     {
+      "code": "confirmation_required",
+      "status": 403,
+      "title": "A person must confirm this in the console",
+      "retryable": false,
+      "hint": "Do this in the console; a script that must write or delete objects without a person uses an S3 access key instead.",
+      "meaning": "The action cannot be undone or lets a credential do more (deleting a bucket, creating an access key that can write, adding or widening a grant, cancelling a scheduled account deletion), so a signed-in member must confirm it in the console. A request with an API token, an agent's included, cannot confirm it, whatever its scopes. Cancelling a scheduled account deletion also needs the console's confirmation page.",
+      "type": "https://kofra.app/docs/errors/confirmation_required",
+      "docs_url": "https://kofra.app/docs/errors/confirmation_required.md"
+    },
+    {
       "code": "role_forbidden",
       "status": 403,
       "title": "Your role does not allow this",

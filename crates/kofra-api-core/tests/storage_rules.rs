@@ -22,6 +22,21 @@ const ACT: Acting<'static> = Acting {
     confirmation: None,
 };
 
+/// A console request: confirmed, without a confirmation record.
+const CONSOLE: Acting<'static> = Acting {
+    confirmation: Some(Confirmation::Console),
+    ..ACT
+};
+
+/// A request with the used confirmation record `id`: a tenant deletion
+/// and its undo need one. Its ID is the storage call's key.
+fn recorded(id: &'static str) -> Acting<'static> {
+    Acting {
+        confirmation: Some(Confirmation::Record(id)),
+        ..ACT
+    }
+}
+
 fn keyed(act: Acting<'static>, key: &'static str) -> Acting<'static> {
     Acting {
         idempotency_key: Some(key),
@@ -208,15 +223,15 @@ fn a_tenant_deletion_is_idempotent_by_its_key() {
     let m = memory();
     let s = &m.storage;
     block_on(async {
-        let first = s.delete_tenant(keyed(ACT, "del-1")).await.unwrap();
+        let first = s.delete_tenant(recorded("del-1")).await.unwrap();
         // The request that set the deletion gets it again.
-        let again = s.delete_tenant(keyed(ACT, "del-1")).await.unwrap();
+        let again = s.delete_tenant(recorded("del-1")).await.unwrap();
         assert_eq!(
             serde_json::to_value(&first).unwrap(),
             serde_json::to_value(&again).unwrap()
         );
         // Any other request finds a deletion already in force.
-        for other in [keyed(ACT, "del-2"), ACT] {
+        for other in [recorded("del-2"), recorded("del-4")] {
             assert_eq!(
                 s.delete_tenant(other).await.unwrap_err(),
                 StorageError::DeletionAlreadyRequested
@@ -224,26 +239,26 @@ fn a_tenant_deletion_is_idempotent_by_its_key() {
         }
         // Undone, the deletion's key cannot delete the tenant again.
         let seq = s.tenant("t_a").await.unwrap().deletion_seq.unwrap();
-        s.restore_tenant(keyed(ACT, "undo-1"), seq).await.unwrap();
+        s.restore_tenant(recorded("undo-1"), seq).await.unwrap();
         assert_eq!(
-            s.delete_tenant(keyed(ACT, "del-1")).await.unwrap_err(),
+            s.delete_tenant(recorded("del-1")).await.unwrap_err(),
             StorageError::IdempotencyKeyReused
         );
         assert!(s.tenant("t_a").await.unwrap().deletion.is_none());
         // A new request deletes it again, with a new sequence number.
-        s.delete_tenant(keyed(ACT, "del-3")).await.unwrap();
+        s.delete_tenant(recorded("del-3")).await.unwrap();
         let tenant = s.tenant("t_a").await.unwrap();
         assert!(tenant.deletion.is_some());
         let third = tenant.deletion_seq.unwrap();
         assert!(third > seq);
         // Only the last undone deletion's key is kept: once a newer undo
         // replaces it, the first key is a request like any other.
-        s.restore_tenant(ACT, third).await.unwrap();
+        s.restore_tenant(recorded("undo-1b"), third).await.unwrap();
         assert_eq!(
-            s.delete_tenant(keyed(ACT, "del-3")).await.unwrap_err(),
+            s.delete_tenant(recorded("del-3")).await.unwrap_err(),
             StorageError::IdempotencyKeyReused
         );
-        s.delete_tenant(keyed(ACT, "del-1")).await.unwrap();
+        s.delete_tenant(recorded("del-1")).await.unwrap();
         assert!(s.tenant("t_a").await.unwrap().deletion.is_some());
     });
 }
@@ -254,26 +269,30 @@ fn an_undo_names_the_deletion_it_undoes() {
     let s = &m.storage;
     block_on(async {
         assert_eq!(
-            s.restore_tenant(ACT, 1).await.unwrap_err(),
+            s.restore_tenant(recorded("undo-2"), 1).await.unwrap_err(),
             StorageError::DeletionNotRequested
         );
-        s.delete_tenant(keyed(ACT, "del-1")).await.unwrap();
+        s.delete_tenant(recorded("del-1")).await.unwrap();
         let first = s.tenant("t_a").await.unwrap().deletion_seq.unwrap();
         // Another deletion's number undoes nothing.
         assert_eq!(
-            s.restore_tenant(ACT, first + 7).await.unwrap_err(),
+            s.restore_tenant(recorded("undo-3"), first + 7)
+                .await
+                .unwrap_err(),
             StorageError::DeletionNotRequested
         );
-        s.restore_tenant(ACT, first).await.unwrap();
+        s.restore_tenant(recorded("undo-4"), first).await.unwrap();
         // A repeat of the undo that succeeded answers `Ok`.
-        s.restore_tenant(ACT, first).await.unwrap();
+        s.restore_tenant(recorded("undo-5"), first).await.unwrap();
         let tenant = s.tenant("t_a").await.unwrap();
         assert_eq!(tenant.state, t::AccountState::Active);
         assert_eq!(tenant.deletion_seq, None);
         // A late retry of the first undo never cancels a newer deletion.
-        s.delete_tenant(keyed(ACT, "del-2")).await.unwrap();
+        s.delete_tenant(recorded("del-2")).await.unwrap();
         assert_eq!(
-            s.restore_tenant(ACT, first).await.unwrap_err(),
+            s.restore_tenant(recorded("undo-6"), first)
+                .await
+                .unwrap_err(),
             StorageError::DeletionNotRequested
         );
         assert!(s.tenant("t_a").await.unwrap().deletion.is_some());
@@ -281,7 +300,9 @@ fn an_undo_names_the_deletion_it_undoes() {
         let second = s.tenant("t_a").await.unwrap().deletion_seq.unwrap();
         m.env.advance(31 * 24 * 3_600_000);
         assert_eq!(
-            s.restore_tenant(ACT, second).await.unwrap_err(),
+            s.restore_tenant(recorded("undo-7"), second)
+                .await
+                .unwrap_err(),
             StorageError::DeletionFinal
         );
     });
@@ -289,28 +310,54 @@ fn an_undo_names_the_deletion_it_undoes() {
 
 #[test]
 fn a_deletion_the_customer_did_not_start_cannot_be_cancelled() {
-    let h = setup();
-    let owner = h.owner();
-    h.api.ports.storage.schedule_billing_deletion("t_a");
-    let r = h.call("POST", "/v1/account/deletion/cancel", &owner, None);
+    let m = memory();
+    m.storage.schedule_billing_deletion("t_a");
+    let seq = block_on(m.storage.tenant("t_a"))
+        .unwrap()
+        .deletion_seq
+        .unwrap();
+    // Even with a confirmation record: it is not the customer's to undo.
     assert_eq!(
-        (r.status, code(&r).as_str()),
-        (409, "deletion_not_cancellable")
+        block_on(m.storage.restore_tenant(recorded("undo-1"), seq)).unwrap_err(),
+        StorageError::DeletionNotCancellable
     );
-    let account = h.call("GET", "/v1/account", &owner, None).json_body();
+    let h = setup();
+    h.api.ports.storage.schedule_billing_deletion("t_a");
+    let account = h.call("GET", "/v1/account", &h.owner(), None).json_body();
     assert_eq!(account["deletion"]["reason"], "non_payment");
 }
 
 #[test]
-fn the_console_undo_of_a_scheduled_deletion_names_its_sequence_number() {
+fn undoing_a_deletion_storage_holds_needs_a_confirmation_record() {
+    // Storage schedules a deletion only after a confirmation record, and
+    // its undo needs one too, also from the console. No request carries a
+    // record until the console's confirmation page exists, so the API
+    // token and the console session alike are refused before storage is
+    // called, and the deletion stays.
     let h = setup();
-    let owner = h.owner();
-    // Storage schedules the deletion after the console's confirmation.
-    block_on(h.api.ports.storage.delete_tenant(keyed(ACT, "cfm_1"))).unwrap();
-    let r = h.call("POST", "/v1/account/deletion/cancel", &owner, None);
-    assert_eq!(r.status, 200);
-    assert!(r.json_body()["deletion"].is_null());
-    assert_eq!(r.json_body()["state"], "active");
+    block_on(h.api.ports.storage.delete_tenant(recorded("cfm_1"))).unwrap();
+    let token = h.call("POST", "/v1/account/deletion/cancel", &h.owner(), None);
+    let console = h.console_call("POST", "/v1/account/deletion/cancel", "usr_owner", None);
+    for r in [token, console] {
+        assert_eq!(
+            (r.status, code(&r).as_str()),
+            (403, "confirmation_required")
+        );
+    }
+    let account = h.call("GET", "/v1/account", &h.owner(), None).json_body();
+    assert_eq!(account["deletion"]["status"], "scheduled");
+    // A deletion request that storage never heard of is the API's own row:
+    // dropping it needs no confirmation.
+    let h = setup();
+    assert_eq!(
+        h.call("DELETE", "/v1/account", &h.owner(), None).status,
+        202
+    );
+    assert_eq!(
+        h.call("POST", "/v1/account/deletion/cancel", &h.owner(), None)
+            .status,
+        200
+    );
 }
 
 #[test]
@@ -320,7 +367,7 @@ fn a_rename_is_idempotent_by_state_and_a_widening_by_its_key() {
     block_on(async {
         let key = s
             .create_key(
-                ACT,
+                CONSOLE,
                 Some("first"),
                 &[grant("photos", t::GrantInputAccess::Read)],
             )
@@ -333,7 +380,7 @@ fn a_rename_is_idempotent_by_state_and_a_widening_by_its_key() {
         // whatever key it carries.
         let same = s
             .update_key(
-                keyed(ACT, "u-1"),
+                keyed(CONSOLE, "u-1"),
                 &id,
                 Some("first"),
                 Some(&[grant("photos", t::GrantInputAccess::Read)]),
@@ -344,11 +391,11 @@ fn a_rename_is_idempotent_by_state_and_a_widening_by_its_key() {
         assert_eq!(events(), before);
         // A rename keeps no record of its key: another rename with the key
         // is judged on its own.
-        s.update_key(keyed(ACT, "u-2"), &id, Some("second"), None)
+        s.update_key(keyed(CONSOLE, "u-2"), &id, Some("second"), None)
             .await
             .unwrap();
         let renamed = s
-            .update_key(keyed(ACT, "u-2"), &id, Some("third"), None)
+            .update_key(keyed(CONSOLE, "u-2"), &id, Some("third"), None)
             .await
             .unwrap();
         assert_eq!(renamed.name.as_ref().map(|n| n.as_str()), Some("third"));
@@ -356,12 +403,12 @@ fn a_rename_is_idempotent_by_state_and_a_widening_by_its_key() {
         // without running again, another request with the key is refused.
         let wide = [grant("photos", t::GrantInputAccess::ReadWrite)];
         let widened = s
-            .update_key(keyed(ACT, "u-3"), &id, None, Some(&wide))
+            .update_key(keyed(CONSOLE, "u-3"), &id, None, Some(&wide))
             .await
             .unwrap();
         let count = events();
         let replay = s
-            .update_key(keyed(ACT, "u-3"), &id, None, Some(&wide))
+            .update_key(keyed(CONSOLE, "u-3"), &id, None, Some(&wide))
             .await
             .unwrap();
         assert_eq!(
@@ -371,7 +418,7 @@ fn a_rename_is_idempotent_by_state_and_a_widening_by_its_key() {
         assert_eq!(events(), count);
         assert_eq!(
             s.update_key(
-                keyed(ACT, "u-3"),
+                keyed(CONSOLE, "u-3"),
                 &id,
                 None,
                 Some(&[grant("backups", t::GrantInputAccess::Read)])
@@ -381,13 +428,13 @@ fn a_rename_is_idempotent_by_state_and_a_widening_by_its_key() {
             StorageError::IdempotencyKeyReused
         );
         // A revoked key is gone for reads and changes.
-        s.revoke_key(ACT, &id).await.unwrap();
+        s.revoke_key(CONSOLE, &id).await.unwrap();
         assert_eq!(
             s.key("t_a", &id).await.unwrap_err(),
             StorageError::KeyNotFound
         );
         assert_eq!(
-            s.update_key(ACT, &id, Some("fourth"), None)
+            s.update_key(CONSOLE, &id, Some("fourth"), None)
                 .await
                 .unwrap_err(),
             StorageError::KeyNotFound
@@ -400,16 +447,20 @@ fn a_bucket_delete_keeps_no_record_of_its_key() {
     let m = memory();
     let s = &m.storage;
     block_on(async {
-        s.delete_bucket(keyed(ACT, "d-1"), "photos").await.unwrap();
+        s.delete_bucket(keyed(CONSOLE, "d-1"), "photos")
+            .await
+            .unwrap();
         // The repeat finds no bucket; the key is not refused on another
         // bucket.
         assert_eq!(
-            s.delete_bucket(keyed(ACT, "d-1"), "photos")
+            s.delete_bucket(keyed(CONSOLE, "d-1"), "photos")
                 .await
                 .unwrap_err(),
             StorageError::BucketNotFound
         );
-        s.delete_bucket(keyed(ACT, "d-1"), "backups").await.unwrap();
+        s.delete_bucket(keyed(CONSOLE, "d-1"), "backups")
+            .await
+            .unwrap();
     });
 }
 
