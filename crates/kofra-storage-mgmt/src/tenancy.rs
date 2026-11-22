@@ -15,13 +15,14 @@
 //!   by the person signing up. Without it held, nothing is sent and the
 //!   call answers `Retry` (with a page: the deployment is incomplete).
 //! - `external_ref_retired` (the workspace's tenant was shredded) is
-//!   `Gone`. A "not now" (`rate_limited`, `service_unavailable`,
-//!   `idempotency_key_in_use`, or a `429`/`503` without a code) is a silent
-//!   `Retry`: a principal create that races another for the same member is
-//!   one (`503` with `Retry-After`), and its retry finds the principal.
-//!   Every other answer is `Retry` with a page, `internal_error` and every
-//!   code that means a fault of this service included, so that none
-//!   retries in silence.
+//!   `Gone`. A "not now" is a silent `Retry`: the codes `cap_reached`,
+//!   `service_unavailable`, `tenant_restoring`, `key_moved` and
+//!   `idempotency_key_in_use`, a `429` or `503` without a code, and a plane
+//!   that did not answer. A principal create that races another for the
+//!   same member is one (`503` with `Retry-After`), and its retry finds the
+//!   principal. Every other answer is `Retry` with a page, `internal_error`,
+//!   every code that means a fault of this service and a local transport
+//!   fault included, so that none retries in silence.
 
 use kofra_account::{
     model::Role,
@@ -37,7 +38,7 @@ use mgmt_types::{
 use crate::{
     codes::{Refusal, tenancy_refusal},
     tokens::{TokenClass, Tokens},
-    transport::{Method, Request, Transport},
+    transport::{Method, Request, Transport, TransportError},
 };
 
 /// Where the adapter reports what must not retry in silence. The Workers
@@ -115,9 +116,16 @@ impl<T: Transport, P: Pager> MgmtTenancy<T, P> {
             ],
             body: Some(body),
         };
-        // The plane did not answer: a "not now".
-        let Ok(r) = self.transport.send(&req).await else {
-            return Err(TenancyError::Retry);
+        let r = match self.transport.send(&req).await {
+            Ok(r) => r,
+            // The plane did not answer: a "not now".
+            Err(TransportError::Unreachable) => return Err(TenancyError::Retry),
+            // This service could not send it or take the answer: a retry
+            // does not mend that.
+            Err(TransportError::Local) => {
+                self.pager.page(call, "transport_fault");
+                return Err(TenancyError::Retry);
+            }
         };
         if (200..300).contains(&r.status) {
             return serde_json::from_slice(&r.body).map_err(|_| {

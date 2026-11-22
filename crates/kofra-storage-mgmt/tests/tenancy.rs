@@ -327,36 +327,50 @@ fn a_retired_reference_closes_the_workspace() {
     assert!(pages.0.borrow().is_empty());
 }
 
-struct Down;
+struct Down(kofra_storage_mgmt::TransportError);
 
 impl kofra_storage_mgmt::Transport for Down {
     async fn send(
         &self,
         _: &kofra_storage_mgmt::Request,
     ) -> Result<Response, kofra_storage_mgmt::TransportError> {
-        Err(kofra_storage_mgmt::TransportError::Unreachable)
+        Err(self.0)
     }
 }
 
+/// A plane that does not answer is a "not now": a silent retry. A local
+/// fault (a header the runtime refuses, an answer over the size limit) is
+/// not, so it pages.
 #[test]
-fn a_plane_that_does_not_answer_is_retried_without_a_page() {
-    let pages = Pages::default();
-    let t = MgmtTenancy::new(Down, tokens(), &pages);
-    let req = CreateTenant {
-        external_ref: "ws_a".into(),
-        idempotency_key: "ws_a".into(),
-        plan: "free".into(),
-        jurisdiction: "us".into(),
-    };
-    assert_eq!(block_on(t.create_tenant(&req)), Err(TenancyError::Retry));
-    let p = CreatePrincipal {
-        tenant_id: TENANT.into(),
-        owner_ref: "usr_a".into(),
-        role: Role::Owner,
-        idempotency_key: "ws_a/usr_a".into(),
-    };
-    assert_eq!(block_on(t.create_principal(&p)), Err(TenancyError::Retry));
-    assert!(pages.0.borrow().is_empty());
+fn a_plane_that_does_not_answer_is_retried_without_a_page_and_a_local_fault_pages() {
+    use kofra_storage_mgmt::TransportError::{Local, Unreachable};
+    for (fault, paged) in [(Unreachable, false), (Local, true)] {
+        let pages = Pages::default();
+        let t = MgmtTenancy::new(Down(fault), tokens(), &pages);
+        let req = CreateTenant {
+            external_ref: "ws_a".into(),
+            idempotency_key: "ws_a".into(),
+            plan: "free".into(),
+            jurisdiction: "us".into(),
+        };
+        assert_eq!(block_on(t.create_tenant(&req)), Err(TenancyError::Retry));
+        let p = CreatePrincipal {
+            tenant_id: TENANT.into(),
+            owner_ref: "usr_a".into(),
+            role: Role::Owner,
+            idempotency_key: "ws_a/usr_a".into(),
+        };
+        assert_eq!(block_on(t.create_principal(&p)), Err(TenancyError::Retry));
+        let want: &[(&str, String)] = if paged {
+            &[
+                ("create_tenant", "transport_fault".to_owned()),
+                ("create_principal", "transport_fault".to_owned()),
+            ]
+        } else {
+            &[]
+        };
+        assert_eq!(pages.0.borrow().as_slice(), want, "{fault:?}");
+    }
 }
 
 #[test]
