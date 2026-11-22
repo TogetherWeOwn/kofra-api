@@ -676,3 +676,50 @@ fn throttle_keys_are_stored_under_a_keyed_hash_only() {
     // The next window starts over.
     assert_eq!(block_on(a.hit(key, 1, 60_000, T0 + 60_000)).unwrap(), None);
 }
+
+#[test]
+fn a_late_hit_from_an_older_window_counts_in_the_newer_one() {
+    use kofra_account::ports::Throttle;
+    use kofra_store::account::SqlThrottle;
+    let db = Rc::new(SqliteDb::new());
+    let t = SqlThrottle::new(Rc::clone(&db), [1; 32]);
+    let w = 60_000;
+    let next = (T0 / w + 1) * w;
+    assert_eq!(block_on(t.hit("k", 2, w, next + 10)).unwrap(), None);
+    // Sent before the boundary, written after: it neither resets nor moves
+    // the stored window back.
+    assert_eq!(block_on(t.hit("k", 2, w, next - 5)).unwrap(), None);
+    assert_eq!(block_on(t.hit("k", 2, w, next + 20)).unwrap(), Some(60));
+    let r = &db.rows("SELECT window_start, hits FROM account_throttle", &[])[0];
+    assert_eq!(
+        (r.u64("window_start").unwrap(), r.u64("hits").unwrap()),
+        (next, 3)
+    );
+}
+
+#[test]
+fn a_refused_workspace_insert_never_adds_to_an_existing_workspace() {
+    let s = setup();
+    let ws = WorkspaceRecord {
+        id: "ws_1".into(),
+        name: "W".into(),
+        tenant_id: None,
+        state: WorkspaceState::SettingUp,
+        provision_tried_at: Some(T0),
+        created_at: T0,
+    };
+    let owner = |user: &str| MemberRecord {
+        workspace_id: "ws_1".into(),
+        user_id: user.into(),
+        role: Role::Owner,
+        active: true,
+        created_at: T0,
+    };
+    assert!(block_on(s.store.insert_workspace(&ws, &owner("usr_a"), 1)).unwrap());
+    // usr_a is at the cap; usr_b retries the same ID with a cap of 0.
+    let mut again = ws.clone();
+    again.provision_tried_at = None;
+    assert!(
+        !s.unchanged(|| block_on(s.store.insert_workspace(&again, &owner("usr_b"), 0)).unwrap())
+    );
+}

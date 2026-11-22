@@ -87,6 +87,17 @@ pub(super) async fn create<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Prob
     let Input::TokenCreate(body) = &ctx.input else {
         return Err(Problem::new("internal_error"));
     };
+    // A label for people: control characters (a NUL above all, which
+    // SQLite's length() stops at) are refused rather than stored.
+    if body.name.to_string().chars().any(char::is_control) {
+        return Err(Problem::new("validation_failed")
+            .detail("The field \"/name\" is not valid.")
+            .errors(vec![crate::problem::FieldError::new(
+                "/name",
+                "invalid_value",
+                "A name cannot hold control characters.",
+            )]));
+    }
     let p = &ctx.principal;
 
     // Scopes: each one held by the creating credential and allowed by the role.

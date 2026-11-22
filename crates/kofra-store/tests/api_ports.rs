@@ -480,11 +480,133 @@ fn the_purge_deletes_only_what_has_expired() {
     }
     let deleted = block_on(kofra_store::purge::run(&*db, T0)).unwrap();
     assert_eq!(deleted, vec![1; 8]);
-    for (table, ..) in cases {
-        assert_eq!(
-            db.rows(&format!("SELECT 1 FROM {table}"), &[]).len(),
-            1,
-            "{table} keeps its live row"
-        );
+    // The row left is the live one: its time column holds the newer value.
+    let times = [
+        "tat",
+        "window_start",
+        "claimed_at",
+        "expires_at",
+        "expires_at",
+        "expires_at",
+        "created_at",
+        "at",
+    ];
+    for ((table, _, _, new), column) in cases.into_iter().zip(times) {
+        let rows = db.rows(&format!("SELECT {column} AS t FROM {table}"), &[]);
+        assert_eq!(rows.len(), 1, "{table} keeps one row");
+        assert_eq!(rows[0].u64("t").unwrap(), new, "{table} keeps its live row");
     }
+}
+
+/// Records every statement it runs, for query-plan checks.
+struct Recording {
+    db: Rc<SqliteDb>,
+    seen: std::cell::RefCell<Vec<kofra_store::Stmt>>,
+}
+
+impl kofra_store::Db for Recording {
+    async fn run(&self, s: &kofra_store::Stmt) -> Result<kofra_store::Done, kofra_store::DbError> {
+        self.seen.borrow_mut().push(s.clone());
+        self.db.run(s).await
+    }
+    async fn batch(
+        &self,
+        s: &[kofra_store::Stmt],
+    ) -> Result<Vec<kofra_store::Done>, kofra_store::DbError> {
+        self.seen.borrow_mut().extend(s.iter().cloned());
+        self.db.batch(s).await
+    }
+}
+
+fn plan(db: &SqliteDb, s: &kofra_store::Stmt) -> String {
+    db.rows(&format!("EXPLAIN QUERY PLAN {}", s.sql), &s.params)
+        .iter()
+        .map(|r| r.text("detail").unwrap())
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+#[test]
+fn filtered_lists_seek_the_index_of_their_filter() {
+    let db = db();
+    let rec = Rc::new(Recording {
+        db: Rc::clone(&db),
+        seen: Default::default(),
+    });
+    let audit = SqlAudit::new(Rc::clone(&rec));
+    let after = (T0, "aud_9".to_owned());
+    for (filter, index) in [
+        (
+            AuditFilter {
+                actor: Some("usr_1".into()),
+                ..AuditFilter::default()
+            },
+            "api_audit_by_actor",
+        ),
+        (
+            AuditFilter {
+                actor: Some("tok_1".into()),
+                ..AuditFilter::default()
+            },
+            "api_audit_by_credential",
+        ),
+        (
+            AuditFilter {
+                operation: Some("keys.create".into()),
+                ..AuditFilter::default()
+            },
+            "api_audit_by_operation",
+        ),
+        (AuditFilter::default(), "api_audit_by_workspace"),
+    ] {
+        block_on(audit.list("ws_a", &filter, Some(&after), 10)).unwrap();
+        let s = rec.seen.borrow_mut().pop().unwrap();
+        let p = plan(&db, &s);
+        assert!(p.contains(index), "{p}");
+        assert!(!p.contains("TEMP B-TREE"), "no sort step: {p}");
+    }
+    let dir = SqlDirectory::new(Rc::clone(&rec));
+    block_on(dir.list_tokens("ws_a", Some("usr_1"), Some(&(T0, "tok_9".into())), 10)).unwrap();
+    let s = rec.seen.borrow_mut().pop().unwrap();
+    let p = plan(&db, &s);
+    assert!(p.contains("api_tokens_by_member"), "{p}");
+}
+
+#[test]
+fn a_repeated_insert_of_the_same_keyed_token_answers_the_stored_one() {
+    let db = db();
+    let mem = MemoryDirectory::default();
+    seed_directory(&db, &mem);
+    let sql = SqlDirectory::new(Rc::clone(&db));
+    let mut rng = Rng(5);
+    let mut t = a_token(&mut rng, 1, T0);
+    t.workspace_id = "ws_a".into();
+    t.user_id = "usr_1".into();
+    t.idempotency_key = Some("k".into());
+    t.idempotency_fingerprint = Some([1; 32]);
+    assert_eq!(block_on(sql.insert_token(&t)).unwrap(), None);
+    assert_eq!(block_on(sql.insert_token(&t)).unwrap(), Some(t.clone()));
+    assert_eq!(block_on(mem.insert_token(&t)).unwrap(), None);
+    assert_eq!(block_on(mem.insert_token(&t)).unwrap(), Some(t));
+}
+
+#[test]
+fn last_use_never_moves_back() {
+    let db = db();
+    let mem = MemoryDirectory::default();
+    seed_directory(&db, &mem);
+    let sql = SqlDirectory::new(Rc::clone(&db));
+    let mut rng = Rng(9);
+    let mut t = a_token(&mut rng, 2, T0);
+    t.idempotency_key = None;
+    t.idempotency_fingerprint = None;
+    t.workspace_id = "ws_a".into();
+    t.user_id = "usr_1".into();
+    block_on(sql.insert_token(&t)).unwrap();
+    block_on(sql.touch_token(&t.id, T0 + 7_200_000)).unwrap();
+    block_on(sql.touch_token(&t.id, T0 + 3_600_000)).unwrap();
+    assert_eq!(
+        block_on(sql.token(&t.id)).unwrap().unwrap().last_used_at_ms,
+        Some(T0 + 7_200_000)
+    );
 }

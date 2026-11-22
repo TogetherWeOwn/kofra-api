@@ -399,8 +399,10 @@ impl<D: Db> Store for SqlStore<D> {
             });
         };
         // The user row is written only while the invite is usable, and the
-        // invite is spent only if that row was written (its ID is new): both
-        // or neither, in one transaction.
+        // invite is spent only if this batch wrote that row (its ID, and its
+        // password hash, whose salt is new for every request): both or
+        // neither, in one transaction. The last statement classifies a
+        // refusal in the same transaction.
         let mut p = user_params();
         p.push(hash.into());
         p.push(now_ms.into());
@@ -416,15 +418,20 @@ impl<D: Db> Store for SqlStore<D> {
                 Stmt::new(
                     "UPDATE account_invites SET used_at = ?2 \
                      WHERE token_hash = ?1 AND used_at IS NULL \
-                     AND EXISTS (SELECT 1 FROM account_users WHERE id = ?3)",
-                    params![hash, now_ms, &u.id],
+                     AND EXISTS (SELECT 1 FROM account_users WHERE id = ?3 AND password_hash = ?4)",
+                    params![hash, now_ms, &u.id, &u.password_hash],
+                ),
+                Stmt::new(
+                    "SELECT EXISTS (SELECT 1 FROM account_users WHERE email_key = ?1) AS taken",
+                    params![&u.email_key],
                 ),
             ])
             .await?;
         if done.first().is_some_and(|d| d.changes == 1) {
             return Ok(InsertUser::Created);
         }
-        Ok(if self.user_by_email(&u.email_key).await?.is_some() {
+        let taken = one(last(&done)?, |r| r.bool("taken"))?.unwrap_or(false);
+        Ok(if taken {
             InsertUser::AddressTaken
         } else {
             InsertUser::InviteUnusable
@@ -566,8 +573,8 @@ impl<D: Db> Store for SqlStore<D> {
     async fn update_session(&self, s: &SessionRecord) -> PortResult<bool> {
         let d = self
             .run(
-                "UPDATE account_sessions SET last_seen_at = ?3, step_at = ?4, level = ?5 \
-                 WHERE id = ?1 AND epoch = ?2",
+                "UPDATE account_sessions SET last_seen_at = max(last_seen_at, ?3), step_at = ?4, \
+                 level = ?5 WHERE id = ?1 AND epoch = ?2",
                 params![&s.id, s.epoch, s.last_seen_at, s.step_at, s.level],
             )
             .await?;
@@ -577,7 +584,8 @@ impl<D: Db> Store for SqlStore<D> {
     async fn touch_session(&self, id: &str, epoch: u64, last_seen_at: u64) -> PortResult<bool> {
         let d = self
             .run(
-                "UPDATE account_sessions SET last_seen_at = ?3 WHERE id = ?1 AND epoch = ?2",
+                "UPDATE account_sessions SET last_seen_at = max(last_seen_at, ?3) \
+                 WHERE id = ?1 AND epoch = ?2",
                 params![id, epoch, last_seen_at],
             )
             .await?;
@@ -1040,7 +1048,8 @@ impl<D: Db> Store for SqlStore<D> {
             ),
             Stmt::new(
                 "INSERT INTO api_members (workspace_id, user_id, role, status, created_at) \
-                 SELECT ?1, ?2, ?3, ?4, ?5 WHERE EXISTS (SELECT 1 FROM api_workspaces WHERE id = ?1)",
+                 SELECT ?1, ?2, ?3, ?4, ?5 WHERE EXISTS (SELECT 1 FROM api_workspaces WHERE id = ?1) \
+                 AND NOT EXISTS (SELECT 1 FROM api_members WHERE workspace_id = ?1)",
                 params![
                     &owner.workspace_id,
                     &owner.user_id,
@@ -1053,7 +1062,8 @@ impl<D: Db> Store for SqlStore<D> {
         if let Some(at) = w.provision_tried_at {
             stmts.push(Stmt::new(
                 "INSERT INTO account_provisioning (workspace_id, tried_at) \
-                 SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM api_workspaces WHERE id = ?1)",
+                 SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM api_workspaces WHERE id = ?1) \
+                 AND (SELECT count(*) FROM api_members WHERE workspace_id = ?1) = 1",
                 params![&w.id, at],
             ));
         }
@@ -1453,18 +1463,21 @@ impl<D: Db> Throttle for SqlThrottle<D> {
             .run(&Stmt::new(
                 "INSERT INTO account_throttle (key_hash, window_start, hits) VALUES (?1, ?2, 1) \
                  ON CONFLICT (key_hash) DO UPDATE SET \
-                 hits = CASE WHEN account_throttle.window_start = excluded.window_start \
-                        THEN account_throttle.hits + 1 ELSE 1 END, \
-                 window_start = excluded.window_start \
-                 RETURNING hits",
+                 hits = CASE WHEN excluded.window_start > account_throttle.window_start \
+                        THEN 1 ELSE account_throttle.hits + 1 END, \
+                 window_start = max(account_throttle.window_start, excluded.window_start) \
+                 RETURNING hits, window_start",
                 params![&hashed, start],
             ))
             .await
             .map_err(port_error)?;
         self.hits.set(self.hits.get() + 1);
-        let hits = one(&d, |r| r.u64("hits"))?.ok_or(PortError::Internal)?;
+        // A hit that arrives after a newer window began counts in that
+        // window: the stored window never moves back.
+        let (hits, stored_start) = one(&d, |r| Ok((r.u64("hits")?, r.u64("window_start")?)))?
+            .ok_or(PortError::Internal)?;
         if hits > u64::from(limit) {
-            let left_ms = start + window - now_ms;
+            let left_ms = (stored_start + window).saturating_sub(now_ms).max(1);
             return Ok(Some(
                 u32::try_from(left_ms.div_ceil(1000)).unwrap_or(u32::MAX),
             ));

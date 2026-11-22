@@ -258,3 +258,25 @@ fn token_lists_page_newest_first() {
     }
     assert_eq!(names, ["t4", "t3", "t2", "t1", "t0", "test"]);
 }
+
+#[test]
+fn a_token_name_with_control_characters_is_refused() {
+    let h = setup();
+    let owner = h.owner();
+    for name in ["\u{0}ci", "c\ni", "ci\u{7f}"] {
+        let r = create(
+            &h,
+            &owner,
+            json!({ "name": name, "scopes": ["buckets:read"] }),
+        );
+        assert_eq!(r.status, 400, "{name:?}");
+        assert_eq!(code(&r), "validation_failed");
+        assert_eq!(r.json_body()["errors"][0]["pointer"], "/name");
+    }
+    let r = create(
+        &h,
+        &owner,
+        json!({ "name": "ci – build", "scopes": ["buckets:read"] }),
+    );
+    assert_eq!(r.status, 201);
+}

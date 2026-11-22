@@ -20,8 +20,10 @@
 //! batch can make both true, whatever state the rows were in before.
 //! Raise `account_users.epoch` with `RETURNING epoch`; no returned row
 //! means nothing was written (`None`). Last, move the keep session from
-//! the mark to `E + 1`. The batch is one transaction, so no reader ever
-//! sees the mark. (`kofra-store` implements this recipe.)
+//! the mark to `E + 1`, guarded by its ID, its user and the mark only (not
+//! by the user at `E`: the raise just moved the user to `E + 1`). The batch
+//! is one transaction, so no reader ever sees the mark. (`kofra-store`
+//! implements this recipe.)
 //!
 //! With no keep session, use one `UPDATE account_users SET epoch = epoch + 1,
 //! updated_at = ? WHERE id = ? AND epoch = ? RETURNING epoch`.

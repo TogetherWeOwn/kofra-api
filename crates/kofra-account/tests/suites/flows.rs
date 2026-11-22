@@ -1385,6 +1385,10 @@ fn a_session_issued_under_an_old_epoch_is_refused() {
     // A sign-in that passed its password check before the reset writes its
     // session only after it, with the epoch it read.
     let (late_token, late_hash) = crypto::new_token([3; 32]);
+    let epoch_before = pollster::block_on(h.ports().store.user(&user_id))
+        .unwrap()
+        .unwrap()
+        .epoch;
     let r = h.call(
         "POST",
         "password/reset",
@@ -1397,7 +1401,7 @@ fn a_session_issued_under_an_old_epoch_is_refused() {
         &SessionRecord {
             id: "ses_late".into(),
             user_id,
-            epoch: 0,
+            epoch: epoch_before,
             token_hash: late_hash,
             stage: Stage::Full,
             level: 1,

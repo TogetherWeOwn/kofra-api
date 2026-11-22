@@ -90,14 +90,6 @@ fn to_json<T: serde::Serialize>(v: &T) -> Value {
     Value::Text(serde_json::to_string(v).unwrap_or_else(|_| "[]".into()))
 }
 
-/// The `(created_at, id) < (?a, ?b)` paging condition, or always true.
-fn after_params(after: Option<&After>) -> (Value, Value) {
-    match after {
-        Some((at, id)) => (Value::from(*at), Value::from(id.as_str())),
-        None => (Value::Null, Value::Null),
-    }
-}
-
 /// Workspaces, members, API tokens and deletion requests.
 pub struct SqlDirectory<D> {
     db: D,
@@ -221,14 +213,22 @@ impl<D: Db> Directory for SqlDirectory<D> {
                 Stmt::new(
                     format!(
                         "SELECT {TOKEN_COLS} FROM api_tokens \
-                         WHERE workspace_id = ?1 AND idempotency_key = ?2 AND id <> ?3"
+                         WHERE workspace_id = ?1 AND idempotency_key = ?2"
                     ),
-                    params![&t.workspace_id, key, &t.id],
+                    params![&t.workspace_id, key],
                 ),
             ])
             .await
             .map_err(port_error)?;
-        one(done.last().ok_or(PortError::Internal)?, token)
+        // Stored by this call: no earlier token to answer with. Otherwise
+        // the key's holder is the earlier token of the same request.
+        if done.get(1).is_some_and(|d| d.changes == 1) {
+            return Ok(None);
+        }
+        match one(done.last().ok_or(PortError::Internal)?, token)? {
+            Some(held) => Ok(Some(held)),
+            None => Err(PortError::Internal),
+        }
     }
 
     async fn list_tokens(
@@ -238,18 +238,31 @@ impl<D: Db> Directory for SqlDirectory<D> {
         after: Option<&After>,
         limit: usize,
     ) -> Res<Vec<TokenRecord>> {
-        let (at, id) = after_params(after);
-        let d = run(
-            &self.db,
-            &format!(
-                "SELECT {TOKEN_COLS} FROM api_tokens WHERE workspace_id = ?1 \
-                 AND revoked_at IS NULL AND (?2 IS NULL OR user_id = ?2) \
-                 AND (?3 IS NULL OR (created_at, id) < (?3, ?4)) \
-                 ORDER BY created_at DESC, id DESC LIMIT ?5"
-            ),
-            vec![workspace.into(), user.into(), at, id, limit_value(limit)],
-        )
-        .await?;
+        // Only the conditions that apply, so SQLite seeks the index
+        // (workspace, [member,] created_at, id) to the cursor.
+        let mut sql = format!(
+            "SELECT {TOKEN_COLS} FROM api_tokens WHERE workspace_id = ?1 AND revoked_at IS NULL"
+        );
+        let mut p: Vec<Value> = vec![workspace.into()];
+        if let Some(u) = user {
+            p.push(u.into());
+            sql.push_str(&format!(" AND user_id = ?{}", p.len()));
+        }
+        if let Some((at, id)) = after {
+            p.push((*at).into());
+            p.push(id.as_str().into());
+            sql.push_str(&format!(
+                " AND (created_at, id) < (?{}, ?{})",
+                p.len() - 1,
+                p.len()
+            ));
+        }
+        p.push(limit_value(limit));
+        sql.push_str(&format!(
+            " ORDER BY created_at DESC, id DESC LIMIT ?{}",
+            p.len()
+        ));
+        let d = run(&self.db, &sql, p).await?;
         all(&d, token)
     }
 
@@ -267,7 +280,8 @@ impl<D: Db> Directory for SqlDirectory<D> {
     async fn touch_token(&self, id: &str, at_ms: u64) -> Res<()> {
         run(
             &self.db,
-            "UPDATE api_tokens SET last_used_at = ?2 WHERE id = ?1",
+            "UPDATE api_tokens SET last_used_at = ?2 \
+             WHERE id = ?1 AND (last_used_at IS NULL OR last_used_at < ?2)",
             params![id, at_ms],
         )
         .await
@@ -359,37 +373,40 @@ impl<D: Db> IdempotencyStore for SqlIdempotency<D> {
         ttl_ms: u64,
     ) -> Res<Begin> {
         // One conditional write claims a new key, an expired record, or a
-        // pending record of the same request whose lease ran out.
-        let d = run(
-            &self.db,
-            "INSERT INTO api_idempotency (workspace_id, key, fingerprint, claimed_at, state) \
-             VALUES (?1, ?2, ?3, ?4, 'pending') ON CONFLICT (workspace_id, key) DO UPDATE SET \
-             fingerprint = excluded.fingerprint, claimed_at = excluded.claimed_at, \
-             state = 'pending', status = NULL, headers = NULL, body = NULL \
-             WHERE ?4 - api_idempotency.claimed_at >= ?6 \
-                OR (api_idempotency.fingerprint = excluded.fingerprint \
-                    AND api_idempotency.state = 'pending' \
-                    AND ?4 - api_idempotency.claimed_at >= ?5) \
-             RETURNING claimed_at",
-            params![workspace, key, fingerprint, now_ms, lease_ms, ttl_ms],
-        )
-        .await?;
-        if !d.rows.is_empty() {
+        // pending record of the same request whose lease ran out; the read in
+        // the same transaction classifies a refusal.
+        let done = self
+            .db
+            .batch(&[
+                Stmt::new(
+                    "INSERT INTO api_idempotency (workspace_id, key, fingerprint, claimed_at, state) \
+                     VALUES (?1, ?2, ?3, ?4, 'pending') ON CONFLICT (workspace_id, key) DO UPDATE SET \
+                     fingerprint = excluded.fingerprint, claimed_at = excluded.claimed_at, \
+                     state = 'pending', status = NULL, headers = NULL, body = NULL \
+                     WHERE ?4 - api_idempotency.claimed_at >= ?6 \
+                        OR (api_idempotency.fingerprint = excluded.fingerprint \
+                            AND api_idempotency.state = 'pending' \
+                            AND ?4 - api_idempotency.claimed_at >= ?5) \
+                     RETURNING claimed_at",
+                    params![workspace, key, fingerprint, now_ms, lease_ms, ttl_ms],
+                ),
+                Stmt::new(
+                    "SELECT fingerprint, state, status, headers, body FROM api_idempotency \
+                     WHERE workspace_id = ?1 AND key = ?2",
+                    params![workspace, key],
+                ),
+            ])
+            .await
+            .map_err(port_error)?;
+        if done.first().is_some_and(|d| !d.rows.is_empty()) {
             return Ok(Begin::Started {
                 claimed_at_ms: now_ms,
             });
         }
-        let d = run(
-            &self.db,
-            "SELECT fingerprint, state, status, headers, body FROM api_idempotency \
-             WHERE workspace_id = ?1 AND key = ?2",
-            params![workspace, key],
-        )
-        .await?;
-        let Some(r) = d.rows.first() else {
-            // Released between the two statements: the caller retries.
-            return Ok(Begin::InFlight);
-        };
+        let r = done
+            .get(1)
+            .and_then(|d| d.rows.first())
+            .ok_or(PortError::Internal)?;
         let answer = (|| {
             if r.hash("fingerprint")? != *fingerprint {
                 return Ok(Begin::Mismatch);
@@ -553,35 +570,45 @@ impl<D: Db> AuditStore for SqlAudit<D> {
         after: Option<&After>,
         limit: usize,
     ) -> Res<Vec<AuditRecord>> {
-        let (token, member) = match &filter.actor {
-            Some(a) if a.starts_with("tok_") => (Some(a.as_str()), None),
-            Some(a) => (None, Some(a.as_str())),
-            None => (None, None),
+        // Only the conditions that apply, so SQLite picks the index of the
+        // filter (actor, credential, operation) and seeks it to the cursor.
+        let mut sql = format!("SELECT {AUDIT_COLS} FROM api_audit WHERE workspace_id = ?1");
+        let mut p: Vec<Value> = vec![workspace.into()];
+        let cond = |p: &mut Vec<Value>, sql: &mut String, column: &str, op: &str, v: Value| {
+            p.push(v);
+            sql.push_str(&format!(" AND {column} {op} ?{}", p.len()));
         };
-        let (at, id) = after_params(after);
-        let d = run(
-            &self.db,
-            &format!(
-                "SELECT {AUDIT_COLS} FROM api_audit WHERE workspace_id = ?1 \
-                 AND (?2 IS NULL OR credential_id = ?2) AND (?3 IS NULL OR actor_id = ?3) \
-                 AND (?4 IS NULL OR operation = ?4) AND (?5 IS NULL OR created_at >= ?5) \
-                 AND (?6 IS NULL OR created_at < ?6) \
-                 AND (?7 IS NULL OR (created_at, id) < (?7, ?8)) \
-                 ORDER BY created_at DESC, id DESC LIMIT ?9"
-            ),
-            vec![
-                workspace.into(),
-                token.into(),
-                member.into(),
-                filter.operation.as_deref().into(),
-                filter.since_ms.into(),
-                filter.until_ms.into(),
-                at,
-                id,
-                limit_value(limit),
-            ],
-        )
-        .await?;
+        match &filter.actor {
+            Some(a) if a.starts_with("tok_") => {
+                cond(&mut p, &mut sql, "credential_id", "=", a.as_str().into());
+            }
+            Some(a) => cond(&mut p, &mut sql, "actor_id", "=", a.as_str().into()),
+            None => {}
+        }
+        if let Some(o) = &filter.operation {
+            cond(&mut p, &mut sql, "operation", "=", o.as_str().into());
+        }
+        if let Some(t) = filter.since_ms {
+            cond(&mut p, &mut sql, "created_at", ">=", t.into());
+        }
+        if let Some(t) = filter.until_ms {
+            cond(&mut p, &mut sql, "created_at", "<", t.into());
+        }
+        if let Some((at, id)) = after {
+            p.push((*at).into());
+            p.push(id.as_str().into());
+            sql.push_str(&format!(
+                " AND (created_at, id) < (?{}, ?{})",
+                p.len() - 1,
+                p.len()
+            ));
+        }
+        p.push(limit_value(limit));
+        sql.push_str(&format!(
+            " ORDER BY created_at DESC, id DESC LIMIT ?{}",
+            p.len()
+        ));
+        let d = run(&self.db, &sql, p).await?;
         all(&d, audit_row)
     }
 }
@@ -604,16 +631,26 @@ impl<D: Db> RateLimiter for SqlRate<D> {
         let burst = u64::from(policy.quota.max(1)) * interval;
         // `gcra` in one conditional write: the new arrival time is
         // max(tat, now) + interval, accepted while it is at most `burst`
-        // ahead of now. A refused take writes nothing.
-        let d = run(
-            &self.db,
-            "INSERT INTO api_rate_limits (key, policy, tat) SELECT ?1, ?2, ?3 + ?4 WHERE ?4 <= ?5 \
-             ON CONFLICT (key, policy) DO UPDATE SET tat = max(api_rate_limits.tat, ?3) + ?4 \
-             WHERE max(api_rate_limits.tat, ?3) + ?4 - ?3 <= ?5 RETURNING tat",
-            params![key, policy.name, now_ms, interval, burst],
-        )
-        .await?;
-        if let Some(new_tat) = one(&d, |r| r.u64("tat"))? {
+        // ahead of now. A refused take writes nothing; the read in the same
+        // transaction gives the time the refusal is computed from.
+        let done = self
+            .db
+            .batch(&[
+                Stmt::new(
+                    "INSERT INTO api_rate_limits (key, policy, tat) SELECT ?1, ?2, ?3 + ?4 WHERE ?4 <= ?5 \
+                     ON CONFLICT (key, policy) DO UPDATE SET tat = max(api_rate_limits.tat, ?3) + ?4 \
+                     WHERE max(api_rate_limits.tat, ?3) + ?4 - ?3 <= ?5 RETURNING tat",
+                    params![key, policy.name, now_ms, interval, burst],
+                ),
+                Stmt::new(
+                    "SELECT tat FROM api_rate_limits WHERE key = ?1 AND policy = ?2",
+                    params![key, policy.name],
+                ),
+            ])
+            .await
+            .map_err(port_error)?;
+        let first = done.first().ok_or(PortError::Internal)?;
+        if let Some(new_tat) = one(first, |r| r.u64("tat"))? {
             // The decision `gcra` gives for a stored time one interval
             // before the new one.
             let (decision, next) = gcra(Some(new_tat - interval), policy, now_ms);
@@ -622,25 +659,12 @@ impl<D: Db> RateLimiter for SqlRate<D> {
             }
             return Err(PortError::Internal);
         }
-        let d = run(
-            &self.db,
-            "SELECT tat FROM api_rate_limits WHERE key = ?1 AND policy = ?2",
-            params![key, policy.name],
-        )
-        .await?;
-        let tat = one(&d, |r| r.u64("tat"))?;
-        let (decision, _) = gcra(tat, policy, now_ms);
-        Ok(if decision.allowed {
-            // Refused a moment ago, allowed now: the caller sees a refusal
-            // with the shortest wait.
-            Decision {
-                allowed: false,
-                remaining: 0,
-                reset_secs: decision.reset_secs,
-                retry_after_secs: 1,
-            }
-        } else {
-            decision
-        })
+        let tat = one(done.get(1).ok_or(PortError::Internal)?, |r| r.u64("tat"))?;
+        match gcra(tat, policy, now_ms) {
+            (decision, _) if !decision.allowed => Ok(decision),
+            // The write refused what the same state now allows: impossible
+            // in one transaction.
+            _ => Err(PortError::Internal),
+        }
     }
 }
