@@ -629,3 +629,19 @@ fn every_purge_statement_searches_an_index() {
         assert!(!p.contains("SCAN"), "{}: {p}", s.sql);
     }
 }
+
+#[test]
+fn a_name_with_a_later_nul_is_stored_and_read_back_intact() {
+    let db = db();
+    let mem = MemoryDirectory::default();
+    seed_directory(&db, &mem);
+    let sql = SqlDirectory::new(Rc::clone(&db));
+    let mut t = a_token(&mut Rng(3), 4, T0);
+    t.workspace_id = "ws_a".into();
+    t.user_id = "usr_1".into();
+    t.idempotency_key = None;
+    t.idempotency_fingerprint = None;
+    t.name = "c\u{0}i".into();
+    block_on(sql.insert_token(&t)).unwrap();
+    assert_eq!(block_on(sql.token(&t.id)).unwrap().unwrap().name, "c\u{0}i");
+}

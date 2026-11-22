@@ -26,7 +26,7 @@ class ApiToken:
     """ 
         Attributes:
             id (str): The API token ID. The token itself is `kofra_tok_`, this ID without `tok_`, `_` and the secret.
-            name (str): A label for people; not used for access. It cannot hold a NUL character.
+            name (str): A label for people; not used for access. It cannot start with a NUL character.
             scopes (list[Scope]):
             buckets (list[str] | None): The only buckets the token can reach; `null` for every bucket the member can reach.
             allowed_ips (list[str] | None): The only client addresses the token is accepted from; `null` for any address.
