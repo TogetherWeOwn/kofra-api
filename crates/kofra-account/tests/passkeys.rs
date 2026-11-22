@@ -7,7 +7,8 @@ use kofra_account::{
     Accounts, Config, SignupMode, crypto,
     handler::{Request, handle},
     memory::MemoryPorts,
-    model::InviteRecord,
+    model::{InviteRecord, SessionRecord, TotpRecord},
+    ports::{DeletePasskey, Store},
     webauthn::{self, Refused, Rp},
 };
 use serde_json::{Value as Json, json};
@@ -493,6 +494,17 @@ impl Harness {
         }
     }
 
+    fn stored_session(&self, token: &str) -> SessionRecord {
+        pollster::block_on(
+            self.acc
+                .ports()
+                .store
+                .session_by_hash(&crypto::token_hash(token)),
+        )
+        .unwrap()
+        .unwrap()
+    }
+
     fn register(&self, session: &str, a: &mut Authenticator) -> Answer {
         let b = self.call("POST", "passkeys/register/begin", Some(session), None);
         assert_eq!(b.status, 200, "{}", b.body);
@@ -733,7 +745,12 @@ fn removing_the_last_second_factor_voids_recovery_codes() {
     let h = Harness::new();
     let s = h.signed_up("ada");
     let mut a = Authenticator::es256(21);
-    h.register(&s, &mut a);
+    let registered = h.register(&s, &mut a);
+    assert_eq!(registered.status, 201, "{}", registered.body);
+    assert_eq!(
+        registered.body["recovery_codes"].as_array().unwrap().len(),
+        10
+    );
     let list = h.call("GET", "passkeys", Some(&s), None);
     let id = list.body["data"][0]["id"].as_str().unwrap().to_owned();
     let renamed = h.call(
@@ -749,8 +766,10 @@ fn removing_the_last_second_factor_voids_recovery_codes() {
         204
     );
     let me = h.call("POST", "session/resolve", Some(&s), None);
+    assert_eq!(me.status, 200, "{}", me.body);
     assert_eq!(me.body["user"]["passkeys"], 0);
     assert_eq!(me.body["user"]["recovery_codes_left"], 0);
+    assert_eq!(me.body["session"]["level"], 1);
     let p = h.call(
         "POST",
         "login/password",
@@ -1001,7 +1020,7 @@ fn a_second_step_without_passkeys_offers_none() {
 
 #[test]
 fn removing_the_last_passkey_ends_sign_ins_in_flight() {
-    use kofra_account::model::{SessionRecord, Stage};
+    use kofra_account::model::Stage;
     let h = Harness::new();
     let s = h.signed_up("ada");
     let mut a = Authenticator::es256(40);
@@ -1100,18 +1119,27 @@ fn a_passkey_only_account_resets_with_a_recovery_code() {
 }
 
 #[test]
-fn a_passkey_insert_under_an_old_epoch_is_refused() {
-    use kofra_account::{
-        model::PasskeyRecord,
-        ports::{InsertPasskey, Store},
-    };
+fn passkey_insert_checks_the_epoch_and_stamps_the_enrolling_session() {
+    use kofra_account::{model::PasskeyRecord, ports::InsertPasskey};
+
     let h = Harness::new();
     let s = h.signed_up("ada");
-    let me = h.call("POST", "session/resolve", Some(&s), None);
-    let user_id = me.body["user"]["id"].as_str().unwrap().to_owned();
+    let other = h
+        .call(
+            "POST",
+            "login/password",
+            None,
+            Some(json!({"email": addr("ada"), "password": PW})),
+        )
+        .token();
+    assert_eq!(
+        h.call("POST", "session/resolve", Some(&other), None).status,
+        200
+    );
+    let session = h.stored_session(&s);
     let rec = PasskeyRecord {
         id: "pk_x".into(),
-        user_id,
+        user_id: session.user_id.clone(),
         credential_id: vec![1; 16],
         public_key: Authenticator::es256(50).cose(),
         alg: -7,
@@ -1123,17 +1151,165 @@ fn a_passkey_insert_under_an_old_epoch_is_refused() {
         last_used_at: None,
     };
     let store = &h.acc.ports().store;
+    let user = pollster::block_on(store.user(&session.user_id)).unwrap();
     assert_eq!(
-        pollster::block_on(store.insert_passkey(&rec, 0)).unwrap(),
+        pollster::block_on(store.insert_passkey(&rec, session.epoch + 1, &session.id, T0 + 1))
+            .unwrap(),
         InsertPasskey::Stale
     );
-    let me = h.call("GET", "passkeys", Some(&s), None);
-    assert_eq!(me.body["data"].as_array().unwrap().len(), 0);
+    assert!(
+        pollster::block_on(store.passkeys(&session.user_id))
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        pollster::block_on(store.user(&session.user_id)).unwrap(),
+        user
+    );
+    assert_eq!(h.stored_session(&s), session);
+
+    let epoch = session.epoch + 1;
+    assert_eq!(
+        pollster::block_on(store.insert_passkey(&rec, session.epoch, &session.id, T0 + 1)).unwrap(),
+        InsertPasskey::Created { epoch }
+    );
+    assert_eq!(
+        pollster::block_on(store.passkeys(&session.user_id)).unwrap()[0].id,
+        rec.id
+    );
+    assert_eq!(
+        pollster::block_on(store.user(&session.user_id))
+            .unwrap()
+            .unwrap()
+            .epoch,
+        epoch
+    );
+    let keep = h.stored_session(&s);
+    assert_eq!((keep.epoch, keep.level), (epoch, 2));
+    assert_eq!(
+        h.call("POST", "session/resolve", Some(&s), None).status,
+        200
+    );
+    assert_eq!(
+        h.call("POST", "session/resolve", Some(&other), None).code(),
+        "session_invalid"
+    );
+}
+
+#[test]
+fn removing_a_passkey_with_another_left_signs_out_other_devices() {
+    let h = Harness::new();
+    let s = h.signed_up("ada");
+    let mut a = Authenticator::es256(54);
+    let mut b = Authenticator::es256(55);
+    assert_eq!(h.register(&s, &mut a).status, 201);
+    assert_eq!(h.register(&s, &mut b).status, 201);
+    let other = h.login(None, &mut b).token();
+    assert_eq!(
+        h.call("POST", "session/resolve", Some(&other), None).status,
+        200
+    );
+    let before = h.stored_session(&s);
+    let list = h.call("GET", "passkeys", Some(&s), None);
+    let id = list.body["data"][0]["id"].as_str().unwrap();
+    assert_eq!(
+        h.call("DELETE", &format!("passkeys/{id}"), Some(&s), None)
+            .status,
+        204
+    );
+    let keep = h.call("POST", "session/resolve", Some(&s), None);
+    assert_eq!(keep.status, 200, "{}", keep.body);
+    assert_eq!(keep.body["user"]["passkeys"], 1);
+    assert_eq!(keep.body["user"]["recovery_codes_left"], 10);
+    assert_eq!(keep.body["session"]["level"], 2);
+    assert_eq!(h.stored_session(&s).epoch, before.epoch + 1);
+    assert_eq!(
+        h.call("POST", "session/resolve", Some(&other), None).code(),
+        "session_invalid"
+    );
+    assert!(
+        pollster::block_on(
+            h.acc
+                .ports()
+                .store
+                .session_by_hash(&crypto::token_hash(&other))
+        )
+        .unwrap()
+        .is_none()
+    );
+}
+
+#[test]
+fn passkey_delete_under_an_old_epoch_writes_nothing() {
+    let h = Harness::new();
+    let s = h.signed_up("ada");
+    let mut a = Authenticator::es256(56);
+    assert_eq!(h.register(&s, &mut a).status, 201);
+    let session = h.stored_session(&s);
+    let store = &h.acc.ports().store;
+    pollster::block_on(async {
+        let user = store.user(&session.user_id).await.unwrap();
+        let passkeys = store.passkeys(&session.user_id).await.unwrap();
+        assert_eq!(
+            store
+                .delete_passkey(
+                    &session.user_id,
+                    &passkeys[0].id,
+                    session.epoch - 1,
+                    &session.id,
+                    T0 + 1
+                )
+                .await
+                .unwrap(),
+            DeletePasskey::Stale
+        );
+        assert_eq!(store.passkeys(&session.user_id).await.unwrap().len(), 1);
+        assert!(
+            store
+                .passkey_by_credential(&passkeys[0].credential_id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            store.recovery_codes_left(&session.user_id).await.unwrap(),
+            10
+        );
+        assert_eq!(store.user(&session.user_id).await.unwrap(), user);
+    });
+    assert_eq!(h.stored_session(&s), session);
+}
+
+#[test]
+fn disabling_totp_with_a_passkey_keeps_the_codes_and_session_level() {
+    let h = Harness::new();
+    let s = h.signed_up("ada");
+    let mut a = Authenticator::es256(57);
+    assert_eq!(h.register(&s, &mut a).status, 201);
+    let before = h.stored_session(&s);
+    pollster::block_on(h.acc.ports().store.put_totp(&TotpRecord {
+        user_id: before.user_id.clone(),
+        sealed: Vec::new(),
+        enabled: true,
+        last_step: 0,
+        created_at: T0,
+    }))
+    .unwrap();
+    let off = h.call("DELETE", "totp", Some(&s), None);
+    assert_eq!(off.status, 204, "{}", off.body);
+    let keep = h.call("POST", "session/resolve", Some(&s), None);
+    assert_eq!(keep.status, 200, "{}", keep.body);
+    assert_eq!(keep.body["user"]["totp"], false);
+    assert_eq!(keep.body["user"]["passkeys"], 1);
+    assert_eq!(keep.body["user"]["recovery_codes_left"], 10);
+    let after = h.stored_session(&s);
+    assert_eq!((after.epoch, after.level), (before.epoch + 1, before.level));
+    let notice = h.acc.ports().mailer.last_to(&addr("ada")).unwrap();
+    assert!(notice.text.contains("your passkeys still protect it"));
 }
 
 #[test]
 fn a_credential_change_during_enrolment_refuses_the_passkey() {
-    use kofra_account::ports::Store;
     let h = Harness::new();
     let s = h.signed_up("ada");
     let me = h.call("POST", "session/resolve", Some(&s), None);

@@ -348,6 +348,22 @@ pub struct Page<T> {
     pub next: Option<String>,
 }
 
+/// One page of an object listing: objects and, with a delimiter, folder
+/// prefixes, at most `limit` entries together, and storage's next position.
+#[derive(Debug, Clone)]
+pub struct ObjectPage {
+    /// Objects in key order.
+    pub objects: Vec<t::ObjectSummary>,
+    /// Folder prefixes on this page, each ending in the delimiter.
+    pub prefixes: Vec<String>,
+    /// Storage's next position (`None` at the end), at most
+    /// [`crate::cursor::MAX_POSITION`] bytes. Build it from the last key or
+    /// prefix of the page (as the in-memory storage's `k<key>` and
+    /// `p<prefix>` do); never pass on a backend's own opaque list cursor,
+    /// which can be longer.
+    pub next: Option<String>,
+}
+
 /// Who acts on storage: the member's principal (tenancy design §6.4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Acting<'a> {
@@ -477,6 +493,20 @@ pub trait Storage {
         after: Option<&str>,
         limit: usize,
     ) -> Result<(Vec<t::Event>, String), StorageError>;
+    /// Objects of a bucket in key order (UTF-8 byte order), for the acting
+    /// principal: storage checks the principal's grant on the bucket
+    /// (tenancy design §6.4, `objects.list`). With `delimiter`, keys that
+    /// continue past it after `prefix` are rolled up into prefixes. At most
+    /// `limit` entries, objects and prefixes together.
+    async fn objects(
+        &self,
+        acting: Acting<'_>,
+        bucket: &str,
+        prefix: Option<&str>,
+        delimiter: Option<&str>,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<ObjectPage, StorageError>;
     /// A presigned download URL.
     async fn presign(
         &self,

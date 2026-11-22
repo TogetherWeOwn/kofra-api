@@ -34,6 +34,9 @@ from .grant import Grant
 from .grant_access import GrantAccess
 from .grant_input import GrantInput
 from .grant_input_access import GrantInputAccess
+from .object_list import ObjectList
+from .object_summary import ObjectSummary
+from .objects_list_delimiter import ObjectsListDelimiter
 from .open_uploads import OpenUploads
 from .over_limit import OverLimit
 from .plan import Plan
@@ -91,6 +94,9 @@ __all__ = (
     "GrantAccess",
     "GrantInput",
     "GrantInputAccess",
+    "ObjectList",
+    "ObjectsListDelimiter",
+    "ObjectSummary",
     "OpenUploads",
     "OverLimit",
     "Plan",

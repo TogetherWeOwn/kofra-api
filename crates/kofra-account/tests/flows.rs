@@ -4,7 +4,8 @@ use kofra_account::{
     Accounts, Config, SignupMode, crypto,
     handler::{Request, handle},
     memory::{MemoryPorts, StubTenancy},
-    model::{InviteRecord, WorkspaceState},
+    model::{InviteRecord, Purpose, SessionRecord, WorkspaceState},
+    ports::Store,
     totp,
 };
 use serde_json::{Value, json};
@@ -53,6 +54,16 @@ impl Harness {
 
     fn ports(&self) -> &MemoryPorts {
         self.acc.ports()
+    }
+
+    fn stored_session(&self, token: &str) -> SessionRecord {
+        pollster::block_on(
+            self.ports()
+                .store
+                .session_by_hash(&crypto::token_hash(token)),
+        )
+        .unwrap()
+        .unwrap()
     }
 
     fn advance(&self, ms: u64) {
@@ -1023,9 +1034,11 @@ fn malformed_session_tokens_are_refused_without_a_lookup() {
 fn totp_off_voids_recovery_codes_and_other_sessions() {
     let h = Harness::new(SignupMode::Invite);
     let s = h.signed_up("ada");
-    h.enable_totp(&s);
+    let (_, old_codes) = h.enable_totp(&s);
     let off = h.call("DELETE", "totp", Some(&s), None);
     assert_eq!(off.status, 204);
+    let notice = h.ports().mailer.last_to(&addr("ada")).unwrap();
+    assert!(notice.text.contains("Two-step verification was turned off"));
     let r = h.call("POST", "session/resolve", Some(&s), None);
     assert_eq!(r.body["user"]["totp"], false);
     assert_eq!(r.body["user"]["recovery_codes_left"], 0);
@@ -1037,6 +1050,19 @@ fn totp_off_voids_recovery_codes_and_other_sessions() {
         Some(json!({"email": addr("ada"), "password": PW})),
     );
     assert_eq!(l.body["state"], "signed_in");
+
+    let (_, new_codes) = h.enable_totp(&s);
+    assert_eq!(new_codes.len(), 10);
+    assert!(old_codes.iter().all(|code| !new_codes.contains(code)));
+    let half = h.login(&addr("ada"));
+    let old = h.call(
+        "POST",
+        "login/recovery",
+        Some(&half),
+        Some(json!({"code": old_codes[0]})),
+    );
+    assert_eq!(old.code(), "code_invalid");
+    h.login_second(&new_codes[0]);
 }
 
 #[test]
@@ -1228,7 +1254,16 @@ fn turning_two_step_off_ends_other_sessions() {
             Some(json!({"code": h.totp_code(&secret, 0)})),
         )
         .token();
+    let before = h.stored_session(&other);
+    assert_eq!(before.level, 2);
     assert_eq!(h.call("DELETE", "totp", Some(&s), None).status, 204);
+    assert_eq!(h.stored_session(&s).epoch, before.epoch + 1);
+    assert_eq!(
+        h.call("POST", "session/resolve", Some(&other), None).code(),
+        "session_invalid"
+    );
+    // A sign-in already in flight can write an old session after cleanup.
+    pollster::block_on(h.ports().store.insert_session(&before)).unwrap();
     assert_eq!(
         h.call("POST", "session/resolve", Some(&other), None).code(),
         "session_invalid"
@@ -1333,7 +1368,7 @@ fn a_password_only_session_cannot_remove_a_new_second_factor() {
 
 #[test]
 fn a_session_issued_under_an_old_epoch_is_refused() {
-    use kofra_account::model::{SessionRecord, Stage};
+    use kofra_account::model::Stage;
     let h = Harness::new(SignupMode::Invite);
     let s = h.signed_up("ada");
     let me = h.call("POST", "session/resolve", Some(&s), None);
@@ -1379,6 +1414,7 @@ fn a_session_issued_under_an_old_epoch_is_refused() {
             .code(),
         "session_invalid"
     );
+    assert_eq!(h.stored_session(&late_token).id, "ses_late");
 }
 
 #[test]
@@ -1653,6 +1689,7 @@ fn a_first_second_factor_needs_the_current_password() {
     let s = h.signed_up("ada");
     let b = h.call("POST", "totp/begin", Some(&s), None);
     let secret = b.body["secret"].as_str().unwrap().to_owned();
+    assert_eq!(h.stored_session(&s).level, 1);
     let no_pw = h.call(
         "POST",
         "totp/confirm",
@@ -1669,6 +1706,29 @@ fn a_first_second_factor_needs_the_current_password() {
     assert_eq!(wrong.code(), "invalid_credentials");
     let me = h.call("POST", "session/resolve", Some(&s), None);
     assert_eq!(me.body["user"]["totp"], false);
+}
+
+#[test]
+fn a_level_two_session_can_confirm_pending_totp_without_a_password() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    let (secret, _) = h.enable_totp(&s);
+    let session = h.stored_session(&s);
+    assert_eq!(session.level, 2);
+    // There is no second enrolment route while TOTP is enabled. Give the
+    // existing level-2 session a pending record through the store.
+    let store = &h.ports().store;
+    let mut rec = store.totp_row(&session.user_id).unwrap();
+    rec.enabled = false;
+    pollster::block_on(store.put_totp(&rec)).unwrap();
+    let confirm = h.call(
+        "POST",
+        "totp/confirm",
+        Some(&s),
+        Some(json!({"code": h.totp_code(&secret, 0)})),
+    );
+    assert_eq!(confirm.status, 200, "{}", confirm.body);
+    assert!(confirm.body["recovery_codes"].is_null());
 }
 
 #[test]
@@ -1728,7 +1788,6 @@ fn bodies_over_the_limit_are_refused_on_every_route() {
 
 #[test]
 fn a_second_first_set_of_recovery_codes_keeps_the_first() {
-    use kofra_account::ports::Store;
     let h = Harness::new(SignupMode::Invite);
     let s = h.signed_up("ada");
     let me = h.call("POST", "session/resolve", Some(&s), None);
@@ -1752,4 +1811,217 @@ fn a_second_first_set_of_recovery_codes_keeps_the_first() {
         pollster::block_on(store.recovery_codes_left(&user_id)).unwrap(),
         0
     );
+}
+
+#[test]
+fn a_stale_epoch_bump_leaves_the_user_and_keep_session_unchanged() {
+    let h = Harness::new(SignupMode::Invite);
+    let token = h.signed_up("ada");
+    let session = h.stored_session(&token);
+    let store = &h.ports().store;
+    pollster::block_on(async {
+        let epoch = store
+            .bump_epoch(&session.user_id, session.epoch, Some(&session.id), T0 + 1)
+            .await
+            .unwrap()
+            .unwrap();
+        let user = store.user(&session.user_id).await.unwrap().unwrap();
+        assert_eq!(user.epoch, epoch);
+        assert_eq!(user.updated_at, T0 + 1);
+        assert_eq!(h.stored_session(&token).epoch, epoch);
+        assert_eq!(
+            store
+                .bump_epoch(&session.user_id, session.epoch, Some(&session.id), T0 + 2)
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(store.user(&session.user_id).await.unwrap().unwrap(), user);
+        assert_eq!(h.stored_session(&token).epoch, epoch);
+    });
+}
+
+#[test]
+fn stale_totp_confirmation_leaves_the_record_pending() {
+    let h = Harness::new(SignupMode::Invite);
+    let token = h.signed_up("ada");
+    let session = h.stored_session(&token);
+    let store = &h.ports().store;
+    let begin = h.call("POST", "totp/begin", Some(&token), None);
+    assert_eq!(begin.status, 200);
+    let pending = store.totp_row(&session.user_id).unwrap();
+    let epoch = pollster::block_on(store.bump_epoch(&session.user_id, session.epoch, None, T0))
+        .unwrap()
+        .unwrap();
+    let confirm = h.call(
+        "POST",
+        "totp/confirm",
+        Some(&token),
+        Some(
+            json!({"code": h.totp_code(begin.body["secret"].as_str().unwrap(), 0), "password": PW}),
+        ),
+    );
+    assert_eq!(confirm.code(), "session_invalid");
+    // The handler rejects the stale session in fresh(). Exercise the write
+    // directly for a request that had already passed fresh().
+    assert_eq!(
+        pollster::block_on(store.enable_totp(
+            &session.user_id,
+            totp::step(T0),
+            session.epoch,
+            &session.id,
+            T0,
+        ))
+        .unwrap(),
+        None
+    );
+    assert_eq!(store.totp_row(&session.user_id).unwrap(), pending);
+    assert_eq!(
+        pollster::block_on(store.user(&session.user_id))
+            .unwrap()
+            .unwrap()
+            .epoch,
+        epoch
+    );
+    assert_eq!(h.stored_session(&token).epoch, session.epoch);
+}
+
+#[test]
+fn a_session_touch_cannot_undo_an_epoch_restamp() {
+    let h = Harness::new(SignupMode::Invite);
+    let token = h.signed_up("ada");
+    let mut old = h.stored_session(&token);
+    let store = &h.ports().store;
+    pollster::block_on(async {
+        assert_eq!(
+            store
+                .bump_epoch(&old.user_id, old.epoch, Some(&old.id), T0 + 1)
+                .await
+                .unwrap(),
+            Some(old.epoch + 1)
+        );
+        old.last_seen_at = T0 + 2;
+        store.update_session(&old).await.unwrap();
+    });
+    let keep = h.stored_session(&token);
+    assert_eq!(keep.last_seen_at, old.last_seen_at);
+    assert_eq!(keep.epoch, old.epoch + 1);
+    assert_eq!(
+        h.call("POST", "session/resolve", Some(&token), None).status,
+        200
+    );
+}
+
+#[test]
+fn disabling_totp_in_the_store_removes_the_record_and_all_codes() {
+    let h = Harness::new(SignupMode::Invite);
+    let token = h.signed_up("ada");
+    h.enable_totp(&token);
+    let session = h.stored_session(&token);
+    let store = &h.ports().store;
+    pollster::block_on(async {
+        assert_eq!(
+            store
+                .disable_totp(&session.user_id, session.epoch - 1, &session.id, T0)
+                .await
+                .unwrap(),
+            None
+        );
+        assert!(store.totp_row(&session.user_id).unwrap().enabled);
+        assert_eq!(
+            store.recovery_codes_left(&session.user_id).await.unwrap(),
+            10
+        );
+        assert_eq!(
+            store
+                .disable_totp(&session.user_id, session.epoch, &session.id, T0)
+                .await
+                .unwrap(),
+            Some((session.epoch + 1, true))
+        );
+        assert!(store.totp_row(&session.user_id).is_none());
+        assert_eq!(
+            store.recovery_codes_left(&session.user_id).await.unwrap(),
+            0
+        );
+        let keep = h.stored_session(&token);
+        assert_eq!((keep.epoch, keep.level), (session.epoch + 1, 1));
+    });
+}
+
+#[test]
+fn taking_a_stale_reset_link_leaves_it_unused() {
+    let h = Harness::new(SignupMode::Invite);
+    let session = h.stored_session(&h.signed_up("ada"));
+    h.call(
+        "POST",
+        "password/forgot",
+        None,
+        Some(json!({"email": addr("ada")})),
+    );
+    let hash = crypto::token_hash(&h.mailed_token(&addr("ada")));
+    let store = &h.ports().store;
+    pollster::block_on(async {
+        let link = store
+            .email_token(&hash, Purpose::Reset, T0)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(link.epoch, session.epoch);
+        assert!(
+            store
+                .bump_epoch(&session.user_id, session.epoch, None, T0)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            store
+                .take_email_token(&hash, Purpose::Reset, T0)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let still_unused = store
+            .email_token(&hash, Purpose::Reset, T0)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(still_unused.used_at, None);
+    });
+}
+
+#[test]
+fn a_late_tenant_write_leaves_a_closed_workspace_alone() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    h.ports().tenancy.gone.set(true);
+    h.call(
+        "POST",
+        "workspaces",
+        Some(&s),
+        Some(json!({"name": "Closed"})),
+    );
+    let store = &h.ports().store;
+    let before = store.all_workspaces().pop().unwrap();
+    assert_eq!(before.state, WorkspaceState::Closed);
+    pollster::block_on(store.set_tenant(&before.id, "late")).unwrap();
+    assert_eq!(store.all_workspaces(), vec![before]);
+}
+
+#[test]
+fn a_late_close_leaves_an_active_workspace_alone() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    h.call(
+        "POST",
+        "workspaces",
+        Some(&s),
+        Some(json!({"name": "Active"})),
+    );
+    let store = &h.ports().store;
+    let before = store.all_workspaces().pop().unwrap();
+    assert_eq!(before.state, WorkspaceState::Active);
+    pollster::block_on(store.close_workspace(&before.id)).unwrap();
+    assert_eq!(store.all_workspaces(), vec![before]);
 }

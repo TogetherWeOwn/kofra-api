@@ -28,6 +28,7 @@ fn check(schema: &str, value: &Value) {
         "Bucket" => round_trip::<Bucket>(schema, value),
         "BucketCreate" => round_trip::<BucketCreate>(schema, value),
         "BucketList" => round_trip::<BucketList>(schema, value),
+        "ObjectList" => round_trip::<ObjectList>(schema, value),
         "AccessKey" => round_trip::<AccessKey>(schema, value),
         "AccessKeyCreated" => round_trip::<AccessKeyCreated>(schema, value),
         "AccessKeyCreate" => round_trip::<AccessKeyCreate>(schema, value),

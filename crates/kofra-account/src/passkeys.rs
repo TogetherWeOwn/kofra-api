@@ -13,7 +13,7 @@ use crate::{
     error::{AccountError, Code, Result},
     mail,
     model::{ChallengePurpose, ChallengeRecord, EventKind, PasskeyRecord, Stage},
-    ports::{InsertPasskey, Ports, Store},
+    ports::{DeletePasskey, InsertPasskey, Ports, Store},
     service::{Accounts, Client, Issued, Want, clean_name},
     webauthn::{self, Rp},
 };
@@ -244,11 +244,11 @@ impl<P: Ports> Accounts<P> {
         password: Option<&str>,
         client: &Client,
     ) -> Result<(PasskeyRecord, Option<Vec<String>>)> {
-        let (mut session, user) = self.fresh(token).await?;
+        let (session, user) = self.fresh(token).await?;
         let name = clean_name(name)?;
         // The first second factor needs the current password (see
         // `totp_confirm`): a stolen session must not bind a factor.
-        self.check_first_factor_password(&user, password, client)
+        self.check_first_factor_password(&session, &user, password, client)
             .await?;
         let c = self.take(challenge_id, ChallengePurpose::Register).await?;
         if c.user_id.as_deref() != Some(user.id.as_str()) {
@@ -281,8 +281,11 @@ impl<P: Ports> Accounts<P> {
             created_at: self.now(),
             last_used_at: None,
         };
-        match store.insert_passkey(&record, user.epoch).await? {
-            InsertPasskey::Created => {}
+        match store
+            .insert_passkey(&record, session.epoch, &session.id, self.now())
+            .await?
+        {
+            InsertPasskey::Created { .. } => {}
             InsertPasskey::Duplicate => {
                 return Err(AccountError::new(Code::InvalidRequest)
                     .detail("This passkey is already registered."));
@@ -297,14 +300,6 @@ impl<P: Ports> Accounts<P> {
         } else {
             None
         };
-        // The ceremony was user-verified with an authenticator now bound to
-        // the account: this session has used a second factor.
-        session.level = 2;
-        store.update_session(&session).await?;
-        // Adding a factor raises the epoch; this device is re-stamped with it.
-        store
-            .bump_epoch(&user.id, Some(&session.id), self.now())
-            .await?;
         self.event(&user.id, EventKind::PasskeyAdded, client)
             .await?;
         self.send(mail::notice(
@@ -511,32 +506,28 @@ impl<P: Ports> Accounts<P> {
             .ok_or_else(|| Code::NotFound.into())
     }
 
-    /// `DELETE /passkeys/{id}`. Removing the last second factor voids the
-    /// recovery codes and signs out the other devices.
+    /// `DELETE /passkeys/{id}`. Signs out other devices and voids recovery
+    /// codes if this was the last second factor.
     pub async fn passkey_delete(
         &self,
         token: Option<&str>,
         id: &str,
         client: &Client,
     ) -> Result<()> {
-        let (mut s, user) = self.fresh(token).await?;
+        let (s, user) = self.fresh(token).await?;
         let store = self.ports.store();
-        if !store.delete_passkey(&user.id, id).await? {
-            return Err(Code::NotFound.into());
+        match store
+            .delete_passkey(&user.id, id, s.epoch, &s.id, self.now())
+            .await?
+        {
+            DeletePasskey::NotFound => return Err(Code::NotFound.into()),
+            DeletePasskey::Stale => return Err(Code::SessionInvalid.into()),
+            DeletePasskey::Deleted { .. } => {}
         }
-        if !self.has_second_factor(&user.id).await? {
-            store
-                .replace_recovery_codes(&user.id, &[], self.now())
-                .await?;
-            store
-                .void_email_tokens(&user.id, &crate::model::Purpose::ALL, self.now())
-                .await?;
-            store.delete_sessions(&user.id, Some(&s.id)).await?;
-            s.level = 1;
-            // A sign-in already past its checks cannot outlive this change.
-            s.epoch = store.bump_epoch(&user.id, Some(&s.id), self.now()).await?;
-            store.update_session(&s).await?;
-        }
+        store
+            .void_email_tokens(&user.id, &crate::model::Purpose::ALL, self.now())
+            .await?;
+        store.delete_sessions(&user.id, Some(&s.id)).await?;
         self.event(&user.id, EventKind::PasskeyRemoved, client)
             .await?;
         self.send(mail::notice(

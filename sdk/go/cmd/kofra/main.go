@@ -369,8 +369,21 @@ func renderTo(w io.Writer, inv *invocation, body []byte) error {
 	}
 	if data, ok := obj.get("data"); ok {
 		if items, ok := data.([]any); ok {
-			if err := table(w, items); err != nil {
-				return err
+			// A listing with folders (objects list --delimiter /) also has
+			// `prefixes`; a page can hold only prefixes.
+			var prefixes []any
+			if p, ok := obj.get("prefixes"); ok {
+				prefixes, _ = p.([]any)
+			}
+			if len(items) > 0 || len(prefixes) == 0 {
+				if err := table(w, items); err != nil {
+					return err
+				}
+			}
+			for _, p := range prefixes {
+				if _, err := fmt.Fprintf(w, "prefix: %s\n", scalar(p)); err != nil {
+					return err
+				}
 			}
 			if next, ok := obj.get("next_cursor"); ok && next != nil {
 				fmt.Fprintf(w, "next_cursor: %v\n", scalar(next))
@@ -457,7 +470,7 @@ func scalar(v any) string {
 	case nil:
 		return "-"
 	case string:
-		return t
+		return printable(t)
 	case json.Number:
 		return t.String()
 	case bool:
@@ -468,6 +481,39 @@ func scalar(v any) string {
 	}
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// printable escapes control characters (C0, DEL and C1) as \xNN or \uNNNN,
+// so a value from the account, such as an object key, cannot move the
+// cursor or send terminal escape sequences in text output. --json output
+// keeps the exact value.
+func printable(s string) string {
+	clean := true
+	for _, r := range s {
+		if isControl(r) {
+			clean = false
+			break
+		}
+	}
+	if clean {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r < 0x80 && isControl(r):
+			fmt.Fprintf(&b, "\\x%02x", r)
+		case isControl(r):
+			fmt.Fprintf(&b, "\\u%04x", r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func isControl(r rune) bool {
+	return r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f)
 }
 
 // object is a JSON object that keeps its key order, so output follows the contract.

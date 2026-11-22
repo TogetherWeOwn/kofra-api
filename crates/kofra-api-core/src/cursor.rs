@@ -3,13 +3,13 @@
 //! A cursor carries a position (the storage's own position, or the last row
 //! of a newest-first page) and is bound to the workspace, the operation and
 //! the list's filters. It is sealed SIV-style with two keys derived from the
-//! API's cursor key: the position, length-prefixed and padded to one block,
-//! is covered by a 128-bit HMAC-SHA256 tag (with the binding) and encrypted
+//! API's cursor key: the position, length-prefixed and padded to whole
+//! blocks, is covered by a 128-bit HMAC-SHA256 tag (with the binding) and encrypted
 //! with an HMAC-SHA256 keystream seeded by that tag. So a cursor cannot be forged or moved to another workspace,
 //! list or filter set (`invalid_cursor`), and it does not show its position:
 //! a storage position can name a bucket that a bucket-limited token must not
-//! see. Cursors are URL-safe base64 (`[A-Za-z0-9_-]`) of at most 512
-//! characters.
+//! see. Cursors are URL-safe base64 (`[A-Za-z0-9_-]`) of at most 2048
+//! characters, enough for a position that holds a whole 1024-byte object key.
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, Mac};
@@ -23,18 +23,20 @@ type HmacSha256 = Hmac<Sha256>;
 /// Bytes of the tag kept in a cursor.
 const TAG_LEN: usize = 16;
 /// Longest cursor, in characters (contract schema `Cursor`).
-pub const MAX_LEN: usize = 512;
+pub const MAX_LEN: usize = 2048;
 /// Version byte of the cursor format.
 const VERSION: u8 = 1;
 /// The encrypted position is padded to a multiple of this many bytes, so a
 /// cursor's length does not give away the length of a hidden name. One
-/// block holds the longest known position (an access key ID, 128
-/// characters, plus the 2-byte length).
+/// block holds every position but an object key or prefix (the longest is
+/// an access key ID, 128 characters, plus the 2-byte length).
 const BLOCK: usize = 192;
 
-/// The longest position a cursor holds, in bytes: one block less the length
-/// prefix (two blocks would pass the 512-character limit).
-pub const MAX_POSITION: usize = BLOCK - 2;
+/// The longest position a cursor holds, in bytes: seven blocks less the
+/// length prefix (eight would pass the 2048-character limit). A position up
+/// to `BLOCK - 2` bytes (every name but an object key) makes a cursor of one
+/// length; a longer one shows its length only to the nearest block.
+pub const MAX_POSITION: usize = 7 * BLOCK - 2;
 
 /// What a cursor is bound to.
 #[derive(Debug, Clone, Copy)]
@@ -212,7 +214,7 @@ mod tests {
         assert!(open(&KEY, &binding, "ec_7Hq2Lk9P").is_err());
         assert!(open(&KEY, &binding, "").is_err());
         assert!(open(&KEY, &binding, "not base64!").is_err());
-        assert!(seal(&KEY, &binding, &"x".repeat(600)).is_none());
+        assert!(seal(&KEY, &binding, &"x".repeat(1600)).is_none());
         assert_eq!(
             parse_time_position(&open(&KEY, &binding, &c).expect("opens")),
             Some((5, "aud_x".to_owned()))

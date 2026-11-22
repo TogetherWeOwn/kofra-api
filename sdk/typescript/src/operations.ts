@@ -55,6 +55,23 @@ export class BucketsApi {
 	}
 }
 
+export class ObjectsApi {
+	private readonly core: Core;
+	constructor(core: Core) {
+		this.core = core;
+	}
+
+	/** List objects. `objects.list`. */
+	list(args: operations['objects.list']['parameters']['path'] & NonNullable<operations['objects.list']['parameters']['query']>, options?: CallOptions): Promise<Json<operations['objects.list']['responses'][200]>> {
+		return this.core.call('GET', '/v1/buckets/{bucket}/objects', args, ["bucket"], ["prefix","delimiter","limit","cursor"], options) as Promise<Json<operations['objects.list']['responses'][200]>>;
+	}
+
+	/** Create a presigned URL. `objects.presign`. */
+	presign(args: { body: operations['objects.presign']['requestBody']['content']['application/json'] }, options?: CallOptions): Promise<Json<operations['objects.presign']['responses'][200]>> {
+		return this.core.call('POST', '/v1/objects/presign', args, [], [], options) as Promise<Json<operations['objects.presign']['responses'][200]>>;
+	}
+}
+
 export class KeysApi {
 	private readonly core: Core;
 	constructor(core: Core) {
@@ -150,28 +167,16 @@ export class AuditApi {
 	}
 }
 
-export class ObjectsApi {
-	private readonly core: Core;
-	constructor(core: Core) {
-		this.core = core;
-	}
-
-	/** Create a presigned URL. `objects.presign`. */
-	presign(args: { body: operations['objects.presign']['requestBody']['content']['application/json'] }, options?: CallOptions): Promise<Json<operations['objects.presign']['responses'][200]>> {
-		return this.core.call('POST', '/v1/objects/presign', args, [], [], options) as Promise<Json<operations['objects.presign']['responses'][200]>>;
-	}
-}
-
 /** The resources of the API, as `client.<resource>`. */
 export function resources(core: Core) {
 	return {
 		account: new AccountApi(core),
 		buckets: new BucketsApi(core),
+		objects: new ObjectsApi(core),
 		keys: new KeysApi(core),
 		usage: new UsageApi(core),
 		events: new EventsApi(core),
 		tokens: new TokensApi(core),
 		audit: new AuditApi(core),
-		objects: new ObjectsApi(core),
 	};
 }

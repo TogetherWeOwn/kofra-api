@@ -15,8 +15,8 @@ use crate::{
         WorkspaceState,
     },
     ports::{
-        BreachCheck, CreatePrincipal, CreateTenant, Env, InsertPasskey, InsertUser, Mail, Mailer,
-        PortError, PortResult, Ports, Store, Tenancy, TenancyError, Throttle,
+        BreachCheck, CreatePrincipal, CreateTenant, DeletePasskey, Env, InsertPasskey, InsertUser,
+        Mail, Mailer, PortError, PortResult, Ports, Store, Tenancy, TenancyError, Throttle,
     },
 };
 
@@ -55,6 +55,30 @@ impl MemoryStore {
             Some(e) => Err(e),
             None => Ok(()),
         }
+    }
+
+    fn raise_epoch(
+        &self,
+        user: &mut UserRecord,
+        keep: Option<&str>,
+        level: Option<u8>,
+        now_ms: u64,
+    ) -> u64 {
+        user.epoch += 1;
+        user.updated_at = now_ms;
+        if let Some(id) = keep
+            && let Some(s) = self
+                .sessions
+                .borrow_mut()
+                .iter_mut()
+                .find(|s| s.id == id && s.user_id == user.id)
+        {
+            s.epoch = user.epoch;
+            if let Some(level) = level {
+                s.level = level;
+            }
+        }
+        user.epoch
     }
 
     /// Adds an invite directly (the operator's script does this in D1).
@@ -154,21 +178,22 @@ impl Store for MemoryStore {
         Ok(Some(u.epoch))
     }
 
-    async fn bump_epoch(&self, user_id: &str, keep: Option<&str>, now_ms: u64) -> PortResult<u64> {
+    async fn bump_epoch(
+        &self,
+        user_id: &str,
+        expected_epoch: u64,
+        keep: Option<&str>,
+        now_ms: u64,
+    ) -> PortResult<Option<u64>> {
         self.check()?;
         let mut users = self.users.borrow_mut();
-        let Some(u) = users.iter_mut().find(|u| u.id == user_id) else {
-            return Ok(0);
+        let Some(u) = users
+            .iter_mut()
+            .find(|u| u.id == user_id && u.epoch == expected_epoch)
+        else {
+            return Ok(None);
         };
-        u.epoch += 1;
-        u.updated_at = now_ms;
-        let epoch = u.epoch;
-        if let Some(id) = keep
-            && let Some(s) = self.sessions.borrow_mut().iter_mut().find(|s| s.id == id)
-        {
-            s.epoch = epoch;
-        }
-        Ok(epoch)
+        Ok(Some(self.raise_epoch(u, keep, None, now_ms)))
     }
 
     async fn mark_email_verified(&self, user_id: &str, now_ms: u64) -> PortResult<bool> {
@@ -239,7 +264,6 @@ impl Store for MemoryStore {
             s.last_seen_at = session.last_seen_at;
             s.step_at = session.step_at;
             s.level = session.level;
-            s.epoch = session.epoch;
         }
         Ok(())
     }
@@ -324,12 +348,16 @@ impl Store for MemoryStore {
         if self.expire_next_take.replace(false) {
             return Ok(None);
         }
+        let users = self.users.borrow();
         let mut tokens = self.email_tokens.borrow_mut();
         let Some(t) = tokens.iter_mut().find(|t| {
             &t.token_hash == hash
                 && t.purpose == purpose
                 && t.used_at.is_none()
                 && t.expires_at > now_ms
+                && users
+                    .iter()
+                    .any(|u| u.id == t.user_id && u.epoch == t.epoch)
         }) else {
             return Ok(None);
         };
@@ -360,10 +388,55 @@ impl Store for MemoryStore {
         Ok(())
     }
 
-    async fn delete_totp(&self, user_id: &str) -> PortResult<()> {
+    async fn enable_totp(
+        &self,
+        user_id: &str,
+        step: u64,
+        expected_epoch: u64,
+        keep: &str,
+        now_ms: u64,
+    ) -> PortResult<Option<u64>> {
         self.check()?;
-        self.totp.borrow_mut().remove(user_id);
-        Ok(())
+        let mut users = self.users.borrow_mut();
+        let Some(u) = users
+            .iter_mut()
+            .find(|u| u.id == user_id && u.epoch == expected_epoch)
+        else {
+            return Ok(None);
+        };
+        let mut map = self.totp.borrow_mut();
+        let Some(record) = map.get_mut(user_id).filter(|r| !r.enabled) else {
+            return Ok(None);
+        };
+        record.enabled = true;
+        record.last_step = step;
+        Ok(Some(self.raise_epoch(u, Some(keep), Some(2), now_ms)))
+    }
+
+    async fn disable_totp(
+        &self,
+        user_id: &str,
+        expected_epoch: u64,
+        keep: &str,
+        now_ms: u64,
+    ) -> PortResult<Option<(u64, bool)>> {
+        self.check()?;
+        let mut users = self.users.borrow_mut();
+        let Some(u) = users
+            .iter_mut()
+            .find(|u| u.id == user_id && u.epoch == expected_epoch)
+        else {
+            return Ok(None);
+        };
+        if self.totp.borrow_mut().remove(user_id).is_none() {
+            return Ok(None);
+        }
+        let last_factor = !self.passkeys.borrow().iter().any(|p| p.user_id == user_id);
+        if last_factor {
+            self.recovery.borrow_mut().retain(|(u, _, _)| u != user_id);
+        }
+        let epoch = self.raise_epoch(u, Some(keep), last_factor.then_some(1), now_ms);
+        Ok(Some((epoch, last_factor)))
     }
 
     async fn advance_totp(&self, user_id: &str, step: u64) -> PortResult<bool> {
@@ -506,7 +579,7 @@ impl Store for MemoryStore {
             .workspaces
             .borrow_mut()
             .iter_mut()
-            .find(|w| w.id == workspace_id)
+            .find(|w| w.id == workspace_id && w.state == WorkspaceState::SettingUp)
         {
             w.tenant_id = Some(tenant_id.to_owned());
             w.state = WorkspaceState::Active;
@@ -520,7 +593,7 @@ impl Store for MemoryStore {
             .workspaces
             .borrow_mut()
             .iter_mut()
-            .find(|w| w.id == workspace_id)
+            .find(|w| w.id == workspace_id && w.state == WorkspaceState::SettingUp)
         {
             w.state = WorkspaceState::Closed;
         }
@@ -583,6 +656,8 @@ impl Store for MemoryStore {
         &self,
         passkey: &PasskeyRecord,
         expected_epoch: u64,
+        keep: &str,
+        now_ms: u64,
     ) -> PortResult<InsertPasskey> {
         self.check()?;
         if self.bump_epoch_before_passkey_insert.replace(false) {
@@ -592,20 +667,20 @@ impl Store for MemoryStore {
                 }
             }
         }
-        if !self
-            .users
-            .borrow()
-            .iter()
-            .any(|u| u.id == passkey.user_id && u.epoch == expected_epoch)
-        {
+        let mut users = self.users.borrow_mut();
+        let Some(user) = users
+            .iter_mut()
+            .find(|u| u.id == passkey.user_id && u.epoch == expected_epoch)
+        else {
             return Ok(InsertPasskey::Stale);
-        }
+        };
         let mut all = self.passkeys.borrow_mut();
         if all.iter().any(|p| p.credential_id == passkey.credential_id) {
             return Ok(InsertPasskey::Duplicate);
         }
         all.push(passkey.clone());
-        Ok(InsertPasskey::Created)
+        let epoch = self.raise_epoch(user, Some(keep), Some(2), now_ms);
+        Ok(InsertPasskey::Created { epoch })
     }
 
     async fn passkey_by_credential(
@@ -664,12 +739,34 @@ impl Store for MemoryStore {
         Ok(true)
     }
 
-    async fn delete_passkey(&self, user_id: &str, id: &str) -> PortResult<bool> {
+    async fn delete_passkey(
+        &self,
+        user_id: &str,
+        id: &str,
+        expected_epoch: u64,
+        keep: &str,
+        now_ms: u64,
+    ) -> PortResult<DeletePasskey> {
         self.check()?;
+        let mut users = self.users.borrow_mut();
+        let Some(user) = users
+            .iter_mut()
+            .find(|u| u.id == user_id && u.epoch == expected_epoch)
+        else {
+            return Ok(DeletePasskey::Stale);
+        };
         let mut all = self.passkeys.borrow_mut();
-        let before = all.len();
-        all.retain(|p| !(p.user_id == user_id && p.id == id));
-        Ok(all.len() != before)
+        let Some(index) = all.iter().position(|p| p.user_id == user_id && p.id == id) else {
+            return Ok(DeletePasskey::NotFound);
+        };
+        all.remove(index);
+        let last_factor = !all.iter().any(|p| p.user_id == user_id)
+            && !self.totp.borrow().get(user_id).is_some_and(|r| r.enabled);
+        if last_factor {
+            self.recovery.borrow_mut().retain(|(u, _, _)| u != user_id);
+        }
+        let epoch = self.raise_epoch(user, Some(keep), last_factor.then_some(1), now_ms);
+        Ok(DeletePasskey::Deleted { epoch, last_factor })
     }
 
     async fn insert_challenge(&self, challenge: &ChallengeRecord) -> PortResult<()> {

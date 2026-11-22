@@ -56,6 +56,7 @@ pub fn declared_query(op_id: &str) -> &'static [&'static str] {
         "buckets.list" | "keys.list" | "usage.buckets" | "events.list" | "tokens.list" => PAGE,
         "usage.days" => &["after", "limit", "cursor"],
         "audit.list" => &["actor", "operation", "since", "until", "limit", "cursor"],
+        "objects.list" => &["prefix", "delimiter", "limit", "cursor"],
         "account.delete" | "buckets.delete" | "keys.revoke" | "tokens.revoke" => &["dry_run"],
         _ => &[],
     }
@@ -76,6 +77,9 @@ pub fn check_query(op_id: &str, q: &Query) -> Result<(), Problem> {
     }
     if op_id == "usage.days" {
         usage::after_day(q)?;
+    }
+    if op_id == "objects.list" {
+        objects::filters(q)?;
     }
     Ok(())
 }
@@ -216,6 +220,7 @@ pub async fn dispatch<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Problem> 
         "usage.days" => usage::days(ctx).await,
         "usage.buckets" => usage::buckets(ctx).await,
         "events.list" => events::list(ctx).await,
+        "objects.list" => objects::list(ctx).await,
         "objects.presign" => objects::presign(ctx).await,
         "tokens.list" => tokens::list(ctx).await,
         "tokens.create" => tokens::create(ctx).await,
@@ -233,12 +238,19 @@ fn param<P: Ports>(ctx: &Ctx<'_, P>, name: &str) -> Result<String, Problem> {
         .ok_or_else(|| Problem::new("internal_error"))
 }
 
-/// The cursor binding of the current list.
-fn binding<'a, P: Ports>(ctx: &'a Ctx<'_, P>, filters: &'a str) -> Binding<'a> {
+/// What a cursor of the current list is bound to besides the workspace and
+/// the operation: the request path, so a cursor of one bucket cannot be
+/// replayed on another, and the list's filters.
+fn bound_filters<P: Ports>(ctx: &Ctx<'_, P>, filters: &str) -> String {
+    format!("{}?{filters}", ctx.req.path)
+}
+
+/// The cursor binding of the current list; `bound` is from [`bound_filters`].
+fn binding<'a, P: Ports>(ctx: &'a Ctx<'_, P>, bound: &'a str) -> Binding<'a> {
     Binding {
         workspace: &ctx.principal.workspace.id,
         operation: ctx.matched.op.id,
-        filters,
+        filters: bound,
     }
 }
 
@@ -246,7 +258,10 @@ fn binding<'a, P: Ports>(ctx: &'a Ctx<'_, P>, filters: &'a str) -> Binding<'a> {
 fn open_cursor<P: Ports>(ctx: &Ctx<'_, P>, filters: &str) -> Result<Option<String>, Problem> {
     match ctx.query.cursor()? {
         None => Ok(None),
-        Some(c) => cursor::open(&ctx.api.config.cursor_key, &binding(ctx, filters), c).map(Some),
+        Some(c) => {
+            let bound = bound_filters(ctx, filters);
+            cursor::open(&ctx.api.config.cursor_key, &binding(ctx, &bound), c).map(Some)
+        }
     }
 }
 
@@ -257,19 +272,37 @@ fn page<P: Ports>(
     data: Vec<Value>,
     next: Option<String>,
 ) -> Result<Reply, Problem> {
+    page_with(ctx, filters, data, serde_json::Map::new(), next)
+}
+
+/// A list answer with more top-level fields beside `data` and
+/// `next_cursor`. `filters` must be percent-encoded: it goes into the `Link`
+/// URL as it is.
+fn page_with<P: Ports>(
+    ctx: &Ctx<'_, P>,
+    filters: &str,
+    data: Vec<Value>,
+    extra: serde_json::Map<String, Value>,
+    next: Option<String>,
+) -> Result<Reply, Problem> {
     let next_cursor = match next {
         Some(pos) => Some(
-            cursor::seal(&ctx.api.config.cursor_key, &binding(ctx, filters), &pos)
-                .ok_or_else(|| Problem::new("internal_error"))?,
+            cursor::seal(
+                &ctx.api.config.cursor_key,
+                &binding(ctx, &bound_filters(ctx, filters)),
+                &pos,
+            )
+            .ok_or_else(|| Problem::new("internal_error"))?,
         ),
         None => None,
     };
-    let mut reply = Reply::json(
-        200,
-        serde_json::json!({ "data": data, "next_cursor": next_cursor }),
-    );
+    let mut body = extra;
+    body.insert("data".into(), Value::Array(data));
+    body.insert("next_cursor".into(), serde_json::json!(next_cursor));
+    let mut reply = Reply::json(200, Value::Object(body));
     if let Some(c) = &next_cursor {
-        let mut link = format!("<{}?cursor={c}", ctx.matched.op.path);
+        // The request path, not the template: it carries the path parameters.
+        let mut link = format!("<{}?cursor={c}", ctx.req.path);
         if !filters.is_empty() {
             link.push('&');
             link.push_str(filters);
