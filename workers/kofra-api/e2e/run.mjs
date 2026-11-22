@@ -250,7 +250,7 @@ test('invite, sign-up, verification, workspace, API, two-step and recovery', asy
 		me = (await call('POST', '/account/v1/session/resolve', { session })).json;
 		assert.equal(me.needs, null);
 		assert.equal(me.workspaces.length, 1);
-		assert.match(me.csrf, /.+/);
+		assert.ok(me.csrf.length > 0, 'a CSRF token');
 	});
 
 	await t.test('the API answers console assertions and the tokens they make', async () => {
