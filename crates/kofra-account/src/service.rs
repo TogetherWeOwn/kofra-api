@@ -424,9 +424,10 @@ impl<P: Ports> Accounts<P> {
         }
         if now.saturating_sub(s.last_seen_at) >= TOUCH_MS {
             s.last_seen_at = now;
-            // A touch that lost to an epoch raise writes nothing; this
-            // request still runs on the epoch it was authorised under.
-            store.update_session(&s).await?;
+            // Only the time is written, and only at this epoch: a touch never
+            // undoes a re-authentication or an epoch raise that landed
+            // meanwhile.
+            store.touch_session(&s.id, s.epoch, now).await?;
         }
         Ok((s, user))
     }
