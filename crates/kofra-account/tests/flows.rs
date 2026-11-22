@@ -1720,7 +1720,7 @@ fn a_level_two_session_can_confirm_pending_totp_without_a_password() {
     let store = &h.ports().store;
     let mut rec = store.totp_row(&session.user_id).unwrap();
     rec.enabled = false;
-    pollster::block_on(store.put_totp(&rec)).unwrap();
+    store.set_totp_row(rec);
     let confirm = h.call(
         "POST",
         "totp/confirm",
@@ -1842,7 +1842,7 @@ fn a_stale_epoch_bump_leaves_the_user_and_keep_session_unchanged() {
 }
 
 #[test]
-fn stale_totp_confirmation_leaves_the_record_pending() {
+fn totp_confirmation_loses_an_epoch_race_after_fresh() {
     let h = Harness::new(SignupMode::Invite);
     let token = h.signed_up("ada");
     let session = h.stored_session(&token);
@@ -1850,9 +1850,8 @@ fn stale_totp_confirmation_leaves_the_record_pending() {
     let begin = h.call("POST", "totp/begin", Some(&token), None);
     assert_eq!(begin.status, 200);
     let pending = store.totp_row(&session.user_id).unwrap();
-    let epoch = pollster::block_on(store.bump_epoch(&session.user_id, session.epoch, None, T0))
-        .unwrap()
-        .unwrap();
+    let mail_count = h.ports().mailer.sent.borrow().len();
+    store.raise_epoch_before_next_write.set(true);
     let confirm = h.call(
         "POST",
         "totp/confirm",
@@ -1862,28 +1861,156 @@ fn stale_totp_confirmation_leaves_the_record_pending() {
         ),
     );
     assert_eq!(confirm.code(), "session_invalid");
-    // The handler rejects the stale session in fresh(). Exercise the write
-    // directly for a request that had already passed fresh().
-    assert_eq!(
-        pollster::block_on(store.enable_totp(
-            &session.user_id,
-            totp::step(T0),
-            session.epoch,
-            &session.id,
-            T0,
-        ))
-        .unwrap(),
-        None
-    );
+    assert!(confirm.body.get("recovery_codes").is_none());
     assert_eq!(store.totp_row(&session.user_id).unwrap(), pending);
+    assert_eq!(
+        pollster::block_on(store.recovery_codes_left(&session.user_id)).unwrap(),
+        0
+    );
+    assert_eq!(h.ports().mailer.sent.borrow().len(), mail_count);
     assert_eq!(
         pollster::block_on(store.user(&session.user_id))
             .unwrap()
             .unwrap()
             .epoch,
-        epoch
+        session.epoch + 1
     );
     assert_eq!(h.stored_session(&token).epoch, session.epoch);
+    assert!(!store.raise_epoch_before_next_write.get());
+}
+
+#[test]
+fn totp_disabling_loses_an_epoch_race_after_fresh() {
+    let h = Harness::new(SignupMode::Invite);
+    let token = h.signed_up("ada");
+    let (_, codes) = h.enable_totp(&token);
+    let session = h.stored_session(&token);
+    let store = &h.ports().store;
+    let enabled = store.totp_row(&session.user_id).unwrap();
+    store.raise_epoch_before_next_write.set(true);
+    let answer = h.call("DELETE", "totp", Some(&token), None);
+    assert_eq!(answer.code(), "session_invalid");
+    assert_eq!(store.totp_row(&session.user_id).unwrap(), enabled);
+    assert_eq!(
+        pollster::block_on(store.recovery_codes_left(&session.user_id)).unwrap(),
+        codes.len() as u32
+    );
+    h.login_second(&codes[0]);
+}
+
+#[test]
+fn totp_begin_loses_an_epoch_race_after_fresh() {
+    let h = Harness::new(SignupMode::Invite);
+    let token = h.signed_up("ada");
+    let session = h.stored_session(&token);
+    let store = &h.ports().store;
+    store.raise_epoch_before_next_write.set(true);
+    let answer = h.call("POST", "totp/begin", Some(&token), None);
+    assert_eq!(answer.code(), "session_invalid");
+    assert!(store.totp_row(&session.user_id).is_none());
+}
+
+#[test]
+fn beginning_totp_in_the_store_preserves_an_enabled_record() {
+    let h = Harness::new(SignupMode::Invite);
+    let token = h.signed_up("ada");
+    h.enable_totp(&token);
+    let session = h.stored_session(&token);
+    let store = &h.ports().store;
+    let enabled = store.totp_row(&session.user_id).unwrap();
+    let mut pending = enabled.clone();
+    pending.enabled = false;
+    pending.last_step = 0;
+    assert!(!pollster::block_on(store.begin_totp(&pending, session.epoch)).unwrap());
+    assert_eq!(store.totp_row(&session.user_id).unwrap(), enabled);
+}
+
+#[test]
+fn recovery_code_regeneration_loses_an_epoch_race_after_fresh() {
+    let h = Harness::new(SignupMode::Invite);
+    let token = h.signed_up("ada");
+    let (_, codes) = h.enable_totp(&token);
+    let store = &h.ports().store;
+    store.raise_epoch_before_next_write.set(true);
+    let answer = h.call("POST", "recovery-codes", Some(&token), None);
+    assert_eq!(answer.code(), "session_invalid");
+    assert!(answer.body.get("recovery_codes").is_none());
+    h.login_second(&codes[0]);
+}
+
+#[test]
+fn credential_writes_reject_stale_foreign_and_missing_keep_sessions() {
+    let h = Harness::new(SignupMode::Invite);
+    let token = h.signed_up("ada");
+    let old = h.stored_session(&token);
+    let current = h.stored_session(&h.login(&addr("ada")));
+    let foreign = h.stored_session(&h.signed_up("bea"));
+    let store = &h.ports().store;
+    let begin = h.call("POST", "totp/begin", Some(&token), None);
+    assert_eq!(begin.status, 200);
+    let pending = store.totp_row(&old.user_id).unwrap();
+
+    pollster::block_on(async {
+        let epoch = store
+            .bump_epoch(&old.user_id, old.epoch, Some(&current.id), T0)
+            .await
+            .unwrap()
+            .unwrap();
+        // A foreign session at the right epoch still cannot be kept.
+        assert_eq!(
+            store
+                .bump_epoch(&foreign.user_id, foreign.epoch, Some(&foreign.id), T0)
+                .await
+                .unwrap(),
+            Some(epoch)
+        );
+
+        let hash = [1; 32];
+        assert!(
+            store
+                .init_recovery_codes(&old.user_id, &[hash], T0)
+                .await
+                .unwrap()
+        );
+        let user = store.user(&old.user_id).await.unwrap().unwrap();
+        let sessions = store.all_sessions();
+        for keep in [old.id.as_str(), foreign.id.as_str(), "missing"] {
+            assert_eq!(
+                store
+                    .bump_epoch(&old.user_id, epoch, Some(keep), T0 + 1)
+                    .await
+                    .unwrap(),
+                None,
+                "bump with {keep}"
+            );
+            assert_eq!(
+                store
+                    .enable_totp(&old.user_id, totp::step(T0), epoch, keep, T0 + 1)
+                    .await
+                    .unwrap(),
+                None,
+                "enable with {keep}"
+            );
+            assert_eq!(
+                store
+                    .disable_totp(&old.user_id, epoch, keep, T0 + 1)
+                    .await
+                    .unwrap(),
+                None,
+                "disable with {keep}"
+            );
+            assert_eq!(store.user(&old.user_id).await.unwrap().unwrap(), user);
+            assert_eq!(store.all_sessions(), sessions);
+            assert_eq!(store.totp_row(&old.user_id).unwrap(), pending);
+            assert_eq!(store.recovery_codes_left(&old.user_id).await.unwrap(), 1);
+        }
+        assert!(
+            store
+                .take_recovery_code(&old.user_id, &hash, T0)
+                .await
+                .unwrap()
+        );
+    });
 }
 
 #[test]

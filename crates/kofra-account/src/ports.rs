@@ -2,8 +2,25 @@
 //!
 //! The traits use `async fn` without a `Send` bound: the Workers runtime runs
 //! one request on one thread, and its bindings are not `Send`. Methods that
-//! say "atomically" must be one conditional write in the real store (a D1
-//! `UPDATE ... WHERE ... RETURNING`), because two requests can race.
+//! say "atomically" must use one conditional statement or one guarded D1 batch.
+//!
+//! # D1 batches that keep a session
+//!
+//! A statement that matches no rows does not stop a batch. For an expected
+//! epoch `E`, first set `account_sessions.epoch = E + 1` on the keep session,
+//! and set `level` where required. Guard the update by the session's ID,
+//! `account_sessions.user_id = ?`, `account_sessions.epoch = E`, and
+//! `account_users.epoch = E` for that user. To enable TOTP, require a row
+//! in `account_totp_credentials` for the user with `enabled = 0`. To disable
+//! TOTP, require a row for the user.
+//! Guard every later statement by `account_sessions.epoch = E + 1` on the
+//! same keep session and `account_users.epoch = E` on its user. Only the
+//! first statement in the batch can make both true.
+//! Raise `account_users.epoch` last, with `RETURNING epoch`. No returned row
+//! means nothing was written (`None`).
+//!
+//! With no keep session, use one `UPDATE account_users SET epoch = epoch + 1,
+//! updated_at = ? WHERE id = ? AND epoch = ? RETURNING epoch`.
 
 #![allow(async_fn_in_trait)]
 
@@ -57,8 +74,9 @@ pub trait Store {
         now_ms: u64,
     ) -> PortResult<Option<u64>>;
     /// Atomically raises the epoch by one and sets `updated_at` if the user
-    /// is still at `expected_epoch`. Stamps the new epoch on `keep` if it
-    /// belongs to the user. Returns the new epoch, or `None` with no writes.
+    /// and any `keep` session are at `expected_epoch`. The keep session must
+    /// exist and belong to the user. Stamps it with the new epoch.
+    /// Follow the D1 recipe above. Returns the new epoch or `None` with no writes.
     async fn bump_epoch(
         &self,
         user_id: &str,
@@ -127,12 +145,15 @@ pub trait Store {
 
     /// The user's authenticator-app credential, enabled or pending.
     async fn totp(&self, user_id: &str) -> PortResult<Option<TotpRecord>>;
-    /// Stores or replaces it.
-    async fn put_totp(&self, record: &TotpRecord) -> PortResult<()>;
+    /// Inserts or replaces pending TOTP only at `expected_epoch`.
+    /// Use one `INSERT ... SELECT ... WHERE account_users.epoch = ?
+    /// ON CONFLICT(user_id) DO UPDATE SET ... WHERE account_totp_credentials.enabled = 0`.
+    /// Returns `false` if nothing was written.
+    async fn begin_totp(&self, record: &TotpRecord, expected_epoch: u64) -> PortResult<bool>;
     /// Atomically enables pending TOTP at `expected_epoch`, records `step`,
-    /// raises the epoch, and sets `updated_at`. Sets the epoch and level 2
-    /// on `keep` if it belongs to the user. Returns the new epoch, or `None`
-    /// with no writes if the epoch changed or TOTP is missing or enabled.
+    /// raises the epoch, and sets `updated_at`. The keep session must exist,
+    /// belong to the user, and be at `expected_epoch`. Sets its epoch and level 2.
+    /// Follow the D1 recipe above. Returns the new epoch or `None` with no writes.
     async fn enable_totp(
         &self,
         user_id: &str,
@@ -141,11 +162,13 @@ pub trait Store {
         keep: &str,
         now_ms: u64,
     ) -> PortResult<Option<u64>>;
-    /// Atomically removes TOTP at `expected_epoch`, raises the epoch, and
-    /// stamps the user's `keep` session. With no passkeys left, deletes all
-    /// recovery codes and sets that session to level 1. Returns the new epoch
-    /// and whether this was the last factor. A stale epoch or missing TOTP
-    /// returns `None` without writes.
+    /// Atomically removes a present TOTP record at `expected_epoch`, raises
+    /// the epoch, and sets `updated_at`. The keep session must exist, belong
+    /// to the user, and be at `expected_epoch`; it is stamped with the new
+    /// epoch. With no passkey left, also voids all recovery codes and sets
+    /// the keep session to level 1. Follow the D1 recipe above. Returns the
+    /// new epoch and whether no second factor is left, or `None` with no
+    /// writes.
     async fn disable_totp(
         &self,
         user_id: &str,
@@ -157,13 +180,16 @@ pub trait Store {
     /// code of this or a later step was accepted already (a replay).
     async fn advance_totp(&self, user_id: &str, step: u64) -> PortResult<bool>;
 
-    /// Replaces the user's recovery codes.
+    /// Replaces the user's recovery codes only at `expected_epoch`.
+    /// In D1, guard every statement of the batch by `account_users.epoch`.
+    /// Returns `false` if the epoch check failed and nothing was written.
     async fn replace_recovery_codes(
         &self,
         user_id: &str,
         hashes: &[[u8; 32]],
+        expected_epoch: u64,
         now_ms: u64,
-    ) -> PortResult<()>;
+    ) -> PortResult<bool>;
     /// Stores a first set of recovery codes only if the user has no unused
     /// code (one conditional write); `false` if another request stored a set
     /// first, so that two concurrent enrolments never both hand out a set.
@@ -226,6 +252,8 @@ pub trait Store {
 
     /// Atomically inserts a unique credential at `expected_epoch`, raises the
     /// epoch, and stamps the user's `keep` session with that epoch and level 2.
+    /// The keep session must exist, belong to the user, and be at
+    /// `expected_epoch` (otherwise `Stale`). Follow the D1 recipe above.
     async fn insert_passkey(
         &self,
         passkey: &PasskeyRecord,
@@ -256,6 +284,8 @@ pub trait Store {
     /// Atomically deletes a passkey at `expected_epoch`, raises the epoch,
     /// and stamps the user's `keep` session. With no enabled TOTP or passkeys
     /// left, deletes all recovery codes and sets that session to level 1.
+    /// The keep session must exist, belong to the user, and be at
+    /// `expected_epoch` (otherwise `Stale`). Follow the D1 recipe above.
     async fn delete_passkey(
         &self,
         user_id: &str,

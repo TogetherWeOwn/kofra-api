@@ -47,6 +47,8 @@ pub struct MemoryStore {
     /// When set, the next `insert_passkey` first raises the user's epoch, as
     /// if a password reset committed while the enrolment ran (for tests).
     pub bump_epoch_before_passkey_insert: Cell<bool>,
+    /// Raises the user's epoch before the next guarded credential write.
+    pub raise_epoch_before_next_write: Cell<bool>,
 }
 
 impl MemoryStore {
@@ -55,6 +57,21 @@ impl MemoryStore {
             Some(e) => Err(e),
             None => Ok(()),
         }
+    }
+
+    fn race_credential_write(&self, user_id: &str, now_ms: u64) {
+        if self.raise_epoch_before_next_write.replace(false)
+            && let Some(user) = self.users.borrow_mut().iter_mut().find(|u| u.id == user_id)
+        {
+            self.raise_epoch(user, None, None, now_ms);
+        }
+    }
+
+    fn keep_at_epoch(&self, keep: &str, user_id: &str, expected_epoch: u64) -> bool {
+        self.sessions
+            .borrow()
+            .iter()
+            .any(|s| s.id == keep && s.user_id == user_id && s.epoch == expected_epoch)
     }
 
     fn raise_epoch(
@@ -99,6 +116,13 @@ impl MemoryStore {
     /// Stored WebAuthn challenges, for assertions.
     pub fn challenge_count(&self) -> usize {
         self.challenges.borrow().len()
+    }
+
+    /// Sets a TOTP row directly for tests.
+    pub fn set_totp_row(&self, record: TotpRecord) {
+        self.totp
+            .borrow_mut()
+            .insert(record.user_id.clone(), record);
     }
 
     /// The user's stored TOTP row, for assertions.
@@ -164,6 +188,7 @@ impl Store for MemoryStore {
         expected_epoch: u64,
         now_ms: u64,
     ) -> PortResult<Option<u64>> {
+        self.race_credential_write(user_id, now_ms);
         self.check()?;
         let mut users = self.users.borrow_mut();
         let Some(u) = users
@@ -185,7 +210,11 @@ impl Store for MemoryStore {
         keep: Option<&str>,
         now_ms: u64,
     ) -> PortResult<Option<u64>> {
+        self.race_credential_write(user_id, now_ms);
         self.check()?;
+        if keep.is_some_and(|id| !self.keep_at_epoch(id, user_id, expected_epoch)) {
+            return Ok(None);
+        }
         let mut users = self.users.borrow_mut();
         let Some(u) = users
             .iter_mut()
@@ -380,12 +409,23 @@ impl Store for MemoryStore {
         Ok(self.totp.borrow().get(user_id).cloned())
     }
 
-    async fn put_totp(&self, record: &TotpRecord) -> PortResult<()> {
+    async fn begin_totp(&self, record: &TotpRecord, expected_epoch: u64) -> PortResult<bool> {
+        self.race_credential_write(&record.user_id, record.created_at);
         self.check()?;
-        self.totp
-            .borrow_mut()
-            .insert(record.user_id.clone(), record.clone());
-        Ok(())
+        if !self
+            .users
+            .borrow()
+            .iter()
+            .any(|u| u.id == record.user_id && u.epoch == expected_epoch)
+        {
+            return Ok(false);
+        }
+        let mut map = self.totp.borrow_mut();
+        if map.get(&record.user_id).is_some_and(|r| r.enabled) {
+            return Ok(false);
+        }
+        map.insert(record.user_id.clone(), record.clone());
+        Ok(true)
     }
 
     async fn enable_totp(
@@ -396,7 +436,11 @@ impl Store for MemoryStore {
         keep: &str,
         now_ms: u64,
     ) -> PortResult<Option<u64>> {
+        self.race_credential_write(user_id, now_ms);
         self.check()?;
+        if !self.keep_at_epoch(keep, user_id, expected_epoch) {
+            return Ok(None);
+        }
         let mut users = self.users.borrow_mut();
         let Some(u) = users
             .iter_mut()
@@ -420,7 +464,11 @@ impl Store for MemoryStore {
         keep: &str,
         now_ms: u64,
     ) -> PortResult<Option<(u64, bool)>> {
+        self.race_credential_write(user_id, now_ms);
         self.check()?;
+        if !self.keep_at_epoch(keep, user_id, expected_epoch) {
+            return Ok(None);
+        }
         let mut users = self.users.borrow_mut();
         let Some(u) = users
             .iter_mut()
@@ -456,13 +504,23 @@ impl Store for MemoryStore {
         &self,
         user_id: &str,
         hashes: &[[u8; 32]],
-        _now_ms: u64,
-    ) -> PortResult<()> {
+        expected_epoch: u64,
+        now_ms: u64,
+    ) -> PortResult<bool> {
+        self.race_credential_write(user_id, now_ms);
         self.check()?;
+        if !self
+            .users
+            .borrow()
+            .iter()
+            .any(|u| u.id == user_id && u.epoch == expected_epoch)
+        {
+            return Ok(false);
+        }
         let mut codes = self.recovery.borrow_mut();
         codes.retain(|(u, _, _)| u != user_id);
         codes.extend(hashes.iter().map(|h| (user_id.to_owned(), *h, None)));
-        Ok(())
+        Ok(true)
     }
 
     async fn init_recovery_codes(
@@ -667,6 +725,10 @@ impl Store for MemoryStore {
                 }
             }
         }
+        self.race_credential_write(&passkey.user_id, now_ms);
+        if !self.keep_at_epoch(keep, &passkey.user_id, expected_epoch) {
+            return Ok(InsertPasskey::Stale);
+        }
         let mut users = self.users.borrow_mut();
         let Some(user) = users
             .iter_mut()
@@ -747,7 +809,11 @@ impl Store for MemoryStore {
         keep: &str,
         now_ms: u64,
     ) -> PortResult<DeletePasskey> {
+        self.race_credential_write(user_id, now_ms);
         self.check()?;
+        if !self.keep_at_epoch(keep, user_id, expected_epoch) {
+            return Ok(DeletePasskey::Stale);
+        }
         let mut users = self.users.borrow_mut();
         let Some(user) = users
             .iter_mut()

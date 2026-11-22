@@ -7,8 +7,8 @@ use kofra_account::{
     Accounts, Config, SignupMode, crypto,
     handler::{Request, handle},
     memory::MemoryPorts,
-    model::{InviteRecord, SessionRecord, TotpRecord},
-    ports::{DeletePasskey, Store},
+    model::{InviteRecord, PasskeyRecord, SessionRecord, TotpRecord},
+    ports::{DeletePasskey, InsertPasskey, Store},
     webauthn::{self, Refused, Rp},
 };
 use serde_json::{Value as Json, json};
@@ -1287,14 +1287,13 @@ fn disabling_totp_with_a_passkey_keeps_the_codes_and_session_level() {
     let mut a = Authenticator::es256(57);
     assert_eq!(h.register(&s, &mut a).status, 201);
     let before = h.stored_session(&s);
-    pollster::block_on(h.acc.ports().store.put_totp(&TotpRecord {
+    h.acc.ports().store.set_totp_row(TotpRecord {
         user_id: before.user_id.clone(),
         sealed: Vec::new(),
         enabled: true,
         last_step: 0,
         created_at: T0,
-    }))
-    .unwrap();
+    });
     let off = h.call("DELETE", "totp", Some(&s), None);
     assert_eq!(off.status, 204, "{}", off.body);
     let keep = h.call("POST", "session/resolve", Some(&s), None);
@@ -1366,4 +1365,73 @@ fn enrolling_a_passkey_does_not_renew_the_fresh_step() {
     assert_eq!(codes.code(), "step_required", "{}", codes.body);
     let me = h.call("POST", "session/resolve", Some(&s), None);
     assert_eq!(me.body["session"]["level"], 2);
+}
+
+#[test]
+fn a_passkey_removal_that_loses_the_race_after_its_checks_writes_nothing() {
+    let h = Harness::new();
+    let s = h.signed_up("ada");
+    let mut a = Authenticator::es256(58);
+    assert_eq!(h.register(&s, &mut a).status, 201);
+    let list = h.call("GET", "passkeys", Some(&s), None);
+    let id = list.body["data"][0]["id"].as_str().unwrap().to_owned();
+    let store = &h.acc.ports().store;
+    let codes_before =
+        pollster::block_on(store.recovery_codes_left(&h.stored_session(&s).user_id)).unwrap();
+    // A reset commits between the request's checks and its write.
+    store.raise_epoch_before_next_write.set(true);
+    let r = h.call("DELETE", &format!("passkeys/{id}"), Some(&s), None);
+    assert_eq!(r.code(), "session_invalid", "{}", r.body);
+    let user_id = h.stored_session(&s).user_id;
+    assert_eq!(
+        pollster::block_on(store.passkeys(&user_id)).unwrap().len(),
+        1
+    );
+    assert_eq!(
+        pollster::block_on(store.recovery_codes_left(&user_id)).unwrap(),
+        codes_before
+    );
+}
+
+#[test]
+fn a_keep_session_that_is_not_the_users_cannot_add_a_passkey() {
+    let h = Harness::new();
+    let s = h.signed_up("ada");
+    let session = h.stored_session(&s);
+    let store = &h.acc.ports().store;
+    pollster::block_on(async {
+        store
+            .bump_epoch(&session.user_id, session.epoch, Some(&session.id), T0 + 1)
+            .await
+            .unwrap()
+            .unwrap();
+        let user = store.user(&session.user_id).await.unwrap().unwrap();
+        let record = PasskeyRecord {
+            id: "pk_x".into(),
+            user_id: session.user_id.clone(),
+            credential_id: vec![7; 16],
+            public_key: Vec::new(),
+            alg: -7,
+            sign_count: 0,
+            backup_eligible: false,
+            backed_up: false,
+            name: "x".into(),
+            created_at: T0,
+            last_used_at: None,
+        };
+        // The user's epoch matches, but the keep session is not the user's
+        // session at that epoch.
+        assert_eq!(
+            store
+                .insert_passkey(&record, user.epoch, "ses_missing", T0 + 2)
+                .await
+                .unwrap(),
+            InsertPasskey::Stale
+        );
+        assert!(store.passkeys(&session.user_id).await.unwrap().is_empty());
+        assert_eq!(
+            store.user(&session.user_id).await.unwrap().unwrap().epoch,
+            user.epoch
+        );
+    });
 }

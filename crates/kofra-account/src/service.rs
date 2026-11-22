@@ -567,16 +567,6 @@ impl<P: Ports> Accounts<P> {
         (codes, hashes)
     }
 
-    /// A new set that replaces the old one (explicit regeneration).
-    pub(crate) async fn new_recovery_codes(&self, user_id: &str) -> Result<Vec<String>> {
-        let (codes, hashes) = self.make_recovery_codes(user_id);
-        self.ports
-            .store()
-            .replace_recovery_codes(user_id, &hashes, self.now())
-            .await?;
-        Ok(codes)
-    }
-
     /// A first set, when the user has no unused code; `None` when a set
     /// exists (or another request stored one first).
     pub(crate) async fn first_recovery_codes(
@@ -1287,22 +1277,34 @@ impl<P: Ports> Accounts<P> {
 
     /// `POST /totp/begin`: a new secret, pending until confirmed.
     pub async fn totp_begin(&self, token: Option<&str>) -> Result<TotpSetup> {
-        let (_, user) = self.fresh(token).await?;
+        let (s, user) = self.fresh(token).await?;
         if self.totp_enabled(&user.id).await?.is_some() {
             return Err(Code::AlreadyEnabled.into());
         }
         let secret: [u8; totp::SECRET_LEN] = self.random();
         let sealed = self.keys.seal("totp", &user.id, &secret, self.random());
-        self.ports
+        if !self
+            .ports
             .store()
-            .put_totp(&TotpRecord {
-                user_id: user.id.clone(),
-                sealed,
-                enabled: false,
-                last_step: 0,
-                created_at: self.now(),
-            })
-            .await?;
+            .begin_totp(
+                &TotpRecord {
+                    user_id: user.id.clone(),
+                    sealed,
+                    enabled: false,
+                    last_step: 0,
+                    created_at: self.now(),
+                },
+                s.epoch,
+            )
+            .await?
+        {
+            return Err(if self.totp_enabled(&user.id).await?.is_some() {
+                Code::AlreadyEnabled
+            } else {
+                Code::SessionInvalid
+            }
+            .into());
+        }
         Ok(TotpSetup {
             secret: codec::base32(&secret),
             uri: totp::uri(&self.config.issuer, &user.email, &secret),
@@ -1387,12 +1389,20 @@ impl<P: Ports> Accounts<P> {
         token: Option<&str>,
         client: &Client,
     ) -> Result<Vec<String>> {
-        let (_, user) = self.fresh(token).await?;
+        let (s, user) = self.fresh(token).await?;
         if !self.has_second_factor(&user.id).await? {
             return Err(AccountError::new(Code::InvalidRequest)
                 .detail("Turn on two-step verification first."));
         }
-        let codes = self.new_recovery_codes(&user.id).await?;
+        let (codes, hashes) = self.make_recovery_codes(&user.id);
+        if !self
+            .ports
+            .store()
+            .replace_recovery_codes(&user.id, &hashes, s.epoch, self.now())
+            .await?
+        {
+            return Err(Code::SessionInvalid.into());
+        }
         self.event(&user.id, EventKind::RecoveryCodesCreated, client)
             .await?;
         Ok(codes)
