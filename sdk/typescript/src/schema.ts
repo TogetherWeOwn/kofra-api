@@ -814,7 +814,7 @@ export interface components {
          * @default 90
          */
         TokenLifetimeDays: number;
-        /** @description A label for people; not used for access. */
+        /** @description A label for people; not used for access. No control characters. */
         TokenName: string;
         ApiToken: {
             id: components["schemas"]["TokenId"];

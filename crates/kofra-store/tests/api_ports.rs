@@ -603,10 +603,17 @@ fn last_use_never_moves_back() {
     t.workspace_id = "ws_a".into();
     t.user_id = "usr_1".into();
     block_on(sql.insert_token(&t)).unwrap();
-    block_on(sql.touch_token(&t.id, T0 + 7_200_000)).unwrap();
-    block_on(sql.touch_token(&t.id, T0 + 3_600_000)).unwrap();
+    block_on(mem.insert_token(&t)).unwrap();
+    for at in [T0 + 7_200_000, T0 + 3_600_000] {
+        block_on(sql.touch_token(&t.id, at)).unwrap();
+        block_on(mem.touch_token(&t.id, at)).unwrap();
+    }
     assert_eq!(
         block_on(sql.token(&t.id)).unwrap().unwrap().last_used_at_ms,
+        Some(T0 + 7_200_000)
+    );
+    assert_eq!(
+        block_on(mem.token(&t.id)).unwrap().unwrap().last_used_at_ms,
         Some(T0 + 7_200_000)
     );
 }

@@ -1030,43 +1030,48 @@ impl<D: Db> Store for SqlStore<D> {
         owner: &MemberRecord,
         max_owned: u32,
     ) -> PortResult<bool> {
-        let mut stmts = vec![
-            Stmt::new(
-                "INSERT INTO api_workspaces (id, name, tenant_id, state, created_at) \
-                 SELECT ?1, ?2, ?3, ?4, ?5 WHERE (SELECT count(*) FROM api_members m \
-                 JOIN api_workspaces x ON x.id = m.workspace_id WHERE m.user_id = ?6 \
-                 AND m.role = 'owner' AND m.status = 'active' AND x.state <> 'closed') < ?7",
-                params![
-                    &w.id,
-                    &w.name,
-                    w.tenant_id.as_deref(),
-                    w.state.as_str(),
-                    w.created_at,
-                    &owner.user_id,
-                    max_owned
-                ],
-            ),
-            Stmt::new(
-                "INSERT INTO api_members (workspace_id, user_id, role, status, created_at) \
-                 SELECT ?1, ?2, ?3, ?4, ?5 WHERE EXISTS (SELECT 1 FROM api_workspaces WHERE id = ?1) \
-                 AND NOT EXISTS (SELECT 1 FROM api_members WHERE workspace_id = ?1)",
-                params![
-                    &owner.workspace_id,
-                    &owner.user_id,
-                    owner.role.as_str(),
-                    if owner.active { "active" } else { "disabled" },
-                    owner.created_at
-                ],
-            ),
-        ];
+        // The workspace first (only under the cap); then, only for a workspace
+        // this batch just created (it has no member yet), its provisioning
+        // clock and its first member.
+        let fresh = "EXISTS (SELECT 1 FROM api_workspaces WHERE id = ?1) \
+                     AND NOT EXISTS (SELECT 1 FROM api_members WHERE workspace_id = ?1)";
+        let mut stmts = vec![Stmt::new(
+            "INSERT INTO api_workspaces (id, name, tenant_id, state, created_at) \
+             SELECT ?1, ?2, ?3, ?4, ?5 WHERE (SELECT count(*) FROM api_members m \
+             JOIN api_workspaces x ON x.id = m.workspace_id WHERE m.user_id = ?6 \
+             AND m.role = 'owner' AND m.status = 'active' AND x.state <> 'closed') < ?7",
+            params![
+                &w.id,
+                &w.name,
+                w.tenant_id.as_deref(),
+                w.state.as_str(),
+                w.created_at,
+                &owner.user_id,
+                max_owned
+            ],
+        )];
         if let Some(at) = w.provision_tried_at {
             stmts.push(Stmt::new(
-                "INSERT INTO account_provisioning (workspace_id, tried_at) \
-                 SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM api_workspaces WHERE id = ?1) \
-                 AND (SELECT count(*) FROM api_members WHERE workspace_id = ?1) = 1",
+                format!(
+                    "INSERT INTO account_provisioning (workspace_id, tried_at) \
+                     SELECT ?1, ?2 WHERE {fresh}"
+                ),
                 params![&w.id, at],
             ));
         }
+        stmts.push(Stmt::new(
+            format!(
+                "INSERT INTO api_members (workspace_id, user_id, role, status, created_at) \
+                 SELECT ?1, ?2, ?3, ?4, ?5 WHERE {fresh}"
+            ),
+            params![
+                &owner.workspace_id,
+                &owner.user_id,
+                owner.role.as_str(),
+                if owner.active { "active" } else { "disabled" },
+                owner.created_at
+            ],
+        ));
         if owner.workspace_id != w.id {
             return Err(PortError::Internal);
         }

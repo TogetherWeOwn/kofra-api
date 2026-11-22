@@ -2449,7 +2449,7 @@ impl<'de> ::serde::Deserialize<'de> for TokenId {
             })
     }
 }
-///A label for people; not used for access.
+///A label for people; not used for access. No control characters.
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
 pub struct TokenName(::std::string::String);
@@ -2482,6 +2482,11 @@ impl ::std::convert::TryFrom<&str> for TokenName {
         }
         if value.chars().count() < 1usize {
             return Err("shorter than 1 characters".into());
+        }
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(||
+        { ::regress::Regex::with_flags("^[^\\x00-\\x1F\\x7F-\\x9F]+$", "u").unwrap() });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[^\\x00-\\x1F\\x7F-\\x9F]+$\"".into());
         }
         Ok(Self(value.to_string()))
     }

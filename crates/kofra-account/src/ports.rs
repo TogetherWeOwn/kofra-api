@@ -132,13 +132,14 @@ pub trait Store {
     async fn session_by_hash(&self, hash: &[u8; 32]) -> PortResult<Option<SessionRecord>>;
     /// Writes `last_seen_at`, `step_at` and `level` of a session, only while
     /// its stored epoch is still `session.epoch` (the one the caller read):
-    /// `UPDATE account_sessions SET ... WHERE id = ? AND epoch = ?`. `false`
+    /// `UPDATE account_sessions SET last_seen_at = max(last_seen_at, ?), ...
+    /// WHERE id = ? AND epoch = ?` (the time never moves back). `false`
     /// (nothing written) if an epoch-raising write re-stamped or retired it
     /// meanwhile, so a stale copy cannot put back a level it lost.
     async fn update_session(&self, session: &SessionRecord) -> PortResult<bool>;
     /// Writes only `last_seen_at` of a session, while it is at `epoch`:
-    /// `UPDATE account_sessions SET last_seen_at = ? WHERE id = ? AND epoch
-    /// = ?`. A touch never writes back a level or step time it read, so it
+    /// `UPDATE account_sessions SET last_seen_at = max(last_seen_at, ?) WHERE
+    /// id = ? AND epoch = ?`. A touch never writes back a level or step time it read, so it
     /// cannot undo a re-authentication that landed meanwhile.
     async fn touch_session(&self, id: &str, epoch: u64, last_seen_at: u64) -> PortResult<bool>;
     /// Deletes one session of a user; `false` if there was none.

@@ -679,17 +679,19 @@ fn throttle_keys_are_stored_under_a_keyed_hash_only() {
 
 #[test]
 fn a_late_hit_from_an_older_window_counts_in_the_newer_one() {
-    use kofra_account::ports::Throttle;
+    use kofra_account::{memory::MemoryThrottle, ports::Throttle};
     use kofra_store::account::SqlThrottle;
     let db = Rc::new(SqliteDb::new());
     let t = SqlThrottle::new(Rc::clone(&db), [1; 32]);
+    let m = MemoryThrottle::default();
     let w = 60_000;
     let next = (T0 / w + 1) * w;
-    assert_eq!(block_on(t.hit("k", 2, w, next + 10)).unwrap(), None);
     // Sent before the boundary, written after: it neither resets nor moves
-    // the stored window back.
-    assert_eq!(block_on(t.hit("k", 2, w, next - 5)).unwrap(), None);
-    assert_eq!(block_on(t.hit("k", 2, w, next + 20)).unwrap(), Some(60));
+    // the stored window back, in the store and in the reference alike.
+    for (now, want) in [(next + 10, None), (next - 5, None), (next + 20, Some(60))] {
+        assert_eq!(block_on(t.hit("k", 2, w, now)).unwrap(), want);
+        assert_eq!(block_on(m.hit("k", 2, w, now)).unwrap(), want);
+    }
     let r = &db.rows("SELECT window_start, hits FROM account_throttle", &[])[0];
     assert_eq!(
         (r.u64("window_start").unwrap(), r.u64("hits").unwrap()),
@@ -716,10 +718,23 @@ fn a_refused_workspace_insert_never_adds_to_an_existing_workspace() {
         created_at: T0,
     };
     assert!(block_on(s.store.insert_workspace(&ws, &owner("usr_a"), 1)).unwrap());
-    // usr_a is at the cap; usr_b retries the same ID with a cap of 0.
+    // usr_b retries the same ID with a cap of 0, with and without a
+    // provisioning time: nothing is added to the existing workspace.
+    for tried in [None, Some(T0 + 5)] {
+        let mut again = ws.clone();
+        again.provision_tried_at = tried;
+        assert!(
+            !s.unchanged(
+                || block_on(s.store.insert_workspace(&again, &owner("usr_b"), 0)).unwrap()
+            )
+        );
+    }
+    // Under the cap, the same ID is a conflict: an error, and the whole batch
+    // rolls back (no provisioning row, no member).
+    s.db.exec("DELETE FROM account_provisioning", &[]);
     let mut again = ws.clone();
-    again.provision_tried_at = None;
-    assert!(
-        !s.unchanged(|| block_on(s.store.insert_workspace(&again, &owner("usr_b"), 0)).unwrap())
-    );
+    again.provision_tried_at = Some(T0 + 6);
+    s.unchanged(|| {
+        assert!(block_on(s.store.insert_workspace(&again, &owner("usr_b"), 5)).is_err());
+    });
 }
