@@ -163,11 +163,11 @@ jobs:
       # The Rust types are generated from generated/openapi.json; drift fails.
       - run: cargo run --locked -q -p xtask -- check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - run: cargo clippy --locked -p kofra-api-types -p kofra-api-core --all-targets --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo clippy --locked -p kofra-api-types -p kofra-api-core -p kofra-account --all-targets --target wasm32-unknown-unknown -- -D warnings
       - run: cargo test --locked --workspace
-      # The contract-derived types and the API core must build for the
-      # Workers target.
-      - run: cargo build --locked -p kofra-api-types -p kofra-api-core --target wasm32-unknown-unknown --release
+      # The contract-derived types, the API core and the account service must
+      # build for the Workers target.
+      - run: cargo build --locked -p kofra-api-types -p kofra-api-core -p kofra-account --target wasm32-unknown-unknown --release
 
   sdk:
     name: sdk (regenerate, TypeScript, Python, Go, CLI cross-build)

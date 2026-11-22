@@ -1,0 +1,26 @@
+[package]
+name = "kofra-account"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Kofra customer accounts, independent of the runtime: sign-up, e-mail verification, sign-in, sessions, password reset, two-step verification and workspace creation."
+
+[dependencies]
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+argon2 = { version = "0.5", default-features = false, features = ["alloc", "password-hash"] }
+base64 = "0.22"
+hkdf = "0.12"
+hmac = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha1 = "0.10"
+sha2 = "0.10"
+subtle = "2.6"
+unicode-normalization = { version = "0.1", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+pollster = "0.4"
+
+[lints]
+workspace = true
