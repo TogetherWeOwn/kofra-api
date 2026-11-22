@@ -24,12 +24,16 @@
 //! updated_at = ? WHERE id = ? AND epoch = ? RETURNING epoch`.
 //!
 //! Passkeys follow the same recipe, with two additions:
-//! - `insert_passkey` inserts with a plain `INSERT INTO account_passkeys
-//!   ... SELECT ... WHERE <the guards of the first statement>`, never
-//!   `OR IGNORE` or `ON CONFLICT`: a `UNIQUE` conflict on `credential_id`
-//!   then fails the whole batch (a D1 batch is one transaction and rolls
-//!   back), and the adapter maps that error to `Duplicate`. A stale user or
-//!   keep session makes the `SELECT` yield no row, so `Stale` wins.
+//! - `insert_passkey`: the batch's FIRST statement is a plain `INSERT INTO
+//!   account_passkeys ... SELECT ... WHERE account_users.id = ? AND
+//!   account_users.epoch = E AND EXISTS (the keep session at E, the user's)`,
+//!   never `OR IGNORE` or `ON CONFLICT`. A `UNIQUE` conflict on
+//!   `credential_id` then fails the whole batch (a D1 batch is one
+//!   transaction and rolls back), and the adapter maps that error to
+//!   `Duplicate`. The keep-session stamp comes second (still guarded by
+//!   epoch `E`, as above), and the final epoch raise also requires `EXISTS
+//!   (SELECT 1 FROM account_passkeys WHERE id = ?)`, so a dropped insert
+//!   can never report `Created`: no returned row means `Stale`.
 //! - `delete_passkey` adds `EXISTS (SELECT 1 FROM account_passkeys WHERE
 //!   id = ? AND user_id = ?)` to the first statement's guards. After the
 //!   `DELETE`, the recovery-code deletion and `level = 1` run only under

@@ -1435,3 +1435,32 @@ fn a_keep_session_that_is_not_the_users_cannot_add_a_passkey() {
         );
     });
 }
+
+#[test]
+fn a_passkey_reauth_that_loses_to_a_factor_removal_answers_session_invalid() {
+    let h = Harness::new();
+    let s = h.signed_up("ada");
+    let mut a = Authenticator::es256(59);
+    assert_eq!(h.register(&s, &mut a).status, 201);
+    h.acc.ports().env.advance(11 * 60_000);
+    let before = h.stored_session(&s);
+    let b = h.call("POST", "reauth/passkey/begin", Some(&s), None);
+    let cred = a.assertion_json(&b.body["options"]);
+    // Another tab removes a factor while this ceremony finishes: the
+    // session is re-stamped at a new epoch and level 1.
+    h.acc
+        .ports()
+        .store
+        .restamp_before_next_session_update
+        .set(true);
+    let f = h.call(
+        "POST",
+        "reauth/passkey/finish",
+        Some(&s),
+        Some(json!({"challenge_id": b.body["challenge_id"], "credential": cred})),
+    );
+    assert_eq!(f.code(), "session_invalid", "{}", f.body);
+    let after = h.stored_session(&s);
+    assert_eq!(after.level, 1);
+    assert_eq!(after.step_at, before.step_at);
+}
