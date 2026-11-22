@@ -9,3 +9,8 @@ build/
 __pycache__/
 .pytest_cache/
 dist/
+
+# Worker build output and local state
+workers/kofra-api/build/
+workers/kofra-api/.wrangler/
+workers/kofra-api/.dev.vars

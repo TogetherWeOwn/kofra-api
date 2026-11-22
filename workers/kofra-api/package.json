@@ -1,0 +1,12 @@
+{
+	"name": "@kofra/api-worker",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "worker-build --release",
+		"e2e": "node --test e2e/run.mjs"
+	},
+	"devDependencies": {
+		"wrangler": "4.165.0"
+	}
+}

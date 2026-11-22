@@ -1,0 +1,19 @@
+# LOCAL TESTS ONLY: the stand-in console for e2e/run.mjs.
+name = "kofra-api-e2e-caller"
+main = "caller.mjs"
+compatibility_date = "2026-11-19"
+workers_dev = false
+
+[[services]]
+binding = "CONSOLE"
+service = "kofra-api"
+entrypoint = "Console"
+
+[[services]]
+binding = "PUBLIC"
+service = "kofra-api"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kofra-console-local"
+database_id = "00000000-0000-0000-0000-000000000000"
