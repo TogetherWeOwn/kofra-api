@@ -2286,3 +2286,25 @@ fn a_touch_writes_only_the_time() {
     // At another epoch a touch writes nothing.
     assert!(!pollster::block_on(store.touch_session(&read.id, read.epoch + 1, 1)).unwrap());
 }
+
+#[test]
+fn a_session_touch_goes_through_the_time_only_write() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    h.enable_totp(&s);
+    let before = h.stored_session(&s);
+    // Due for a touch. The hook fires only on a full session write, so a
+    // touch through `touch_session` leaves it set and the level untouched.
+    h.advance(2 * 60 * 60_000);
+    h.ports().store.restamp_before_next_session_update.set(true);
+    let r = h.call("POST", "session/resolve", Some(&s), None);
+    assert_eq!(r.status, 200, "{}", r.body);
+    assert!(h.ports().store.restamp_before_next_session_update.get());
+    let after = h.stored_session(&s);
+    assert_eq!((after.level, after.epoch), (before.level, before.epoch));
+    assert!(after.last_seen_at > before.last_seen_at);
+    h.ports()
+        .store
+        .restamp_before_next_session_update
+        .set(false);
+}
