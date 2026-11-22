@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/kofra-account", "crates/kofra-store", "crates/kofra-api-types", "crates/kofra-api-core", "xtask"]
+members = ["crates/kofra-account", "crates/kofra-store", "workers/kofra-api", "crates/kofra-api-types", "crates/kofra-api-core", "xtask"]
 
 [workspace.package]
 edition = "2024"

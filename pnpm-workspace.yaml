@@ -1,4 +1,9 @@
-# No dependency install scripts run (pnpm 10 blocks them unless listed here).
+# pnpm 10 runs no dependency install scripts except for the packages listed
+# under onlyBuiltDependencies.
 packages:
   - sdk/typescript
-onlyBuiltDependencies: []
+  - workers/kofra-api
+# The Workers runtime and its bundler ship native binaries.
+onlyBuiltDependencies:
+  - esbuild
+  - workerd

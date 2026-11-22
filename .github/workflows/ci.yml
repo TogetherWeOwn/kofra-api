@@ -46,9 +46,9 @@ jobs:
   # against, and the contract sources and artefacts they are generated from).
   changes:
     name: changes
-    uses: TogetherWeOwn/.github/.github/workflows/changes.yml@8059ac2b121b63443db656b1e10e927b8af8133c # v0.12.1
+    uses: TogetherWeOwn/.github/.github/workflows/changes.yml@bfdaf1532e1605281d366186e4ed9e8cfa0113fc # v0.13.0
     with:
-      areas-json: '{"docs":["**.md","docs/**"],"contract":["openapi/**","errors/**","registry/**","generated/**","tools/**","test/**","migrations/**"],"rust":["crates/**","migrations/**","xtask/**","Cargo.toml","Cargo.lock","rust-toolchain.toml","openapi/**","errors/**","registry/**","tools/build.mjs","generated/**"],"sdk":["sdk/**","tools/sdk/**","tools/mock/**",".node-version","openapi/**","errors/**","registry/**","generated/**"]}'
+      areas-json: '{"docs":["**.md","docs/**"],"contract":["openapi/**","errors/**","registry/**","generated/**","tools/**","test/**","migrations/**"],"rust":["crates/**","workers/**","migrations/**","xtask/**","Cargo.toml","Cargo.lock","rust-toolchain.toml","openapi/**","errors/**","registry/**","tools/build.mjs","generated/**"],"sdk":["sdk/**","tools/sdk/**","tools/mock/**",".node-version","openapi/**","errors/**","registry/**","generated/**"]}'
       full-run-globs-json: '["package.json","**/package.json","pnpm-lock.yaml","**/pnpm-lock.yaml","pnpm-workspace.yaml","**/pnpm-workspace.yaml",".npmrc","**/.npmrc",".node-version","redocly.yaml","eslint.config.js","prettier.config.js",".prettierignore",".gitignore",".gitattributes",".editorconfig","Cargo.toml","**/Cargo.toml","Cargo.lock","**/Cargo.lock",".cargo/**","**/.cargo/**","rust-toolchain*","**/rust-toolchain*","osv-scanner.toml",".gitleaks.toml",".github/**"]'
       docs-areas-json: '["docs"]'
 
@@ -151,7 +151,7 @@ jobs:
     needs: [changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.full_run == 'true' || fromJSON(needs.changes.outputs.areas).rust
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -172,6 +172,25 @@ jobs:
       # tests run on a bundled native SQLite.
       - run: cargo clippy --locked -p kofra-store --lib --target wasm32-unknown-unknown -- -D warnings
       - run: cargo build --locked -p kofra-store --target wasm32-unknown-unknown --release
+      - run: cargo clippy --locked -p kofra-api-worker --lib --target wasm32-unknown-unknown -- -D warnings
+      # The Worker itself: built as it is deployed, then run end to end on
+      # the local Workers runtime with a fresh local D1 (workers/kofra-api/e2e).
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The build tools come from Cargo (checksummed) and the pnpm lockfile
+      # only; build.sh refuses a wasm-bindgen that does not match Cargo.lock
+      # and runs no download step of worker-build (workers/kofra-api/build.sh).
+      - run: cargo install --locked worker-build@0.8.7 wasm-bindgen-cli@0.2.130
+      - name: Build the Worker
+        working-directory: workers/kofra-api
+        run: ./build.sh
+      - name: Worker end to end (local runtime and D1)
+        working-directory: workers/kofra-api
+        run: node --test e2e/run.mjs
 
   sdk:
     name: sdk (regenerate, TypeScript, Python, Go, CLI cross-build)

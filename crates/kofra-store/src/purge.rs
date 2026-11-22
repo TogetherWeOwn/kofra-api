@@ -62,3 +62,15 @@ pub async fn run<D: Db>(db: &D, now_ms: u64) -> Result<Vec<u64>, DbError> {
         .map(|d| d.changes)
         .collect())
 }
+
+/// Deletes captured staging mail older than [`OUTBOX_RETENTION_MS`] only:
+/// the shell runs it every minute, since the rows hold working links.
+pub async fn outbox<D: Db>(db: &D, now_ms: u64) -> Result<u64, DbError> {
+    Ok(db
+        .run(&Stmt::new(
+            "DELETE FROM account_mail_outbox WHERE created_at < ?1",
+            params![now_ms.saturating_sub(OUTBOX_RETENTION_MS)],
+        ))
+        .await?
+        .changes)
+}

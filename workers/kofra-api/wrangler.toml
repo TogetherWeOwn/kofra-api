@@ -1,0 +1,39 @@
+# The Kofra API Worker: LOCAL DEVELOPMENT AND TESTS ONLY. Staging and
+# production configurations are kept privately and add the database ID,
+# secrets and the mail allow-list; none of them adds a route without the
+# operator's say-so (the console reaches the API over its service binding).
+name = "kofra-api"
+main = "entry.mjs"
+compatibility_date = "2026-11-19"
+workers_dev = false
+preview_urls = false
+
+# No [build] command: build first with `./build.sh` (README), so
+# that every run (wrangler dev here or from another repository's tests,
+# CI, a deploy) uses the build you made, never an implicit one.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kofra-console-local"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "../../migrations"
+
+# Every minute: outbox clean-up and workspace provisioning retries; hourly:
+# the rest of the clean-up.
+[triggers]
+crons = ["* * * * *"]
+
+[observability]
+enabled = false
+
+[vars]
+KOFRA_ENV = "local"
+CONSOLE_ORIGIN = "http://localhost:4176"
+S3_ENDPOINT = "http://localhost:4178"
+SIGNUP_MODE = "invite"
+MAIL_MODE = "outbox"
+MAIL_FROM = "noreply@example.com"
+BREACH_CHECK = "off"
+# ACCOUNT_SECRET_KEY, ASSERTION_KEY and CURSOR_KEY (64 hex digits each) are
+# secrets: `.dev.vars` locally (never committed), `wrangler secret put`
+# (from stdin) when deployed.
