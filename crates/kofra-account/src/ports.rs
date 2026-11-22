@@ -440,9 +440,10 @@ pub struct CreatePrincipal {
     pub tenant_id: String,
     /// The member's user ID.
     pub owner_ref: String,
-    /// The member's role, which decides the grants.
+    /// The member's role. The tenancy adapter maps it to the principal's
+    /// grants; storage never sees a role.
     pub role: Role,
-    /// Makes a retry safe.
+    /// Makes a retry safe: `<workspace id>/<owner_ref>`.
     pub idempotency_key: String,
 }
 

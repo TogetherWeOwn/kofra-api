@@ -171,6 +171,22 @@ fn api(db: &Rc<D1Db>, s: &Settings, storage: StoragePlane) -> Api<ApiPorts> {
     )
 }
 
+/// The tenancy plane the settings pick. With the management plane picked
+/// but its binding missing, provisioning answers `Retry` (workspaces stay
+/// setting up) and pages.
+fn tenancy_plane(s: &Settings, env: &Env) -> TenancyPlane {
+    match &s.storage {
+        StorageSetting::Stub => TenancyPlane::stub(s.deployment != Deployment::Production),
+        StorageSetting::Mgmt { token } => match env.service("STORAGE_MGMT") {
+            Ok(binding) => TenancyPlane::mgmt(binding, token),
+            Err(_) => {
+                worker::console_error!("page: tenancy no STORAGE_MGMT binding");
+                TenancyPlane::stub(false)
+            }
+        },
+    }
+}
+
 fn accounts(
     db: &Rc<D1Db>,
     s: &Settings,
@@ -187,11 +203,7 @@ fn accounts(
                 ctx,
                 Rc::clone(db),
             ),
-            // With the management plane picked, the stub never hands out a
-            // tenant the plane did not make: no mix of planes.
-            tenancy: TenancyPlane {
-                stub: s.deployment != Deployment::Production && s.storage == StorageSetting::Stub,
-            },
+            tenancy: tenancy_plane(s, env),
             throttle: SqlThrottle::new(Rc::clone(db), s.subkey(THROTTLE_KEY)),
             breach: Breach {
                 enabled: s.breach_check,

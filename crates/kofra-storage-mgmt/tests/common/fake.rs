@@ -68,6 +68,12 @@ pub struct State {
     change_before_patch: u32,
     /// The bucket the concurrent change grants (read-only) on the key.
     change_grant: Option<String>,
+    /// Tenants by `external_ref` (create or adopt); the fake serves one.
+    pub tenant_refs: BTreeMap<String, String>,
+    /// `external_ref`s whose tenant was shredded.
+    pub retired_refs: Vec<String>,
+    /// Principals made by a principal create, by `owner_ref`.
+    pub created_principals: Vec<String>,
 }
 
 #[derive(Default)]
@@ -75,6 +81,7 @@ pub struct Fake {
     pub state: RefCell<State>,
     pub sent: RefCell<Vec<Request>>,
     queued: RefCell<VecDeque<Response>>,
+    queued_for: RefCell<Vec<(String, Response)>>,
 }
 
 fn answer<B: Serialize>(status: u16, body: &B) -> Response {
@@ -184,6 +191,14 @@ impl Fake {
         self.queued.borrow_mut().push_back(response);
     }
 
+    /// Answers the next request whose path ends with `suffix` with
+    /// `response`.
+    pub fn answer_next_to(&self, suffix: &str, response: Response) {
+        self.queued_for
+            .borrow_mut()
+            .push((suffix.to_owned(), response));
+    }
+
     /// Changes the key right before each of the next `n` grant changes is
     /// handled, as another request would: raises its `seq` by 5 and, when
     /// `grant` names a bucket, adds a read-only grant on it.
@@ -202,10 +217,22 @@ impl Fake {
         if let Some(r) = self.queued.borrow_mut().pop_front() {
             return r;
         }
+        let hit = {
+            let q = self.queued_for.borrow();
+            q.iter()
+                .position(|(sfx, _)| req.path.ends_with(sfx.as_str()))
+        };
+        if let Some(i) = hit {
+            return self.queued_for.borrow_mut().remove(i).1;
+        }
         let Some(class) = class(req) else {
             return err(Code::Unauthenticated);
         };
         let (path, query) = req.path.split_once('?').unwrap_or((&req.path, ""));
+        if req.method == Method::Post && path == "/v1/tenants" {
+            let body = req.body.clone().unwrap_or_default();
+            return self.create_tenant(&mut self.state.borrow_mut(), req, class, &body);
+        }
         let Some(rest) = path.strip_prefix(&format!("/v1/tenants/{TENANT}")) else {
             return err(Code::NotFound);
         };
@@ -215,6 +242,7 @@ impl Fake {
         use Method::*;
         match (req.method, parts.as_slice()) {
             (Get, []) => answer(200, &tenant(&s)),
+            (Post, ["principals"]) => self.create_principal(&mut s, req, class, &body),
             (Get, ["reach"]) => answer(
                 200,
                 &w::Reach {
@@ -348,6 +376,88 @@ impl Fake {
             );
         }
         resp
+    }
+
+    fn create_tenant(
+        &self,
+        s: &mut State,
+        req: &Request,
+        class: TokenClass,
+        body: &[u8],
+    ) -> Response {
+        if class != TokenClass::Confirmed {
+            return err(Code::InsufficientScope);
+        }
+        let key = match Self::key_of(req) {
+            Ok(k) => k,
+            Err(r) => return r,
+        };
+        let c: w::TenantCreate = match parse_request(body) {
+            Ok(c) => c,
+            Err(c) => return err(c),
+        };
+        if key != c.external_ref || c.limits.is_some() {
+            return err(Code::BadRequest);
+        }
+        if s.retired_refs.contains(&c.external_ref) {
+            return err(Code::ExternalRefRetired);
+        }
+        let status = if s.tenant_refs.contains_key(&c.external_ref) {
+            200
+        } else {
+            201
+        };
+        s.tenant_refs.insert(c.external_ref, TENANT.to_owned());
+        answer(status, &tenant(s))
+    }
+
+    fn create_principal(
+        &self,
+        s: &mut State,
+        req: &Request,
+        class: TokenClass,
+        body: &[u8],
+    ) -> Response {
+        if class != TokenClass::Confirmed {
+            return err(Code::InsufficientScope);
+        }
+        if let Err(r) = Self::key_of(req) {
+            return r;
+        }
+        let c: w::PrincipalCreate = match parse_request(body) {
+            Ok(c) => c,
+            Err(c) => return err(c),
+        };
+        // Without an acting member, the list must be empty (sign-up).
+        if req.header("Kofra-Acting-Owner-Ref").is_none() && !c.grants.is_empty() {
+            return err(Code::BadRequest);
+        }
+        let status = match s.principals.get(&c.owner_ref) {
+            Some(p) if p.grants.is_empty() => 200,
+            Some(_) => return err(Code::PrincipalExists),
+            None => {
+                let id = format!("p_{}", s.principals.len());
+                s.principals.insert(
+                    c.owner_ref.clone(),
+                    Principal {
+                        id,
+                        grants: Vec::new(),
+                    },
+                );
+                s.created_principals.push(c.owner_ref.clone());
+                201
+            }
+        };
+        let p = &s.principals[&c.owner_ref];
+        answer(
+            status,
+            &w::Principal {
+                id: p.id.clone(),
+                owner_ref: c.owner_ref,
+                status: w::PrincipalStatus::Active,
+                grants: Vec::new(),
+            },
+        )
     }
 
     fn create_bucket(s: &mut State, p: &Principal, body: &[u8]) -> Response {

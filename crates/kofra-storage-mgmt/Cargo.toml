@@ -7,6 +7,7 @@ publish.workspace = true
 description = "The storage port served by the storage management plane: requests, token classes, name resolution, idempotency keys, shapes and error codes, independent of the runtime."
 
 [dependencies]
+kofra-account = { path = "../kofra-account" }
 kofra-api-core = { path = "../kofra-api-core" }
 kofra-api-types = { path = "../kofra-api-types" }
 # The management plane's wire contract: a checked copy (crates/mgmt-types,
