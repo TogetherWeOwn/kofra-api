@@ -644,7 +644,7 @@ fn an_empty_first_set_still_clears_used_codes() {
     let s = setup();
     assert!(block_on(s.store.replace_recovery_codes("usr_a", &[[1; 32]], 3, T0)).unwrap());
     assert!(block_on(s.store.take_recovery_code("usr_a", &[1; 32], T0)).unwrap());
-    assert!(!block_on(s.store.init_recovery_codes("usr_a", &[], 2, T0)).unwrap());
+    assert!(!s.unchanged(|| block_on(s.store.init_recovery_codes("usr_a", &[], 2, T0)).unwrap()));
     assert!(block_on(s.store.init_recovery_codes("usr_a", &[], 3, T0)).unwrap());
     assert!(
         s.db.rows(
