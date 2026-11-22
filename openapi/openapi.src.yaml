@@ -1048,7 +1048,12 @@ components:
             the data is erased at `erase_at` unless cancelled first.
         reason:
           type: string
-          enum: [customer, non_payment]
+          enum: [customer, non_payment, other]
+          description: |
+            Who started the deletion: `customer` (a member of the account),
+            `non_payment`, or `other` (Kofra, for example under the terms of
+            service). Only a `customer` deletion can be cancelled through the
+            API or the console.
         requested_at: { $ref: '#/components/schemas/Timestamp' }
         confirm_url:
           type: [string, 'null']

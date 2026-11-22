@@ -438,3 +438,23 @@ fn positions_storage_did_not_make_are_invalid_cursors() {
         );
     });
 }
+
+#[test]
+fn input_storage_would_refuse_is_refused_as_the_clients_mistake() {
+    let h = setup();
+    let owner = h.owner();
+    let r = h.call(
+        "POST",
+        "/v1/objects/presign",
+        &owner,
+        Some(json!({ "bucket": "photos", "key": "é".repeat(600) })),
+    );
+    assert_eq!((r.status, code(&r).as_str()), (400, "validation_failed"));
+    let r = h.call(
+        "POST",
+        "/v1/keys",
+        &owner,
+        Some(json!({ "name": "a\tb", "grants": [{ "bucket": "photos", "access": "read" }] })),
+    );
+    assert_eq!((r.status, code(&r).as_str()), (400, "validation_failed"));
+}

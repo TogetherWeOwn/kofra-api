@@ -875,12 +875,25 @@ dependencies = [
  "kofra-account",
  "kofra-api-core",
  "kofra-api-types",
+ "kofra-storage-mgmt",
  "kofra-store",
  "pollster",
  "serde_json",
  "sha1",
  "sha2 0.10.9",
  "worker",
+]
+
+[[package]]
+name = "kofra-storage-mgmt"
+version = "0.1.0"
+dependencies = [
+ "kofra-api-core",
+ "kofra-api-types",
+ "mgmt-types",
+ "pollster",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

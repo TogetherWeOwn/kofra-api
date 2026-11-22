@@ -541,8 +541,14 @@ export interface components {
              * @enum {string}
              */
             status: "pending_confirmation" | "scheduled";
-            /** @enum {string} */
-            reason: "customer" | "non_payment";
+            /**
+             * @description Who started the deletion: `customer` (a member of the account),
+             *     `non_payment`, or `other` (Kofra, for example under the terms of
+             *     service). Only a `customer` deletion can be cancelled through the
+             *     API or the console.
+             * @enum {string}
+             */
+            reason: "customer" | "non_payment" | "other";
             requested_at: components["schemas"]["Timestamp"];
             /**
              * Format: uri

@@ -93,6 +93,17 @@ pub(super) async fn presign<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Pro
         return Err(Problem::new("internal_error"));
     };
     ctx.principal.check_bucket(body.bucket.as_str())?;
+    // The contract counts the 1024 in bytes; the generated type counts
+    // characters.
+    if body.key.as_str().len() > PREFIX_MAX {
+        return Err(Problem::new("validation_failed")
+            .detail("The object key is longer than 1024 bytes.")
+            .errors(vec![crate::problem::FieldError::new(
+                "/key",
+                "invalid_value",
+                "Use an object key of 1 to 1024 bytes.",
+            )]));
+    }
     let url = ctx.api.ports.storage().presign(ctx.acting()?, body).await?;
     // A presigned URL is a bearer credential: it is never kept in an
     // idempotency record. Minting another is harmless.
