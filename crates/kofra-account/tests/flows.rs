@@ -2212,3 +2212,48 @@ fn a_stale_session_copy_cannot_put_back_a_level_it_lost() {
     assert_eq!(now.level, 1);
     assert_eq!(now.epoch, read.epoch + 1);
 }
+
+#[test]
+fn a_reauth_that_loses_to_a_factor_removal_answers_session_invalid() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    let (secret, _) = h.enable_totp(&s);
+    h.advance(30_000);
+    let before = h.stored_session(&s);
+    // Two-step is turned off in another tab while this re-authentication
+    // runs: the session is re-stamped at a new epoch and level 1.
+    h.ports().store.restamp_before_next_session_update.set(true);
+    let r = h.call(
+        "POST",
+        "reauth",
+        Some(&s),
+        Some(json!({"password": PW, "code": h.totp_code(&secret, 0)})),
+    );
+    assert_eq!(r.code(), "session_invalid", "{}", r.body);
+    let after = h.stored_session(&s);
+    assert_eq!(after.level, 1);
+    assert_eq!(after.step_at, before.step_at);
+}
+
+#[test]
+fn a_touch_writes_only_the_time() {
+    let h = Harness::new(SignupMode::Invite);
+    let s = h.signed_up("ada");
+    let read = h.stored_session(&s);
+    let store = &h.ports().store;
+    // A re-authentication lands after this request read the session.
+    let mut fresh = read.clone();
+    fresh.level = 2;
+    fresh.step_at = read.step_at + 1_000;
+    assert!(pollster::block_on(store.update_session(&fresh)).unwrap());
+    // The old request's touch keeps the newer level and step time.
+    assert!(
+        pollster::block_on(store.touch_session(&read.id, read.epoch, read.last_seen_at + 7))
+            .unwrap()
+    );
+    let now = h.stored_session(&s);
+    assert_eq!((now.level, now.step_at), (2, fresh.step_at));
+    assert_eq!(now.last_seen_at, read.last_seen_at + 7);
+    // At another epoch a touch writes nothing.
+    assert!(!pollster::block_on(store.touch_session(&read.id, read.epoch + 1, 1)).unwrap());
+}

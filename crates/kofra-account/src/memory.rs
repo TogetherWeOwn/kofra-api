@@ -43,6 +43,9 @@ pub struct MemoryStore {
     pub expire_next_take: Cell<bool>,
     /// Raises the user's epoch before the next guarded credential write.
     pub raise_epoch_before_next_write: Cell<bool>,
+    /// Before the next `update_session`, re-stamps that session at a new
+    /// epoch and level 1, as a concurrent factor removal would (for tests).
+    pub restamp_before_next_session_update: Cell<bool>,
 }
 
 impl MemoryStore {
@@ -272,6 +275,15 @@ impl Store for MemoryStore {
     }
 
     async fn update_session(&self, session: &SessionRecord) -> PortResult<bool> {
+        if self.restamp_before_next_session_update.replace(false)
+            && let Some(user) = self
+                .users
+                .borrow_mut()
+                .iter_mut()
+                .find(|u| u.id == session.user_id)
+        {
+            self.raise_epoch(user, Some(&session.id), Some(1), session.last_seen_at);
+        }
         self.check()?;
         let mut sessions = self.sessions.borrow_mut();
         let Some(s) = sessions
@@ -283,6 +295,16 @@ impl Store for MemoryStore {
         s.last_seen_at = session.last_seen_at;
         s.step_at = session.step_at;
         s.level = session.level;
+        Ok(true)
+    }
+
+    async fn touch_session(&self, id: &str, epoch: u64, last_seen_at: u64) -> PortResult<bool> {
+        self.check()?;
+        let mut sessions = self.sessions.borrow_mut();
+        let Some(s) = sessions.iter_mut().find(|s| s.id == id && s.epoch == epoch) else {
+            return Ok(false);
+        };
+        s.last_seen_at = last_seen_at;
         Ok(true)
     }
 

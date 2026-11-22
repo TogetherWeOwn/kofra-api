@@ -11,7 +11,8 @@
 //! and set `level` where required. Guard the update by the session's ID,
 //! `account_sessions.user_id = ?`, `account_sessions.epoch = E`, and
 //! `account_users.epoch = E` for that user. To enable TOTP, require a row
-//! in `account_totp_credentials` for the user with `enabled = 0`. To disable
+//! in `account_totp_credentials` for the user with `enabled = 0 AND sealed =
+//! ?` (the secret the code was checked against). To disable
 //! TOTP, require a row for the user.
 //! Guard every later statement by `account_sessions.epoch = E + 1` on the
 //! same keep session and `account_users.epoch = E` on its user. Only the
@@ -111,6 +112,11 @@ pub trait Store {
     /// (nothing written) if an epoch-raising write re-stamped or retired it
     /// meanwhile, so a stale copy cannot put back a level it lost.
     async fn update_session(&self, session: &SessionRecord) -> PortResult<bool>;
+    /// Writes only `last_seen_at` of a session, while it is at `epoch`:
+    /// `UPDATE account_sessions SET last_seen_at = ? WHERE id = ? AND epoch
+    /// = ?`. A touch never writes back a level or step time it read, so it
+    /// cannot undo a re-authentication that landed meanwhile.
+    async fn touch_session(&self, id: &str, epoch: u64, last_seen_at: u64) -> PortResult<bool>;
     /// Deletes one session of a user; `false` if there was none.
     async fn delete_session(&self, user_id: &str, id: &str) -> PortResult<bool>;
     /// Deletes every session of a user except `keep`; returns how many.
