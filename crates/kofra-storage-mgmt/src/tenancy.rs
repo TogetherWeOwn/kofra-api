@@ -2,9 +2,11 @@
 //! retry cron) over the management plane.
 //!
 //! - `create_tenant`: `POST /v1/tenants` with the workspace ID as
-//!   `external_ref` and as `Idempotency-Key`, and no `limits`: a new tenant
-//!   gets the plane's free allowance. A retry finds the same tenant (the
-//!   plane creates or adopts by `external_ref`).
+//!   `external_ref` and as `Idempotency-Key`, and nothing else in the body
+//!   ([`create_body`]): no `limits` (a new tenant gets the plane's free
+//!   allowance), no `jurisdiction` and no `rate_class` (the plane serves
+//!   neither yet). A retry finds the same tenant (the plane creates or
+//!   adopts by `external_ref`).
 //! - `create_principal`: `POST /v1/tenants/{t}/principals` with the
 //!   member's user ID as `owner_ref`, the grants of the member's role, no
 //!   acting header (no member acts yet at sign-up) and the key
@@ -13,8 +15,13 @@
 //!   by the person signing up. Without it held, nothing is sent and the
 //!   call answers `Retry` (with a page: the deployment is incomplete).
 //! - `external_ref_retired` (the workspace's tenant was shredded) is
-//!   `Gone`; every other refusal is `Retry`, and every refusal that is not a
-//!   "not now" also pages, so that none retries in silence.
+//!   `Gone`. A "not now" (`rate_limited`, `service_unavailable`,
+//!   `idempotency_key_in_use`, or a `429`/`503` without a code) is a silent
+//!   `Retry`: a principal create that races another for the same member is
+//!   one (`503` with `Retry-After`), and its retry finds the principal.
+//!   Every other answer is `Retry` with a page, `internal_error` and every
+//!   code that means a fault of this service included, so that none
+//!   retries in silence.
 
 use kofra_account::{
     model::Role,
@@ -48,6 +55,24 @@ pub trait Pager {
 pub fn signup_grants(role: Role) -> Vec<w::GrantIn> {
     match role {
         Role::Owner | Role::Admin | Role::Billing | Role::Member | Role::Viewer => Vec::new(),
+    }
+}
+
+/// The body of a tenant create: the workspace ID and nothing else.
+///
+/// - No `limits`: a new tenant gets the plane's free allowance, which is the
+///   sign-up plan.
+/// - No `jurisdiction`: the plane serves only "no jurisdiction" for now, and
+///   any value it does not serve is refused. The workspace's own region
+///   setting is not a storage placement, so it is never sent.
+/// - No `rate_class`: the plane defines none yet, and refuses one that is
+///   sent.
+pub fn create_body(external_ref: &str) -> w::TenantCreate {
+    w::TenantCreate {
+        external_ref: external_ref.to_owned(),
+        jurisdiction: None,
+        limits: None,
+        rate_class: None,
     }
 }
 
@@ -130,14 +155,9 @@ impl<T: Transport, P: Pager> Tenancy for MgmtTenancy<T, P> {
         if !valid_external_ref(&req.external_ref) || req.idempotency_key != req.external_ref {
             return Err(self.fault(CALL, "bad_external_ref"));
         }
-        // No `limits`: the plane's free allowance, which is the sign-up plan.
-        let body = serde_json::to_vec(&w::TenantCreate {
-            external_ref: req.external_ref.clone(),
-            jurisdiction: req.jurisdiction.clone(),
-            limits: None,
-            rate_class: None,
-        })
-        .map_err(|_| self.fault(CALL, "unserializable"))?;
+        // The body is the workspace ID only (`create_body`).
+        let body = serde_json::to_vec(&create_body(&req.external_ref))
+            .map_err(|_| self.fault(CALL, "unserializable"))?;
         let tenant: w::Tenant = self
             .send(CALL, paths::tenants(), &req.idempotency_key, body)
             .await?;

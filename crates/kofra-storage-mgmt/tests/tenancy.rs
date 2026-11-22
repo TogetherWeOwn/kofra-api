@@ -299,7 +299,7 @@ fn provisioning_makes_the_tenant_and_the_owners_principal_once() {
     assert_eq!(tenant.header("Idempotency-Key"), Some("ws_a"));
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(tenant.body.as_ref().unwrap()).unwrap(),
-        serde_json::json!({ "external_ref": "ws_a", "jurisdiction": "us" })
+        serde_json::json!({ "external_ref": "ws_a" })
     );
     assert!(pages.0.borrow().is_empty());
     // Provisioning again (a lost write of the account side) finds both.
@@ -405,4 +405,132 @@ fn an_answer_for_another_tenant_or_member_is_never_taken() {
             ("create_principal", "other_principal".to_owned())
         ]
     );
+}
+
+/// The tenant create body, byte for byte: the workspace ID and nothing
+/// else. No `jurisdiction` (the plane refuses every value it does not
+/// serve, and that refusal would page on every sign-up), no `rate_class`
+/// (none is defined) and no `limits` (the free allowance), whatever the
+/// workspace's own region setting says.
+#[test]
+fn the_tenant_create_body_is_the_workspace_id_only() {
+    const GOLDEN: &[u8] = br#"{"external_ref":"ws_a"}"#;
+    assert_eq!(
+        serde_json::to_vec(&kofra_storage_mgmt::tenancy::create_body("ws_a")).unwrap(),
+        GOLDEN
+    );
+    for region in ["us", "eu", "none", ""] {
+        let fake = Fake::new();
+        let pages = Pages::default();
+        let t = MgmtTenancy::new(&fake, tokens(), &pages);
+        block_on(t.create_tenant(&CreateTenant {
+            external_ref: "ws_a".into(),
+            idempotency_key: "ws_a".into(),
+            plan: "free".into(),
+            jurisdiction: region.into(),
+        }))
+        .unwrap();
+        let sent = fake.requests();
+        assert_eq!(sent.len(), 1, "{region}");
+        assert_eq!(sent[0].body.as_deref(), Some(GOLDEN), "{region}");
+        assert!(pages.0.borrow().is_empty(), "{region}");
+    }
+}
+
+/// Every code of the contract, sent to sign-up: only a "not now" retries
+/// in silence, the retired reference closes the workspace, and every other
+/// code pages, `internal_error` and the codes of a fault of this service
+/// included. The silent ones are written out here, independently of the
+/// adapter and of the contract crate's own table.
+#[test]
+fn every_code_pages_on_sign_up_unless_it_is_a_not_now() {
+    use mgmt_types::codes::Code;
+    const SILENT: [&str; 5] = [
+        "service_unavailable",
+        "tenant_restoring",
+        "key_moved",
+        "cap_reached",
+        "idempotency_key_in_use",
+    ];
+    for code in Code::ALL {
+        let name = code.as_str();
+        let fake = Fake::new();
+        let pages = Pages::default();
+        let t = MgmtTenancy::new(&fake, tokens(), &pages);
+        fake.answer_next(coded(name, code.status()));
+        let (want, paged) = match name {
+            "external_ref_retired" => (TenancyError::Gone, false),
+            n if SILENT.contains(&n) => (TenancyError::Retry, false),
+            _ => (TenancyError::Retry, true),
+        };
+        assert_eq!(create(&t), Err(want), "{name}");
+        let pages = pages.0.borrow();
+        if paged {
+            assert_eq!(
+                pages.as_slice(),
+                [("create_tenant", name.to_owned())],
+                "{name}"
+            );
+        } else {
+            assert!(pages.is_empty(), "{name}");
+        }
+    }
+}
+
+/// `internal_error` from the plane pages, and so do the two refusals of a
+/// tenant create that this service must never cause.
+#[test]
+fn upstream_faults_page() {
+    for code in [
+        "internal_error",
+        "jurisdiction_not_served",
+        "rate_class_not_served",
+        "bad_request",
+        "unauthenticated",
+    ] {
+        let fake = Fake::new();
+        let pages = Pages::default();
+        let t = MgmtTenancy::new(&fake, tokens(), &pages);
+        fake.answer_next(coded(code, 400));
+        assert_eq!(create(&t), Err(TenancyError::Retry), "{code}");
+        assert_eq!(
+            pages.0.borrow().as_slice(),
+            [("create_tenant", code.to_owned())],
+            "{code}"
+        );
+    }
+}
+
+/// A principal create that races another for the same member answers
+/// `503` with `Retry-After: 30` while no principal exists yet. That is a
+/// "not now": no page, and the retry, with the same key, finds or makes
+/// the principal.
+#[test]
+fn a_racing_principal_create_retries_in_silence_and_then_succeeds() {
+    let fake = Fake::new();
+    let pages = Pages::default();
+    let t = MgmtTenancy::new(&fake, tokens(), &pages);
+    let p = CreatePrincipal {
+        tenant_id: TENANT.into(),
+        owner_ref: "usr_racer".into(),
+        role: Role::Owner,
+        idempotency_key: "ws_a/usr_racer".into(),
+    };
+    fake.answer_next(Response {
+        status: 503,
+        retry_after: Some("30".into()),
+        body: serde_json::to_vec(&serde_json::json!({ "code": "service_unavailable" })).unwrap(),
+    });
+    assert_eq!(block_on(t.create_principal(&p)), Err(TenancyError::Retry));
+    assert!(pages.0.borrow().is_empty());
+    assert!(fake.state.borrow().created_principals.is_empty());
+    block_on(t.create_principal(&p)).unwrap();
+    assert_eq!(fake.state.borrow().created_principals, ["usr_racer"]);
+    let sent = fake.requests();
+    assert_eq!(sent.len(), 2);
+    for r in &sent {
+        assert_eq!(r.header("Idempotency-Key"), Some("ws_a/usr_racer"));
+    }
+    assert_eq!(sent[0].body, sent[1].body);
+    assert!(pages.0.borrow().is_empty());
 }
