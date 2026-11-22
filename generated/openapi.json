@@ -957,11 +957,12 @@
           "Account"
         ],
         "summary": "Cancel a deletion",
-        "description": "Cancels a deletion that is waiting for confirmation or scheduled, as\nlong as `erase_at` has not passed. The account, its buckets and its keys\nwork again at once.\n\nScopes: `account:delete`.",
+        "description": "Cancels a deletion that is waiting for confirmation or scheduled, as\nlong as `erase_at` has not passed. The account, its buckets and its keys\nwork again at once. A deletion request that is still waiting for\nconfirmation is cancelled by any request. A scheduled deletion is\ncancelled only on the console's confirmation page; any other request\nis refused with `confirmation_required`.\n\nScopes: `account:delete`.",
         "x-kofra-scopes": [
           "account:delete"
         ],
         "x-kofra-errors": [
+          "confirmation_required",
           "deletion_final",
           "deletion_not_cancellable",
           "deletion_not_requested",
@@ -1141,7 +1142,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `ip_not_allowed`, `role_forbidden`",
+            "description": "`confirmation_required`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`",
             "headers": {
               "Kofra-Request-Id": {
                 "$ref": "#/components/headers/KofraRequestId"
@@ -1159,6 +1160,20 @@
                   "$ref": "#/components/schemas/Problem"
                 },
                 "examples": {
+                  "confirmation_required": {
+                    "summary": "A person must confirm this in the console",
+                    "value": {
+                      "type": "https://kofra.app/docs/errors/confirmation_required",
+                      "title": "A person must confirm this in the console",
+                      "status": 403,
+                      "code": "confirmation_required",
+                      "detail": "Deleting a bucket needs a confirmation in the console.",
+                      "hint": "Do this in the console; a script that must write or delete objects without a person uses an S3 access key instead.",
+                      "docs_url": "https://kofra.app/docs/errors/confirmation_required.md",
+                      "request_id": "req_01jd3examplerequestid0000",
+                      "retryable": false
+                    }
+                  },
                   "insufficient_scope": {
                     "summary": "Token lacks a required scope",
                     "value": {
@@ -2957,7 +2972,7 @@
           "Buckets"
         ],
         "summary": "Delete a bucket",
-        "description": "Deletes an empty bucket and every access key grant on it. A bucket that\nstill holds objects is refused with `bucket_not_empty`; delete the\nobjects through the S3 endpoint first. Deletion is final.\n\nScopes: `buckets:delete`.",
+        "description": "Deletes an empty bucket and every access key grant on it. A bucket that\nstill holds objects is refused with `bucket_not_empty`; delete the\nobjects through the S3 endpoint first. Deletion is final, so it is\ndone in the console: a request with an API token is refused with\n`confirmation_required`. A dry run needs no confirmation.\n\nScopes: `buckets:delete`.",
         "x-kofra-scopes": [
           "buckets:delete"
         ],
@@ -2966,6 +2981,7 @@
           "bucket_not_allowed",
           "bucket_not_empty",
           "bucket_not_found",
+          "confirmation_required",
           "idempotency_key_in_use",
           "idempotency_key_reused",
           "insufficient_scope",
@@ -3161,7 +3177,7 @@
             }
           },
           "403": {
-            "description": "`account_unavailable`, `bucket_not_allowed`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`",
+            "description": "`account_unavailable`, `bucket_not_allowed`, `confirmation_required`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`",
             "headers": {
               "Kofra-Request-Id": {
                 "$ref": "#/components/headers/KofraRequestId"
@@ -3203,6 +3219,20 @@
                       "detail": "The token is limited to other buckets than \"photos\".",
                       "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit; if the token has no bucket limit, ask an Owner for access to the bucket.",
                       "docs_url": "https://kofra.app/docs/errors/bucket_not_allowed.md",
+                      "request_id": "req_01jd3examplerequestid0000",
+                      "retryable": false
+                    }
+                  },
+                  "confirmation_required": {
+                    "summary": "A person must confirm this in the console",
+                    "value": {
+                      "type": "https://kofra.app/docs/errors/confirmation_required",
+                      "title": "A person must confirm this in the console",
+                      "status": 403,
+                      "code": "confirmation_required",
+                      "detail": "Deleting a bucket needs a confirmation in the console.",
+                      "hint": "Do this in the console; a script that must write or delete objects without a person uses an S3 access key instead.",
+                      "docs_url": "https://kofra.app/docs/errors/confirmation_required.md",
                       "request_id": "req_01jd3examplerequestid0000",
                       "retryable": false
                     }
@@ -4443,7 +4473,7 @@
           "Access keys"
         ],
         "summary": "Create an access key",
-        "description": "Creates an S3 access key pair with access to the listed buckets. The\nsecret is in this response only; store it at once. A replay of the same\nrequest with the same `Idempotency-Key` returns the key with\n`secret_access_key: null`: revoke that key and create a new one if the\nsecret was lost.\n\nWhoever holds a key with access to a bucket can read its objects, so\n`keys:write` is treated as data access. The grants cannot exceed the\ncaller's own access: a grant on a bucket, or an access level, that the\ncaller's role does not allow is refused with `role_forbidden`, and a\nbucket outside the token's bucket list with `bucket_not_allowed`. A\ntoken limited to some client addresses cannot create keys\n(`ip_not_allowed`): access keys have no address limit yet.\n\nThrough the MCP tool `keys_create`, the secret is not in the tool\nresult: the result links to a console page that shows it once.\n\nScopes: `keys:write`.",
+        "description": "Creates an S3 access key pair with access to the listed buckets. The\nsecret is in this response only; store it at once. A replay of the same\nrequest with the same `Idempotency-Key` returns the key with\n`secret_access_key: null`: revoke that key and create a new one if the\nsecret was lost.\n\nWhoever holds a key with access to a bucket can read its objects, so\n`keys:write` is treated as data access. The grants cannot exceed the\ncaller's own access: a grant on a bucket, or an access level, that the\ncaller's role does not allow is refused with `role_forbidden`, and a\nbucket outside the token's bucket list with `bucket_not_allowed`. A\ntoken limited to some client addresses cannot create keys\n(`ip_not_allowed`): access keys have no address limit yet.\n\nA key with any `read_write` grant is created in the console: a request\nwith an API token is refused with `confirmation_required`. A key whose\ngrants are all `read` needs no confirmation.\n\nThrough the MCP tool `keys_create`, the secret is not in the tool\nresult: the result links to a console page that shows it once.\n\nScopes: `keys:write`.",
         "x-kofra-scopes": [
           "keys:write"
         ],
@@ -4452,6 +4482,7 @@
           "account_unavailable",
           "bucket_not_allowed",
           "bucket_not_found",
+          "confirmation_required",
           "idempotency_key_in_use",
           "idempotency_key_reused",
           "insufficient_scope",
@@ -4654,7 +4685,7 @@
             }
           },
           "403": {
-            "description": "`account_read_only`, `account_unavailable`, `bucket_not_allowed`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`",
+            "description": "`account_read_only`, `account_unavailable`, `bucket_not_allowed`, `confirmation_required`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`",
             "headers": {
               "Kofra-Request-Id": {
                 "$ref": "#/components/headers/KofraRequestId"
@@ -4710,6 +4741,20 @@
                       "detail": "The token is limited to other buckets than \"photos\".",
                       "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit; if the token has no bucket limit, ask an Owner for access to the bucket.",
                       "docs_url": "https://kofra.app/docs/errors/bucket_not_allowed.md",
+                      "request_id": "req_01jd3examplerequestid0000",
+                      "retryable": false
+                    }
+                  },
+                  "confirmation_required": {
+                    "summary": "A person must confirm this in the console",
+                    "value": {
+                      "type": "https://kofra.app/docs/errors/confirmation_required",
+                      "title": "A person must confirm this in the console",
+                      "status": 403,
+                      "code": "confirmation_required",
+                      "detail": "Deleting a bucket needs a confirmation in the console.",
+                      "hint": "Do this in the console; a script that must write or delete objects without a person uses an S3 access key instead.",
+                      "docs_url": "https://kofra.app/docs/errors/confirmation_required.md",
                       "request_id": "req_01jd3examplerequestid0000",
                       "retryable": false
                     }
@@ -5106,7 +5151,7 @@
           "Access keys"
         ],
         "summary": "Update an access key",
-        "description": "Renames a key, or adds or widens its grants. A grant is never narrowed\n(`read_write` to `read`) or removed: create a new key with the narrower\naccess and revoke this one. Grants not listed are left as they are.\n\nScopes: `keys:write`.",
+        "description": "Renames a key, or adds or widens its grants. A grant is never narrowed\n(`read_write` to `read`) or removed: create a new key with the narrower\naccess and revoke this one. Grants not listed are left as they are.\nA request that lists grants is made in the console: with an API token\nit is refused with `confirmation_required`. A rename needs no\nconfirmation.\n\nScopes: `keys:write`.",
         "x-kofra-scopes": [
           "keys:write"
         ],
@@ -5115,6 +5160,7 @@
           "account_unavailable",
           "bucket_not_allowed",
           "bucket_not_found",
+          "confirmation_required",
           "grant_limit_reached",
           "grant_narrowing_refused",
           "idempotency_key_in_use",
@@ -5320,7 +5366,7 @@
             }
           },
           "403": {
-            "description": "`account_read_only`, `account_unavailable`, `bucket_not_allowed`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`",
+            "description": "`account_read_only`, `account_unavailable`, `bucket_not_allowed`, `confirmation_required`, `insufficient_scope`, `ip_not_allowed`, `role_forbidden`",
             "headers": {
               "Kofra-Request-Id": {
                 "$ref": "#/components/headers/KofraRequestId"
@@ -5376,6 +5422,20 @@
                       "detail": "The token is limited to other buckets than \"photos\".",
                       "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit; if the token has no bucket limit, ask an Owner for access to the bucket.",
                       "docs_url": "https://kofra.app/docs/errors/bucket_not_allowed.md",
+                      "request_id": "req_01jd3examplerequestid0000",
+                      "retryable": false
+                    }
+                  },
+                  "confirmation_required": {
+                    "summary": "A person must confirm this in the console",
+                    "value": {
+                      "type": "https://kofra.app/docs/errors/confirmation_required",
+                      "title": "A person must confirm this in the console",
+                      "status": 403,
+                      "code": "confirmation_required",
+                      "detail": "Deleting a bucket needs a confirmation in the console.",
+                      "hint": "Do this in the console; a script that must write or delete objects without a person uses an S3 access key instead.",
+                      "docs_url": "https://kofra.app/docs/errors/confirmation_required.md",
                       "request_id": "req_01jd3examplerequestid0000",
                       "retryable": false
                     }

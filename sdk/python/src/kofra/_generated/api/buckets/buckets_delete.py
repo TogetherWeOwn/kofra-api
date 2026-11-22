@@ -152,7 +152,9 @@ def sync_detailed(
 
      Deletes an empty bucket and every access key grant on it. A bucket that
     still holds objects is refused with `bucket_not_empty`; delete the
-    objects through the S3 endpoint first. Deletion is final.
+    objects through the S3 endpoint first. Deletion is final, so it is
+    done in the console: a request with an API token is refused with
+    `confirmation_required`. A dry run needs no confirmation.
 
     Scopes: `buckets:delete`.
 
@@ -196,7 +198,9 @@ def sync(
 
      Deletes an empty bucket and every access key grant on it. A bucket that
     still holds objects is refused with `bucket_not_empty`; delete the
-    objects through the S3 endpoint first. Deletion is final.
+    objects through the S3 endpoint first. Deletion is final, so it is
+    done in the console: a request with an API token is refused with
+    `confirmation_required`. A dry run needs no confirmation.
 
     Scopes: `buckets:delete`.
 
@@ -235,7 +239,9 @@ async def asyncio_detailed(
 
      Deletes an empty bucket and every access key grant on it. A bucket that
     still holds objects is refused with `bucket_not_empty`; delete the
-    objects through the S3 endpoint first. Deletion is final.
+    objects through the S3 endpoint first. Deletion is final, so it is
+    done in the console: a request with an API token is refused with
+    `confirmation_required`. A dry run needs no confirmation.
 
     Scopes: `buckets:delete`.
 
@@ -279,7 +285,9 @@ async def asyncio(
 
      Deletes an empty bucket and every access key grant on it. A bucket that
     still holds objects is refused with `bucket_not_empty`; delete the
-    objects through the S3 endpoint first. Deletion is final.
+    objects through the S3 endpoint first. Deletion is final, so it is
+    done in the console: a request with an API token is refused with
+    `confirmation_required`. A dry run needs no confirmation.
 
     Scopes: `buckets:delete`.
 

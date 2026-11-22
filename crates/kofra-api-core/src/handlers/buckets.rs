@@ -8,6 +8,7 @@ use kofra_api_types as t;
 
 use super::{Input, open_cursor, page, param, plan, to_json};
 use crate::{
+    confirm,
     pipeline::{Ctx, Reply},
     ports::{Ports, Reach, Storage},
     problem::{FieldError, Problem},
@@ -89,6 +90,11 @@ pub(super) async fn get<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Problem
 
 pub(super) async fn delete<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Problem> {
     let name = bucket_param(ctx)?;
+    // A delete cannot be undone: it needs a person's confirmation, checked
+    // before storage is called. A dry run changes nothing and needs none.
+    if !ctx.dry_run {
+        ctx.require(confirm::DELETE_BUCKET)?;
+    }
     let storage = ctx.api.ports.storage();
     let tenant = ctx.tenant_id()?;
     // Only a dry run looks the bucket up first: the delete itself answers

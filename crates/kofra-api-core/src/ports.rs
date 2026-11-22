@@ -297,6 +297,10 @@ pub enum StorageError {
     GrantNotHeld,
     /// `invalid_cursor`: storage could not parse the position it was given.
     InvalidCursor,
+    /// `confirmation_required`: the call needs a person's confirmation that
+    /// this request does not carry ([`crate::confirm`]). Refused before
+    /// anything changes; never stored as the request's answer.
+    ConfirmationRequired,
     /// `deletion_not_cancellable`: the deletion was not started by the
     /// customer (for example for non-payment), so the customer cannot undo
     /// it.
@@ -343,6 +347,7 @@ impl StorageError {
             Self::IdempotencyKeyInUse { .. } => "idempotency_key_in_use",
             Self::GrantNotHeld => "bucket_not_allowed",
             Self::InvalidCursor => "invalid_cursor",
+            Self::ConfirmationRequired => "confirmation_required",
             Self::DeletionNotCancellable => "deletion_not_cancellable",
             Self::DeletionAlreadyRequested => "deletion_already_requested",
             Self::DeletionNotRequested => "deletion_not_requested",
@@ -410,13 +415,21 @@ pub struct ObjectPage {
 }
 
 /// How a request was confirmed by a person (tenancy design §6.4, "What
-/// 'confirmed' means").
+/// 'confirmed' means"). Opaque: only [`crate::confirm`] makes one, from a
+/// console credential that [`crate::auth`] verified ([`crate::confirm::of`]),
+/// so no other code can forge a confirmation and the compiler holds that.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Confirmation<'a> {
+pub struct Confirmation<'a>(pub(crate) ConfirmationKind<'a>);
+
+/// What a [`Confirmation`] is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConfirmationKind<'a> {
     /// A console request (a signed-in session in the console).
     Console,
     /// A used confirmation record: the person confirmed this one request on
-    /// the console's confirmation page. The ID is the record's.
+    /// the console's confirmation page. The ID is the record's. Nothing
+    /// makes one outside tests until that page exists.
+    #[cfg_attr(not(any(test, feature = "test-support")), allow(dead_code))]
     Record(&'a str),
 }
 
@@ -424,9 +437,9 @@ impl<'a> Confirmation<'a> {
     /// The confirmation record's ID, if the request has one. It is the
     /// storage call's `Idempotency-Key` (tenancy design §6.4).
     pub fn record_id(self) -> Option<&'a str> {
-        match self {
-            Self::Console => None,
-            Self::Record(id) => Some(id),
+        match self.0 {
+            ConfirmationKind::Console => None,
+            ConfirmationKind::Record(id) => Some(id),
         }
     }
 }
@@ -441,11 +454,11 @@ pub struct Acting<'a> {
     /// The idempotency key passed through to storage (writes only).
     pub idempotency_key: Option<&'a str>,
     /// Whether a person confirmed this request, and how; `None` for an API
-    /// token or agent request. Storage calls that change what a credential
-    /// can open need a confirmation, and a tenant deletion or its undo needs
-    /// a [`Confirmation::Record`]. Choosing it, and refusing such a call
-    /// without one before it reaches storage, comes with the storage plane's
-    /// token classes; until then it is always `None`.
+    /// token or agent request. A bucket delete, a key that can write and a
+    /// grant change need a confirmation, and a tenant deletion or its undo
+    /// needs a [`Confirmation::Record`] ([`crate::confirm`]). The pipeline
+    /// sets it ([`crate::confirm::of`]); every storage checks it with
+    /// [`Acting::require`] before it changes anything.
     pub confirmation: Option<Confirmation<'a>>,
 }
 

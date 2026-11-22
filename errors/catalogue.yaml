@@ -79,6 +79,13 @@ errors:
     meaning: The API token is limited to some buckets (`buckets`), and the request names a bucket outside that list. When a token or an access key is being created, a bucket outside the creating token's list is refused the same way. Storage refuses the same way a grant wider than the acting member's own access, or an object request on a bucket the member has no access to.
     hint: Use a token whose `buckets` list includes this bucket, or a token without a bucket limit; if the token has no bucket limit, ask an Owner for access to the bucket.
     detail_example: 'The token is limited to other buckets than "photos".'
+  - code: confirmation_required
+    status: 403
+    title: A person must confirm this in the console
+    retryable: false
+    meaning: The action cannot be undone or lets a credential do more (deleting a bucket, creating an access key that can write, adding or widening a grant, cancelling a scheduled account deletion), so a signed-in member must confirm it in the console. A request with an API token, an agent's included, cannot confirm it, whatever its scopes. Cancelling a scheduled account deletion also needs the console's confirmation page.
+    hint: Do this in the console; a script that must write or delete objects without a person uses an S3 access key instead.
+    detail_example: 'Deleting a bucket needs a confirmation in the console.'
   - code: role_forbidden
     status: 403
     title: Your role does not allow this

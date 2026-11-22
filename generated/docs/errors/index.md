@@ -15,6 +15,7 @@ Every error is an RFC 9457 `application/problem+json` body with a stable `code`,
 | [`insufficient_scope`](insufficient_scope.md) | 403 | no | Token lacks a required scope |
 | [`ip_not_allowed`](ip_not_allowed.md) | 403 | no | Request address is not allowed for this token |
 | [`bucket_not_allowed`](bucket_not_allowed.md) | 403 | no | Token is limited to other buckets |
+| [`confirmation_required`](confirmation_required.md) | 403 | no | A person must confirm this in the console |
 | [`role_forbidden`](role_forbidden.md) | 403 | no | Your role does not allow this |
 | [`account_read_only`](account_read_only.md) | 403 | no | Account is read-only |
 | [`account_unavailable`](account_unavailable.md) | 403 | no | Account is not available |

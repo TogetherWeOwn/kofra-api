@@ -16,7 +16,7 @@ use kofra_account::{
     ports::{CreatePrincipal, CreateTenant, Ports, Store, Tenancy, TenancyError},
     service::{PROVISION_RETRY_MS, Provisioned},
 };
-use kofra_storage_mgmt::{MgmtTenancy, Pager, Response, Tokens};
+use kofra_storage_mgmt::{MgmtTenancy, Pager, Response};
 use mgmt_types::examples::{EXAMPLES, Example};
 use pollster::block_on;
 
@@ -180,16 +180,26 @@ fn refusals_retry_and_page_unless_they_are_a_not_now_or_gone() {
 }
 
 #[test]
-fn without_the_confirmed_token_nothing_is_sent() {
+fn sign_up_takes_the_confirmed_token() {
     let fake = Fake::new();
     let pages = Pages::default();
-    let t = MgmtTenancy::new(&fake, Tokens::new(STANDARD, None), &pages);
-    assert_eq!(create(&t), Err(TenancyError::Retry));
-    assert!(fake.requests().is_empty());
-    assert_eq!(
-        pages.0.borrow().as_slice(),
-        [("create_tenant", "confirmed_token_missing".to_owned())]
-    );
+    let t = MgmtTenancy::new(&fake, tokens(), &pages);
+    create(&t).unwrap();
+    let p = CreatePrincipal {
+        tenant_id: TENANT.into(),
+        owner_ref: "usr_a".into(),
+        role: Role::Owner,
+        idempotency_key: "ws_a/usr_a".into(),
+    };
+    block_on(t.create_principal(&p)).unwrap();
+    let sent = fake.requests();
+    assert_eq!(sent.len(), 2);
+    for r in &sent {
+        assert_eq!(
+            r.header("Authorization"),
+            Some(format!("Bearer {CONFIRMED}").as_str())
+        );
+    }
 }
 
 /// The account service's ports with the tenancy adapter over the fake.

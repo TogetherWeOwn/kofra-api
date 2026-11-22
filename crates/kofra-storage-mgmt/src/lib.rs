@@ -22,12 +22,14 @@
 //!   record's ID when the request has one, else the client's key, else a
 //!   new random key for this request, kept across the adapter's own
 //!   retries of it. `presign` sends none: each call mints a new URL.
-//! - **Token class.** The standard token, except where the plane asks for
+//! - **Token class** ([`tokens`], the only module that hands out the
+//!   confirmed token). The standard token, except where the plane asks for
 //!   the confirmed one (a bucket delete, a key that can write, adding or
-//!   widening a grant, a tenant deletion and its undo). The confirmed
-//!   token is used only for a confirmed request, and for a tenant deletion
-//!   or its undo only with a used confirmation record; otherwise the call
-//!   is refused as `internal_error` before the plane is called.
+//!   widening a grant, a tenant deletion and its undo, and sign-up). The
+//!   confirmed token is used only for a confirmed request, and for a
+//!   tenant deletion or its undo only with a used confirmation record;
+//!   otherwise the call is refused with `confirmation_required` before the
+//!   plane is called.
 //! - **Positions** pass through as the plane wrote them; the API seals
 //!   them into its cursors.
 //! - **Grant changes.** The plane takes the whole new grant list with the
@@ -50,5 +52,5 @@ pub mod transport;
 
 pub use storage::MgmtStorage;
 pub use tenancy::{MgmtTenancy, Pager};
-pub use tokens::{TokenClass, Tokens};
+pub use tokens::{BadToken, Pass, TokenClass, Tokens};
 pub use transport::{Method, Request, Response, Transport, TransportError};

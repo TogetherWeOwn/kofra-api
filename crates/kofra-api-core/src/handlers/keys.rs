@@ -12,6 +12,7 @@ use serde_json::Value;
 use super::{Input, open_cursor, page, param, plan, to_json};
 use crate::{
     auth::Principal,
+    confirm,
     pipeline::{Ctx, Reply},
     ports::{Ports, Reach, Storage},
     problem::{FieldError, Problem},
@@ -106,6 +107,8 @@ pub(super) async fn create<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Prob
     for g in body.grants.as_slice() {
         ctx.principal.check_bucket(g.bucket.as_str())?;
     }
+    // A key that can write needs a person's confirmation.
+    ctx.require(confirm::create_key(body.grants.as_slice()))?;
     let created = ctx
         .api
         .ports
@@ -135,6 +138,8 @@ pub(super) async fn update<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Reply, Prob
         return Err(Problem::new("internal_error"));
     };
     check_name(body.name().map(|n| n.as_str()))?;
+    // A grant change needs a person's confirmation, before storage is read.
+    ctx.require(confirm::update_key(body.grants().map(|g| g.as_slice())))?;
     let storage = ctx.api.ports.storage();
     // Looked up only to hold a bucket-limited token to its buckets; without a
     // limit a retried update gets its first answer from storage.

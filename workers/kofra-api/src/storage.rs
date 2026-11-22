@@ -68,14 +68,12 @@ impl StoragePlane {
         Self::Stub(Box::new(StubStorage::new(now_ms)))
     }
 
-    /// The management plane over `binding`, with the standard service token.
-    /// The confirmed token is added with the token classes; until then every
-    /// call that needs it is refused before the plane is called.
-    pub fn mgmt(binding: worker::Fetcher, token: &str, s3_endpoint: &str) -> Self {
+    /// The management plane over `binding`, with its two service tokens.
+    pub fn mgmt(binding: worker::Fetcher, tokens: Tokens, s3_endpoint: &str) -> Self {
         Self::Mgmt(MgmtStorage::new(
             ServiceTransport { binding },
             WorkerEnv,
-            Tokens::new(token, None),
+            tokens,
             s3_endpoint,
         ))
     }
@@ -457,16 +455,14 @@ impl TenancyPlane {
         Self { stub, mgmt: None }
     }
 
-    /// The management plane over `binding`. The confirmed token, which
-    /// sign-up takes, is added with the token classes; until then every
-    /// attempt answers `Retry` and pages, and the workspace stays setting
-    /// up.
-    pub fn mgmt(binding: worker::Fetcher, token: &str) -> Self {
+    /// The management plane over `binding`; sign-up takes the confirmed
+    /// token.
+    pub fn mgmt(binding: worker::Fetcher, tokens: Tokens) -> Self {
         Self {
             stub: false,
             mgmt: Some(MgmtTenancy::new(
                 ServiceTransport { binding },
-                Tokens::new(token, None),
+                tokens,
                 LogPager,
             )),
         }

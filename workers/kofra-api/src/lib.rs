@@ -18,6 +18,14 @@
 //! Logs carry the request ID, the status and error classes only: never a
 //! token, a body, an address or a secret.
 
+// The test-only confirmations must never reach a deployed Worker: they
+// would let code confirm a request no person confirmed.
+#[cfg(target_arch = "wasm32")]
+const _: () = assert!(
+    !kofra_api_core::confirm::TEST_SUPPORT,
+    "the test-support feature of kofra-api-core is on in a Worker build"
+);
+
 pub mod breach;
 pub mod config;
 pub mod d1;
@@ -150,10 +158,10 @@ fn storage_plane(s: &Settings, env: &Env) -> Option<StoragePlane> {
     use kofra_api_core::ports::Env as _;
     match &s.storage {
         StorageSetting::Stub => Some(StoragePlane::stub(WorkerEnv.now_ms())),
-        StorageSetting::Mgmt { token } => env
+        StorageSetting::Mgmt { tokens } => env
             .service("STORAGE_MGMT")
             .ok()
-            .map(|binding| StoragePlane::mgmt(binding, token, &s.s3_endpoint)),
+            .map(|binding| StoragePlane::mgmt(binding, tokens.clone(), &s.s3_endpoint)),
     }
 }
 
@@ -177,8 +185,8 @@ fn api(db: &Rc<D1Db>, s: &Settings, storage: StoragePlane) -> Api<ApiPorts> {
 fn tenancy_plane(s: &Settings, env: &Env) -> TenancyPlane {
     match &s.storage {
         StorageSetting::Stub => TenancyPlane::stub(s.deployment != Deployment::Production),
-        StorageSetting::Mgmt { token } => match env.service("STORAGE_MGMT") {
-            Ok(binding) => TenancyPlane::mgmt(binding, token),
+        StorageSetting::Mgmt { tokens } => match env.service("STORAGE_MGMT") {
+            Ok(binding) => TenancyPlane::mgmt(binding, tokens.clone()),
             Err(_) => {
                 worker::console_error!("page: tenancy no STORAGE_MGMT binding");
                 TenancyPlane::stub(false)

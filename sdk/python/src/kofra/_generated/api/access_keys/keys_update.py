@@ -160,6 +160,9 @@ def sync_detailed(
      Renames a key, or adds or widens its grants. A grant is never narrowed
     (`read_write` to `read`) or removed: create a new key with the narrower
     access and revoke this one. Grants not listed are left as they are.
+    A request that lists grants is made in the console: with an API token
+    it is refused with `confirmation_required`. A rename needs no
+    confirmation.
 
     Scopes: `keys:write`.
 
@@ -204,6 +207,9 @@ def sync(
      Renames a key, or adds or widens its grants. A grant is never narrowed
     (`read_write` to `read`) or removed: create a new key with the narrower
     access and revoke this one. Grants not listed are left as they are.
+    A request that lists grants is made in the console: with an API token
+    it is refused with `confirmation_required`. A rename needs no
+    confirmation.
 
     Scopes: `keys:write`.
 
@@ -243,6 +249,9 @@ async def asyncio_detailed(
      Renames a key, or adds or widens its grants. A grant is never narrowed
     (`read_write` to `read`) or removed: create a new key with the narrower
     access and revoke this one. Grants not listed are left as they are.
+    A request that lists grants is made in the console: with an API token
+    it is refused with `confirmation_required`. A rename needs no
+    confirmation.
 
     Scopes: `keys:write`.
 
@@ -287,6 +296,9 @@ async def asyncio(
      Renames a key, or adds or widens its grants. A grant is never narrowed
     (`read_write` to `read`) or removed: create a new key with the narrower
     access and revoke this one. Grants not listed are left as they are.
+    A request that lists grants is made in the console: with an API token
+    it is refused with `confirmation_required`. A rename needs no
+    confirmation.
 
     Scopes: `keys:write`.
 

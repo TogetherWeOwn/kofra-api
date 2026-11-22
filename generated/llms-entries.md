@@ -20,6 +20,7 @@
 - [insufficient_scope](https://kofra.app/docs/errors/insufficient_scope.md): Token lacks a required scope
 - [ip_not_allowed](https://kofra.app/docs/errors/ip_not_allowed.md): Request address is not allowed for this token
 - [bucket_not_allowed](https://kofra.app/docs/errors/bucket_not_allowed.md): Token is limited to other buckets
+- [confirmation_required](https://kofra.app/docs/errors/confirmation_required.md): A person must confirm this in the console
 - [role_forbidden](https://kofra.app/docs/errors/role_forbidden.md): Your role does not allow this
 - [account_read_only](https://kofra.app/docs/errors/account_read_only.md): Account is read-only
 - [account_unavailable](https://kofra.app/docs/errors/account_unavailable.md): Account is not available

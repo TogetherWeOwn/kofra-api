@@ -108,16 +108,22 @@ impl<P: Ports> Ctx<'_, P> {
             .ok_or_else(|| Problem::new("internal_error"))
     }
 
-    /// The acting principal for a storage call.
+    /// The acting principal for a storage call, with how the request was
+    /// confirmed ([`crate::confirm::of`]).
     pub fn acting(&self) -> Result<crate::ports::Acting<'_>, Problem> {
         Ok(crate::ports::Acting {
             tenant: self.tenant_id()?,
             principal: &self.principal.user_id,
             idempotency_key: self.idempotency_key.as_deref(),
-            // Which requests count as confirmed is decided with the token
-            // classes of the storage plane; until then none does.
-            confirmation: None,
+            confirmation: crate::confirm::of(&self.principal),
         })
+    }
+
+    /// Refuses with `confirmation_required` unless this request carries the
+    /// confirmation `need` asks for. Handlers call it before their first
+    /// storage call.
+    pub fn require(&self, need: crate::confirm::Need) -> Result<(), Problem> {
+        crate::confirm::check(crate::confirm::of(&self.principal), need).map_err(Problem::from)
     }
 
     /// A new ID with `prefix`.
@@ -617,6 +623,9 @@ impl<P: Ports> Api<P> {
                 // and the first request's retry can still reach storage.
                 && code != Some("idempotency_key_reused")
                 && code != Some("idempotency_key_in_use")
+                // Not this request's final answer either: the same request,
+                // once a person has confirmed it, must run.
+                && code != Some("confirmation_required")
             {
                 let stored = Stored {
                     status: replay.status,
