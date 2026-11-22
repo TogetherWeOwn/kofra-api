@@ -49,15 +49,41 @@ impl Pass {
     }
 }
 
+/// Which token [`Tokens::new`] refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BadToken {
+    /// The standard token is not 16 to 4,096 visible ASCII characters.
+    Standard,
+    /// The confirmed token is not 16 to 4,096 visible ASCII characters, or
+    /// equals the standard one.
+    Confirmed,
+}
+
+/// A service token as a header carries it: 16 to 4,096 visible ASCII
+/// characters.
+pub fn well_formed(v: &str) -> bool {
+    (16..=4096).contains(&v.len()) && v.bytes().all(|b| b.is_ascii_graphic())
+}
+
 impl Tokens {
     /// The standard and the confirmed token, as the Worker's secrets hold
-    /// them. They must differ; the Worker's settings refuse a deployment
-    /// where they do not.
-    pub fn new(standard: impl Into<String>, confirmed: impl Into<String>) -> Self {
-        Self {
-            standard: standard.into(),
-            confirmed: confirmed.into(),
+    /// them. Each must be well formed, and they must differ: a deployment
+    /// with one token in both places would make every call confirmed.
+    pub fn new(
+        standard: impl Into<String>,
+        confirmed: impl Into<String>,
+    ) -> Result<Self, BadToken> {
+        let (standard, confirmed) = (standard.into(), confirmed.into());
+        if !well_formed(&standard) {
+            return Err(BadToken::Standard);
         }
+        if !well_formed(&confirmed) || confirmed == standard {
+            return Err(BadToken::Confirmed);
+        }
+        Ok(Self {
+            standard,
+            confirmed,
+        })
     }
 
     /// The pass of a call that needs `need`, for a request confirmed as
@@ -103,9 +129,9 @@ mod tests {
 
     #[test]
     fn the_confirmed_token_needs_the_confirmation_its_call_needs() {
-        let t = Tokens::new("standard-token-0123456789", "confirmed-token-0123456789");
-        let console = Some(Confirmation::Console);
-        let record = Some(Confirmation::Record("cnf_1"));
+        let t = Tokens::new("standard-token-0123456789", "confirmed-token-0123456789").unwrap();
+        let console = Some(kofra_api_core::confirm::testing::CONSOLE);
+        let record = Some(kofra_api_core::confirm::testing::record("cnf_1"));
         for c in [None, console, record] {
             let p = t.pass(c, Need::Nothing).unwrap();
             assert_eq!(t.token(p), "standard-token-0123456789");
@@ -126,5 +152,25 @@ mod tests {
         assert_eq!(t.token(t.signup_pass()), "confirmed-token-0123456789");
         let shown = format!("{t:?}");
         assert!(!shown.contains("0123456789"), "{shown}");
+    }
+
+    #[test]
+    fn both_tokens_must_be_well_formed_and_differ() {
+        let ok = "standard-token-0123456789";
+        for (s, c, want) in [
+            ("short", "confirmed-token-0123456789", BadToken::Standard),
+            (
+                "has a space in it, sixteen+",
+                "confirmed-token-0123456789",
+                BadToken::Standard,
+            ),
+            (ok, "short", BadToken::Confirmed),
+            (ok, "tab\tin-the-confirmed-token", BadToken::Confirmed),
+            (ok, ok, BadToken::Confirmed),
+        ] {
+            assert_eq!(Tokens::new(s, c).err(), Some(want), "{s} {c}");
+        }
+        let long = "x".repeat(4097);
+        assert_eq!(Tokens::new(ok, long).err(), Some(BadToken::Confirmed));
     }
 }

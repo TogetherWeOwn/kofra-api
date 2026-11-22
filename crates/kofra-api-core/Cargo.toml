@@ -17,7 +17,14 @@ sha2 = "0.10"
 subtle = "2.6"
 time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
 
+[features]
+# Test-only constructors of a person's confirmation (`confirm::testing`).
+# Enabled only from `[dev-dependencies]`; a CI test holds that.
+test-support = []
+
 [dev-dependencies]
+# This crate's own integration tests take the test-only constructors.
+kofra-api-core = { path = ".", features = ["test-support"] }
 pollster = "0.4"
 
 [lints]

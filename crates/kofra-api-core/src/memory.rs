@@ -1523,7 +1523,7 @@ mod tests {
         tenant: "tenant",
         principal: "usr_a",
         idempotency_key: None,
-        confirmation: Some(crate::ports::Confirmation::Console),
+        confirmation: Some(crate::confirm::testing::CONSOLE),
     };
 
     fn storage_fixture() -> Memory {

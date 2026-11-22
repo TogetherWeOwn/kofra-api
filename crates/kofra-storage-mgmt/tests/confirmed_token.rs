@@ -1,20 +1,23 @@
 //! The confirmed token is read in one module only, behind the confirmation
-//! checks (tenancy design §6.4: "A CI grep keeps it there"). This test is
-//! that grep, over every source file of the repository:
+//! checks (tenancy design §6.4: "A CI grep keeps it there"). The compiler
+//! holds most of it: a `Confirmation` is opaque and made only from a
+//! console credential, which only authentication can make, and a `Pass`
+//! for the confirmed token is made only in `tokens.rs`. This test is the
+//! grep for the rest, over every source file of the repository:
 //!
-//! 1. The confirmed token's secret name appears in code only where the
-//!    Worker reads its settings (`workers/kofra-api/src/config.rs`), which
-//!    puts it straight into `Tokens`.
-//! 2. Only `tokens.rs` names the confirmed class or makes a sign-up pass,
-//!    and only the tenancy port asks for one: no other code can reach the
-//!    confirmed token. (The checked copy of the contract crate defines the
-//!    class and is exempt.)
-//! 3. Only `kofra-api-core`'s `confirm.rs` decides that a request is
-//!    confirmed: no other source makes a `Confirmation` or sets one on an
-//!    `Acting`.
+//! 1. The confirmed token's secret name, or anything ending in
+//!    `_CONFIRMED`, appears in code only where the Worker reads its
+//!    settings (`workers/kofra-api/src/config.rs`), which puts it straight
+//!    into `Tokens`.
+//! 2. Only `tokens.rs` names the confirmed class or makes a pass, and the
+//!    sign-up pass is asked for exactly once, by the tenancy port.
+//! 3. Only `ports.rs` and `confirm.rs` name what a confirmation is, only
+//!    authentication makes a console credential's proof, and the test-only
+//!    confirmations are reached from tests only: the `test-support`
+//!    feature is enabled from `[dev-dependencies]` only.
 //!
-//! Comments and everything from a file's first `#[cfg(test)]` on are not
-//! code for these rules, nor are test directories.
+//! Comments and a file's `#[cfg(test)] mod tests` are not code for these
+//! rules, nor are test directories.
 
 use std::{fs, path::Path};
 
@@ -79,21 +82,36 @@ fn repository() -> Vec<(String, String)> {
     files
 }
 
-/// The code lines of a non-test Rust source: no comments, nothing from the
-/// first `#[cfg(test)]` on. `None` for test files and the contract copy.
+/// The code lines of a non-test Rust source: no comments, nothing from
+/// `#[cfg(test)] mod tests` on. `None` for test files and the contract
+/// copy. Any other `#[cfg(test)]` item fails the test, so none can hide
+/// the code after it.
 fn code_lines(path: &str, text: &str) -> Option<Vec<(usize, String)>> {
     let is_src = path.ends_with(".rs") && path.contains("/src/");
     if !is_src || path.contains("/tests/") || path.starts_with("crates/mgmt-types/") {
         return None;
     }
-    Some(
-        text.lines()
-            .enumerate()
-            .take_while(|(_, l)| l.trim() != "#[cfg(test)]")
-            .filter(|(_, l)| !l.trim_start().starts_with("//"))
-            .map(|(i, l)| (i + 1, l.to_owned()))
-            .collect(),
-    )
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = Vec::new();
+    for (i, l) in lines.iter().enumerate() {
+        if l.trim() == "#[cfg(test)]" {
+            let next = lines[i + 1..]
+                .iter()
+                .map(|n| n.trim())
+                .find(|n| !n.is_empty())
+                .unwrap_or("");
+            assert!(
+                next == "mod tests {",
+                "{path}:{}: a #[cfg(test)] item other than `mod tests` would hide code from this test",
+                i + 1
+            );
+            break;
+        }
+        if !l.trim_start().starts_with("//") {
+            out.push((i + 1, (*l).to_owned()));
+        }
+    }
+    Some(out)
 }
 
 fn hits(files: &[(String, String)], allowed: &[&str], patterns: &[&str]) -> Vec<String> {
@@ -120,7 +138,9 @@ fn the_confirmed_tokens_secret_is_read_only_by_the_settings() {
     let files = repository();
     let found: Vec<&str> = files
         .iter()
-        .filter(|(p, text)| !p.contains("/tests/") && text.contains(&name))
+        .filter(|(p, text)| {
+            !p.contains("/tests/") && (text.contains(&name) || text.contains("_CONFIRMED"))
+        })
         .map(|(p, _)| p.as_str())
         .collect();
     assert_eq!(found, ["workers/kofra-api/src/config.rs"]);
@@ -136,39 +156,85 @@ fn only_the_tokens_module_reaches_the_confirmed_token() {
             "TokenClass::Confirmed",
             "TokenClass::{",
             "TokenClass::*",
+            "TokenClass as",
             "Pass(",
             "signup_pass",
         ],
     );
-    // The tenancy port asks for the sign-up pass; nothing else does.
-    let found: Vec<String> = found
+    // The tenancy port asks for the sign-up pass, once; nothing else does.
+    let tenancy = "crates/kofra-storage-mgmt/src/tenancy.rs:";
+    let (signup, other): (Vec<String>, Vec<String>) = found
         .into_iter()
-        .filter(|h| {
-            !(h.starts_with("crates/kofra-storage-mgmt/src/tenancy.rs:")
-                && h.contains("self.tokens.signup_pass()"))
-        })
-        .collect();
-    assert!(found.is_empty(), "{found:#?}");
+        .partition(|h| h.starts_with(tenancy) && h.contains("self.tokens.signup_pass()"));
+    assert!(other.is_empty(), "{other:#?}");
+    assert_eq!(signup.len(), 1, "{signup:#?}");
 }
 
 #[test]
 fn only_confirm_decides_that_a_request_is_confirmed() {
     let files = repository();
-    let found = hits(
+    let what = hits(
         &files,
-        &["crates/kofra-api-core/src/confirm.rs"],
         &[
-            "Confirmation::Console",
-            "Confirmation::Record",
-            "confirmation: Some(",
+            "crates/kofra-api-core/src/ports.rs",
+            "crates/kofra-api-core/src/confirm.rs",
         ],
+        &["ConfirmationKind", "confirm::testing", "Confirmation("],
     );
-    assert!(found.is_empty(), "{found:#?}");
-    // The pipeline takes the confirmation from `confirm::of`.
+    assert!(what.is_empty(), "{what:#?}");
+    let proof = hits(
+        &files,
+        &["crates/kofra-api-core/src/auth.rs"],
+        &["ConsoleProof("],
+    );
+    assert!(proof.is_empty(), "{proof:#?}");
+    // The pipeline takes the confirmation from `confirm::of`, and only it
+    // and `confirm` call that.
+    let of = hits(
+        &files,
+        &[
+            "crates/kofra-api-core/src/pipeline.rs",
+            "crates/kofra-api-core/src/confirm.rs",
+        ],
+        &["confirm::of("],
+    );
+    assert!(of.is_empty(), "{of:#?}");
     let pipeline = &files
         .iter()
         .find(|(p, _)| p == "crates/kofra-api-core/src/pipeline.rs")
         .expect("pipeline")
         .1;
     assert!(pipeline.contains("confirmation: crate::confirm::of(&self.principal)"));
+}
+
+/// The test-only confirmations are compiled in only for tests: every
+/// manifest line that names the `test-support` feature is the feature's
+/// own definition or a `[dev-dependencies]` entry.
+#[test]
+fn test_confirmations_are_enabled_from_dev_dependencies_only() {
+    let mut seen = 0;
+    for (path, text) in repository() {
+        if !path.ends_with("Cargo.toml") {
+            continue;
+        }
+        let mut section = String::new();
+        for (n, line) in text.lines().enumerate() {
+            let l = line.trim();
+            if l.starts_with('[') {
+                section = l.to_owned();
+                continue;
+            }
+            if l.starts_with('#') || !l.contains("test-support") {
+                continue;
+            }
+            seen += 1;
+            let feature_def = path == "crates/kofra-api-core/Cargo.toml" && section == "[features]";
+            assert!(
+                feature_def || section == "[dev-dependencies]",
+                "{path}:{}: `test-support` outside [dev-dependencies]",
+                n + 1
+            );
+        }
+    }
+    assert!(seen >= 2, "the feature and its dev-dependencies were found");
 }

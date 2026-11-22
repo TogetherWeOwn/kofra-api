@@ -415,13 +415,21 @@ pub struct ObjectPage {
 }
 
 /// How a request was confirmed by a person (tenancy design §6.4, "What
-/// 'confirmed' means").
+/// 'confirmed' means"). Opaque: only [`crate::confirm`] makes one, from a
+/// console credential that [`crate::auth`] verified ([`crate::confirm::of`]),
+/// so no other code can forge a confirmation and the compiler holds that.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Confirmation<'a> {
+pub struct Confirmation<'a>(pub(crate) ConfirmationKind<'a>);
+
+/// What a [`Confirmation`] is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConfirmationKind<'a> {
     /// A console request (a signed-in session in the console).
     Console,
     /// A used confirmation record: the person confirmed this one request on
-    /// the console's confirmation page. The ID is the record's.
+    /// the console's confirmation page. The ID is the record's. Nothing
+    /// makes one outside tests until that page exists.
+    #[cfg_attr(not(any(test, feature = "test-support")), allow(dead_code))]
     Record(&'a str),
 }
 
@@ -429,9 +437,9 @@ impl<'a> Confirmation<'a> {
     /// The confirmation record's ID, if the request has one. It is the
     /// storage call's `Idempotency-Key` (tenancy design §6.4).
     pub fn record_id(self) -> Option<&'a str> {
-        match self {
-            Self::Console => None,
-            Self::Record(id) => Some(id),
+        match self.0 {
+            ConfirmationKind::Console => None,
+            ConfirmationKind::Record(id) => Some(id),
         }
     }
 }

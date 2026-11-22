@@ -6,7 +6,7 @@
 mod common;
 
 use common::*;
-use kofra_api_core::ports::{Confirmation, Storage, StorageError};
+use kofra_api_core::ports::{Storage, StorageError};
 use kofra_api_types as t;
 use mgmt_types::examples::{BUCKET, EXAMPLES, Example, KEY, OWNER_REF, TENANT};
 use pollster::block_on;
@@ -135,7 +135,7 @@ fn delete_tenant() {
             TENANT,
             OWNER_REF,
             Some("client-key"),
-            Some(Confirmation::Record("cfm_01JD3A0000")),
+            Some(kofra_api_core::confirm::testing::record("cfm_01JD3A0000")),
         ))
         .await
     })
@@ -157,7 +157,7 @@ fn restore_tenant() {
                 TENANT,
                 OWNER_REF,
                 None,
-                Some(Confirmation::Record("cfm_01JD3B0000")),
+                Some(kofra_api_core::confirm::testing::record("cfm_01JD3B0000")),
             ),
             7,
         )
@@ -211,7 +211,7 @@ fn delete_bucket() {
                 TENANT,
                 OWNER_REF,
                 None,
-                Some(Confirmation::Record("cfm_01JD3C0000")),
+                Some(kofra_api_core::confirm::testing::record("cfm_01JD3C0000")),
             ),
             "photos",
         )
@@ -271,7 +271,7 @@ fn update_key_reads_merges_and_sends_the_whole_list() {
                     TENANT,
                     OWNER_REF,
                     None,
-                    Some(Confirmation::Record("cfm_01JD3D0000")),
+                    Some(kofra_api_core::confirm::testing::record("cfm_01JD3D0000")),
                 ),
                 KEY,
                 None,
@@ -393,7 +393,12 @@ fn a_name_the_tenant_has_no_bucket_of_is_not_found_and_nothing_else_is_sent() {
     lookup.answer = Some(r#"{"items": [], "next": null}"#.to_owned());
     let e = run(vec![lookup], async |s| {
         s.delete_bucket(
-            acting(TENANT, OWNER_REF, None, Some(Confirmation::Console)),
+            acting(
+                TENANT,
+                OWNER_REF,
+                None,
+                Some(kofra_api_core::confirm::testing::CONSOLE),
+            ),
             "gone",
         )
         .await

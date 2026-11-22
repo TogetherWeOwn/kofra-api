@@ -24,14 +24,14 @@
 //!   answer, so the same request, once confirmed, runs.
 //!
 //! This module is the only place that decides a request is confirmed
-//! ([`of`]); a CI test keeps [`Confirmation::Console`] out of every other
-//! non-test source file.
+//! ([`of`]): a [`Confirmation`] is opaque, and `of` takes a console
+//! credential, which only [`crate::auth`] can make.
 
 use kofra_api_types as t;
 
 use crate::{
     auth::{Credential, Principal},
-    ports::{Acting, Confirmation, StorageError},
+    ports::{Acting, Confirmation, ConfirmationKind as Kind, StorageError},
 };
 
 /// What a storage call needs from a person.
@@ -78,11 +78,9 @@ pub fn update_key(grants: Option<&[t::GrantInput]>) -> Need {
 /// must be a valid `Idempotency-Key` (it becomes the storage call's key).
 pub fn check(confirmation: Option<Confirmation<'_>>, need: Need) -> Result<(), StorageError> {
     let record_ok = |id: &str| crate::idempotency::parse_key(id).is_ok();
-    match (need, confirmation) {
-        (Need::Nothing, _) | (Need::Confirmation, Some(Confirmation::Console)) => Ok(()),
-        (Need::Confirmation | Need::Record, Some(Confirmation::Record(id))) if record_ok(id) => {
-            Ok(())
-        }
+    match (need, confirmation.map(|c| c.0)) {
+        (Need::Nothing, _) | (Need::Confirmation, Some(Kind::Console)) => Ok(()),
+        (Need::Confirmation | Need::Record, Some(Kind::Record(id))) if record_ok(id) => Ok(()),
         _ => Err(StorageError::ConfirmationRequired),
     }
 }
@@ -91,8 +89,23 @@ pub fn check(confirmation: Option<Confirmation<'_>>, need: Need) -> Result<(), S
 /// token's, an agent's included, is not.
 pub fn of(principal: &Principal) -> Option<Confirmation<'static>> {
     match principal.credential {
-        Credential::Console { .. } => Some(Confirmation::Console),
+        Credential::Console { .. } => Some(Confirmation(Kind::Console)),
         Credential::Token { .. } => None,
+    }
+}
+
+/// Confirmations for tests only: the `test-support` feature, which only
+/// `[dev-dependencies]` enable (a CI test holds that).
+#[cfg(any(test, feature = "test-support"))]
+pub mod testing {
+    use super::{Confirmation, Kind};
+
+    /// A console request's confirmation.
+    pub const CONSOLE: Confirmation<'static> = Confirmation(Kind::Console);
+
+    /// A used confirmation record with `id`.
+    pub const fn record(id: &str) -> Confirmation<'_> {
+        Confirmation(Kind::Record(id))
     }
 }
 
@@ -118,8 +131,8 @@ mod tests {
 
     #[test]
     fn each_need_takes_exactly_its_confirmations() {
-        let record = Some(Confirmation::Record("cnf_1"));
-        let console = Some(Confirmation::Console);
+        let record = Some(testing::record("cnf_1"));
+        let console = Some(testing::CONSOLE);
         let refused = Err(StorageError::ConfirmationRequired);
         for (need, none, console_ok, record_ok) in [
             (Need::Nothing, Ok(()), Ok(()), Ok(())),
@@ -133,14 +146,11 @@ mod tests {
         // A record ID that cannot be an `Idempotency-Key` confirms nothing.
         for bad in ["", "has space", "\u{e9}"] {
             for need in [Need::Confirmation, Need::Record] {
-                assert_eq!(check(Some(Confirmation::Record(bad)), need), refused);
+                assert_eq!(check(Some(testing::record(bad)), need), refused);
             }
         }
         let long = "k".repeat(256);
-        assert_eq!(
-            check(Some(Confirmation::Record(&long)), Need::Record),
-            refused
-        );
+        assert_eq!(check(Some(testing::record(&long)), Need::Record), refused);
     }
 
     #[test]

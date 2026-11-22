@@ -20,7 +20,7 @@ pub const CONFIRMED: &str = "test-confirmed-token";
 pub const S3: &str = "https://s3.kofra.io";
 
 pub fn tokens() -> Tokens {
-    Tokens::new(STANDARD, CONFIRMED)
+    Tokens::new(STANDARD, CONFIRMED).expect("test tokens")
 }
 
 /// A clock that stands still and a counter as the random source.

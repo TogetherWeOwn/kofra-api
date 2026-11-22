@@ -52,5 +52,5 @@ pub mod transport;
 
 pub use storage::MgmtStorage;
 pub use tenancy::{MgmtTenancy, Pager};
-pub use tokens::{Pass, TokenClass, Tokens};
+pub use tokens::{BadToken, Pass, TokenClass, Tokens};
 pub use transport::{Method, Request, Response, Transport, TransportError};

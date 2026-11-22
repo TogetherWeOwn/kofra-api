@@ -4,7 +4,7 @@
 //! (fail closed); the error names the setting, never its value.
 
 use kofra_account::SignupMode;
-use kofra_storage_mgmt::Tokens;
+use kofra_storage_mgmt::{BadToken, Tokens};
 
 /// Where this copy runs. Production refuses the test-only mail modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,12 +99,6 @@ impl std::fmt::Debug for StorageSetting {
             Self::Mgmt { .. } => "Mgmt",
         })
     }
-}
-
-/// A service token as a header carries it: 16 to 4,096 visible ASCII
-/// characters.
-fn service_token(v: &str) -> bool {
-    (16..=4096).contains(&v.len()) && v.bytes().all(|b| b.is_ascii_graphic())
 }
 
 /// Everything the Worker needs from its settings.
@@ -300,15 +294,18 @@ impl Settings {
         let storage = match get("STORAGE_PLANE").as_deref() {
             None | Some("stub") => StorageSetting::Stub,
             Some("mgmt") => {
-                let standard = get("STORAGE_MGMT_TOKEN")
-                    .filter(|t| service_token(t))
-                    .ok_or(BadSetting("STORAGE_MGMT_TOKEN"))?;
-                let confirmed = get("STORAGE_MGMT_TOKEN_CONFIRMED")
-                    .filter(|t| service_token(t) && *t != standard)
-                    .ok_or(BadSetting("STORAGE_MGMT_TOKEN_CONFIRMED"))?;
-                StorageSetting::Mgmt {
-                    tokens: Tokens::new(standard, confirmed),
-                }
+                const STANDARD: &str = "STORAGE_MGMT_TOKEN";
+                const CONFIRMED: &str = "STORAGE_MGMT_TOKEN_CONFIRMED";
+                let standard = get(STANDARD)
+                    .filter(|t| kofra_storage_mgmt::tokens::well_formed(t))
+                    .ok_or(BadSetting(STANDARD))?;
+                let confirmed = get(CONFIRMED).ok_or(BadSetting(CONFIRMED))?;
+                // `Tokens` checks both and that they differ.
+                let tokens = Tokens::new(standard, confirmed).map_err(|e| match e {
+                    BadToken::Standard => BadSetting(STANDARD),
+                    BadToken::Confirmed => BadSetting(CONFIRMED),
+                })?;
+                StorageSetting::Mgmt { tokens }
             }
             _ => return Err(BadSetting("STORAGE_PLANE")),
         };

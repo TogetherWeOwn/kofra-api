@@ -8,7 +8,7 @@ mod common;
 use common::*;
 use kofra_api_core::{
     memory::Memory,
-    ports::{Acting, Confirmation, Storage, StorageError},
+    ports::{Acting, Storage, StorageError},
     problem::Problem,
 };
 use kofra_api_types as t;
@@ -24,7 +24,7 @@ const ACT: Acting<'static> = Acting {
 
 /// A console request: confirmed, without a confirmation record.
 const CONSOLE: Acting<'static> = Acting {
-    confirmation: Some(Confirmation::Console),
+    confirmation: Some(kofra_api_core::confirm::testing::CONSOLE),
     ..ACT
 };
 
@@ -32,7 +32,7 @@ const CONSOLE: Acting<'static> = Acting {
 /// and its undo need one. Its ID is the storage call's key.
 fn recorded(id: &'static str) -> Acting<'static> {
     Acting {
-        confirmation: Some(Confirmation::Record(id)),
+        confirmation: Some(kofra_api_core::confirm::testing::record(id)),
         ..ACT
     }
 }
@@ -99,17 +99,17 @@ fn the_storage_key_is_the_confirmation_record_else_the_clients_key() {
     let client = keyed(ACT, "client");
     assert_eq!(client.storage_key(), Some("client"));
     let console = Acting {
-        confirmation: Some(Confirmation::Console),
+        confirmation: Some(kofra_api_core::confirm::testing::CONSOLE),
         ..client
     };
     assert_eq!(console.storage_key(), Some("client"));
     let record = Acting {
-        confirmation: Some(Confirmation::Record("cfm_1")),
+        confirmation: Some(kofra_api_core::confirm::testing::record("cfm_1")),
         ..client
     };
     assert_eq!(record.storage_key(), Some("cfm_1"));
     let record_only = Acting {
-        confirmation: Some(Confirmation::Record("cfm_1")),
+        confirmation: Some(kofra_api_core::confirm::testing::record("cfm_1")),
         ..ACT
     };
     assert_eq!(record_only.storage_key(), Some("cfm_1"));
@@ -321,8 +321,19 @@ fn a_deletion_the_customer_did_not_start_cannot_be_cancelled() {
         block_on(m.storage.restore_tenant(recorded("undo-1"), seq)).unwrap_err(),
         StorageError::DeletionNotCancellable
     );
+    // Through the API it is answered so before any confirmation is asked
+    // for, from a token and from the console alike: no confirmation could
+    // make it cancellable.
     let h = setup();
     h.api.ports.storage.schedule_billing_deletion("t_a");
+    let token = h.call("POST", "/v1/account/deletion/cancel", &h.owner(), None);
+    let console = h.console_call("POST", "/v1/account/deletion/cancel", "usr_owner", None);
+    for r in [token, console] {
+        assert_eq!(
+            (r.status, code(&r).as_str()),
+            (409, "deletion_not_cancellable")
+        );
+    }
     let account = h.call("GET", "/v1/account", &h.owner(), None).json_body();
     assert_eq!(account["deletion"]["reason"], "non_payment");
 }
@@ -521,4 +532,55 @@ fn a_workspace_has_at_most_its_bucket_limit() {
         block_on(m.storage.create_bucket(ACT, "one-more")).unwrap_err(),
         StorageError::BucketLimitReached
     );
+}
+
+/// The in-memory storage refuses every call that needs a confirmation the
+/// request does not carry, before it changes anything: the same rule as
+/// the storage plane's adapter, so tests against it describe the real
+/// plane.
+#[test]
+fn storage_refuses_an_unconfirmed_call_and_changes_nothing() {
+    let m = memory();
+    let s = &m.storage;
+    block_on(async {
+        let key = s
+            .create_key(
+                CONSOLE,
+                Some("k"),
+                &[grant("photos", t::GrantInputAccess::Read)],
+            )
+            .await
+            .unwrap();
+        let id = key.id.to_string();
+        s.delete_tenant(recorded("del-1")).await.unwrap();
+        let seq = s.tenant("t_a").await.unwrap().deletion_seq.unwrap();
+        let events = s.events_of("t_a").len();
+        let refused = Err(StorageError::ConfirmationRequired);
+        let rw = [grant("photos", t::GrantInputAccess::ReadWrite)];
+        let ro = [grant("backups", t::GrantInputAccess::Read)];
+        assert_eq!(s.delete_bucket(ACT, "backups").await, refused);
+        assert_eq!(s.create_key(ACT, None, &rw).await.map(drop), refused);
+        assert_eq!(
+            s.update_key(ACT, &id, None, Some(&ro)).await.map(drop),
+            refused
+        );
+        // A tenant deletion and its undo: a console request is not enough.
+        for a in [ACT, CONSOLE] {
+            assert_eq!(s.restore_tenant(a, seq).await, refused);
+            assert_eq!(s.delete_tenant(a).await.map(drop), refused);
+        }
+        // Nothing changed.
+        assert_eq!(s.events_of("t_a").len(), events);
+        assert!(
+            m.storage
+                .bucket_names("t_a")
+                .contains(&"backups".to_owned())
+        );
+        let k = s.key("t_a", &id).await.unwrap();
+        assert_eq!(
+            serde_json::to_value(&k.grants).unwrap(),
+            json!([{ "bucket": "photos", "access": "read" }])
+        );
+        assert_eq!(s.tenant("t_a").await.unwrap().deletion_seq, Some(seq));
+    });
 }

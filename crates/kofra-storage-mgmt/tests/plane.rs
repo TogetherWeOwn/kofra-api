@@ -25,7 +25,7 @@ fn with(fake: &Fake) -> MgmtStorage<&Fake, TestEnv> {
     adapter(fake)
 }
 
-const CONSOLE: Option<Confirmation<'static>> = Some(Confirmation::Console);
+const CONSOLE: Option<Confirmation<'static>> = Some(kofra_api_core::confirm::testing::CONSOLE);
 
 fn writes(fake: &Fake) -> Vec<Request> {
     fake.requests()
@@ -82,7 +82,7 @@ fn a_confirmation_record_is_the_key_of_the_storage_call() {
         TENANT,
         OWNER,
         Some("client"),
-        Some(Confirmation::Record("cfm_1")),
+        Some(kofra_api_core::confirm::testing::record("cfm_1")),
     );
     block_on(s.create_bucket(a, "music")).unwrap();
     assert_eq!(writes(&fake)[0].header("Idempotency-Key"), Some("cfm_1"));
@@ -548,7 +548,12 @@ fn a_deletion_needs_a_confirmation_record_and_its_undo_names_its_seq() {
         );
     }
     assert!(fake.requests().is_empty());
-    let first = acting(TENANT, OWNER, None, Some(Confirmation::Record("cfm_d1")));
+    let first = acting(
+        TENANT,
+        OWNER,
+        None,
+        Some(kofra_api_core::confirm::testing::record("cfm_d1")),
+    );
     let d = block_on(s.delete_tenant(first)).unwrap();
     assert_eq!(d.reason, t::DeletionReason::Customer);
     assert!(
@@ -560,14 +565,24 @@ fn a_deletion_needs_a_confirmation_record_and_its_undo_names_its_seq() {
     );
     // The same confirmation again: the same deletion. Another: refused.
     block_on(s.delete_tenant(first)).unwrap();
-    let other = acting(TENANT, OWNER, None, Some(Confirmation::Record("cfm_d2")));
+    let other = acting(
+        TENANT,
+        OWNER,
+        None,
+        Some(kofra_api_core::confirm::testing::record("cfm_d2")),
+    );
     assert_eq!(
         block_on(s.delete_tenant(other)).unwrap_err(),
         StorageError::DeletionAlreadyRequested
     );
     let tn = block_on(s.tenant(TENANT)).unwrap();
     let seq = tn.deletion_seq.unwrap();
-    let undo = acting(TENANT, OWNER, None, Some(Confirmation::Record("cfm_u1")));
+    let undo = acting(
+        TENANT,
+        OWNER,
+        None,
+        Some(kofra_api_core::confirm::testing::record("cfm_u1")),
+    );
     block_on(s.restore_tenant(undo, seq)).unwrap();
     block_on(s.restore_tenant(undo, seq)).unwrap();
     // The undone deletion's confirmation cannot delete again.
@@ -873,6 +888,8 @@ fn absolute_limits_map_to_their_own_errors() {
             want,
             "{code}"
         );
+    }
+}
 
 /// The token class of every write, per call and per confirmation: a call
 /// that needs a confirmation takes the confirmed token only with one, and
@@ -894,7 +911,8 @@ fn every_write_takes_the_token_class_its_confirmation_allows() {
         RenameKey,
         RevokeKey,
     }
-    const RECORD: Option<Confirmation<'static>> = Some(Confirmation::Record("cfm_t"));
+    const RECORD: Option<Confirmation<'static>> =
+        Some(kofra_api_core::confirm::testing::record("cfm_t"));
     let refused = None;
     for (call, none, console, record) in [
         (

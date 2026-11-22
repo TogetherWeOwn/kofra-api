@@ -846,6 +846,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "hmac 0.12.1",
+ "kofra-api-core",
  "kofra-api-types",
  "pollster",
  "serde",

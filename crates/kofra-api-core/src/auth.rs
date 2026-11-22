@@ -66,8 +66,16 @@ pub enum Credential {
     Console {
         /// The console's session ID (for the audit trail of the console).
         session: String,
+        /// That [`authenticate`] verified the console's assertion: no other
+        /// code can make this credential.
+        proof: ConsoleProof,
     },
 }
+
+/// Made only by [`authenticate`], for a verified console assertion. A console
+/// credential is what makes a request confirmed ([`crate::confirm::of`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsoleProof(());
 
 /// Who is making the request, and what they may do.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -333,7 +341,10 @@ pub async fn authenticate<P: Ports>(
             workspace,
             user_id: a.user,
             role,
-            credential: Credential::Console { session: a.session },
+            credential: Credential::Console {
+                session: a.session,
+                proof: ConsoleProof(()),
+            },
             granted: ScopeSet::all(),
             buckets: None,
             allowed_ips: None,

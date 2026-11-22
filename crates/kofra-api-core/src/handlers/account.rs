@@ -6,6 +6,7 @@
 //! only after the confirmation (the console's confirmation page, a later
 //! phase).
 
+use kofra_api_types as t;
 use serde_json::{Value, json};
 
 use super::{plan, to_json};
@@ -116,7 +117,13 @@ pub(super) async fn cancel_deletion<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Re
     let t = tenant(ctx)?.clone();
     let now_tenant = if dir.drop_deletion_request(&ws, ctx.now_ms).await? {
         t
-    } else if t.deletion.is_some() {
+    } else if let Some(deletion) = &t.deletion {
+        // A deletion a member did not start (for non-payment, or by Kofra)
+        // is not the customer's to undo: no confirmation could change that,
+        // so it is answered first, from the tenant the pipeline read.
+        if deletion.reason != t::DeletionReason::Customer {
+            return Err(Problem::new("deletion_not_cancellable"));
+        }
         // The undo names the deletion it undoes, as the tenant read showed
         // it: a late retry can never cancel a newer deletion.
         let seq = t
