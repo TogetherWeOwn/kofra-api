@@ -870,6 +870,8 @@ name = "kofra-api-worker"
 version = "0.1.0"
 dependencies = [
  "futures-util",
+ "hkdf",
+ "hmac 0.12.1",
  "kofra-account",
  "kofra-api-core",
  "kofra-api-types",

@@ -109,6 +109,8 @@ pub fn classify_message(message: &str) -> DbError {
         || lower.contains("timeout")
         || lower.contains("internal error")
         || lower.contains("reset because its code was updated")
+        || lower.contains("transient issue")
+        || lower.contains("replica disconnected")
     {
         return DbError::Unavailable;
     }
@@ -228,6 +230,12 @@ mod tests {
         );
         assert_eq!(
             classify_message("D1 DB is overloaded. Requests queued for too long."),
+            DbError::Unavailable
+        );
+        assert_eq!(
+            classify_message(
+                "D1_ERROR: Cannot resolve D1 DB due to transient issue on remote node."
+            ),
             DbError::Unavailable
         );
         assert_eq!(

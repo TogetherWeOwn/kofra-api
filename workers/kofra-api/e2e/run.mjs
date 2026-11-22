@@ -2,15 +2,15 @@
 // migrations on a fresh local database, and a stand-in console
 // (caller.mjs) that reaches it over the `Console` service binding.
 //
-// Run from workers/kofra-api after `worker-build --release`:
-//   node --test e2e/run.mjs
+// Run from workers/kofra-api after building:
+//   ./build.sh && node --test e2e/run.mjs
 // Keys are random per run and written to .dev.vars (git-ignored), never
 // printed.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { createHmac, randomBytes } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -39,6 +39,10 @@ let server;
 
 before(async () => {
 	if (EXTERNAL) return;
+	// The run writes its own keys to .dev.vars and removes them after: it
+	// never replaces a developer's file.
+	if (existsSync(path.join(root, '.dev.vars')))
+		throw new Error('workers/kofra-api/.dev.vars exists: move it away for the e2e run');
 	state = mkdtempSync(path.join(tmpdir(), 'kofra-api-e2e-'));
 	writeFileSync(
 		path.join(root, '.dev.vars'),
@@ -164,6 +168,9 @@ test('the account interface does not exist on the public entry point', async () 
 	}
 	const r = await call('GET', '/public/v1/account');
 	assert.equal(r.status, 401);
+	// A method the API does not serve is refused as such, not read as GET.
+	const propfind = await call('PROPFIND', '/v1/buckets');
+	assert.equal(propfind.status, 405);
 	// A console assertion is refused on the public entry point.
 	const forged = await call('GET', '/public/v1/account', {
 		token: assertion('ws_x', 'usr_x', 'ses_x')

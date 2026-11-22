@@ -8,7 +8,7 @@ compatibility_date = "2026-11-19"
 workers_dev = false
 preview_urls = false
 
-# No [build] command: build first with `worker-build --release` (README), so
+# No [build] command: build first with `./build.sh` (README), so
 # that every run (wrangler dev here or from another repository's tests,
 # CI, a deploy) uses the build you made, never an implicit one.
 
@@ -31,7 +31,7 @@ CONSOLE_ORIGIN = "http://localhost:4176"
 S3_ENDPOINT = "http://localhost:4178"
 SIGNUP_MODE = "invite"
 MAIL_MODE = "outbox"
-MAIL_FROM = "noreply@mail.kofra.app"
+MAIL_FROM = "noreply@example.com"
 BREACH_CHECK = "off"
 # ACCOUNT_SECRET_KEY, ASSERTION_KEY and CURSOR_KEY (64 hex digits each) are
 # secrets: `.dev.vars` locally (never committed), `wrangler secret put`

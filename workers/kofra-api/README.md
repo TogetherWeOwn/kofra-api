@@ -36,15 +36,18 @@ Bindings: `DB` (D1, the repository's `migrations/`) and, for `MAIL_MODE=send`,
 request with `500 internal_error`, and the log names the setting, never its
 value.
 
-Cron, every minute: workspaces still setting up are retried. In the first
-minute of each hour, expired rows are deleted (`kofra_store::purge`).
+Cron, every minute: expired outbox mail is deleted, and workspaces still
+setting up are retried. In the first minute of each hour, every other
+expired row is deleted (`kofra_store::purge`).
 
 ## Storage
 
 The storage management plane is a stub until its entry point exists
 (`src/storage.rs`):
 
-- tenant creation answers deterministic tenant IDs;
+- tenant creation answers deterministic tenant IDs on staging and local
+  copies only; in production it answers "try again", so workspaces stay
+  setting up until the real adapter provisions them;
 - reads answer an empty, active tenant;
 - writes answer `503 service_unavailable` with `Retry-After`.
 
@@ -54,17 +57,17 @@ The storage management plane is a stub until its entry point exists
 
 ```sh
 pnpm install                      # at the repository root: wrangler
-cargo install --locked worker-build@0.8.7
+cargo install --locked worker-build@0.8.7 wasm-bindgen-cli@0.2.130   # the version in Cargo.lock
 cd workers/kofra-api
-worker-build --release            # build/
+./build.sh                        # build/, with pinned tools only (see the script)
 node --test e2e/run.mjs           # local runtime, fresh local D1, a stand-in console
 ```
 
 `e2e/caller.mjs` stands in for the console in the local tests only. It is
 never deployed.
 
-Invites (`SIGNUP_MODE=invite`): `node tools/invite.mjs --help`. The link goes
-to a file with mode 0600, never to the terminal.
+Invites (`SIGNUP_MODE=invite`): `node tools/invite.mjs` (it prints its usage).
+The link goes to a new file with mode 0600, never to the terminal.
 
 Deploying: give the Worker its own configuration with the database ID and
 the settings, apply `migrations/` with `wrangler d1 migrations apply`, and set

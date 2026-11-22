@@ -9,19 +9,28 @@
 
 use std::rc::Rc;
 
+use hmac::{Hmac, Mac};
 use kofra_account::ports::{Mail, Mailer, PortResult};
 use kofra_store::{Db, Stmt, params};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use worker::{Context, Env};
 
 use crate::config::{MailMode, MailSettings};
 use crate::d1::D1Db;
 
 /// A short, stable label for an address in logs: the first 8 hex digits of
-/// its SHA-256. Enough to tell two recipients apart in one incident.
-pub fn address_tag(to: &str) -> String {
-    let h = Sha256::digest(to.trim().to_ascii_lowercase().as_bytes());
-    h.iter().take(4).map(|b| format!("{b:02x}")).collect()
+/// its HMAC-SHA256 under a key of the Worker's own (`key`), so that someone
+/// reading the logs cannot test a guessed address against it. Enough to
+/// tell two recipients apart in one incident.
+pub fn address_tag(key: &[u8; 32], to: &str) -> String {
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(key).expect("HMAC takes any key length");
+    mac.update(to.trim().to_ascii_lowercase().as_bytes());
+    mac.finalize()
+        .into_bytes()
+        .iter()
+        .take(4)
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// The message kind for logs: its subject, which the account service
@@ -44,6 +53,7 @@ pub fn capture_body(mail: &Mail) -> String {
 /// a loopback capture sink, per recipient (`MailSettings::mode_for`).
 pub struct WorkerMailer {
     settings: MailSettings,
+    tag_key: [u8; 32],
     env: Env,
     /// The request's context, whose `waitUntil` carries the delivery; none
     /// in the cron, which delivers inline.
@@ -53,9 +63,16 @@ pub struct WorkerMailer {
 
 impl WorkerMailer {
     /// A mailer for one request (`ctx`) or for the cron (`None`).
-    pub fn new(settings: MailSettings, env: Env, ctx: Option<Rc<Context>>, db: Rc<D1Db>) -> Self {
+    pub fn new(
+        settings: MailSettings,
+        tag_key: [u8; 32],
+        env: Env,
+        ctx: Option<Rc<Context>>,
+        db: Rc<D1Db>,
+    ) -> Self {
         Self {
             settings,
+            tag_key,
             env,
             ctx,
             db,
@@ -67,7 +84,7 @@ impl Mailer for WorkerMailer {
     async fn send(&self, mail: &Mail) -> PortResult<()> {
         let mode = self.settings.mode_for(&mail.to).clone();
         let mail = mail.clone();
-        let tag = address_tag(&mail.to);
+        let tag = address_tag(&self.tag_key, &mail.to);
         let settings = self.settings.clone();
         let env = self.env.clone();
         let db = Rc::clone(&self.db);
@@ -164,11 +181,14 @@ mod tests {
 
     #[test]
     fn logs_name_addresses_by_a_short_hash_only() {
-        let tag = address_tag("Owner@Example.com ");
-        assert_eq!(tag, address_tag("owner@example.com"));
+        let k = [9; 32];
+        let tag = address_tag(&k, "Owner@Example.com ");
+        assert_eq!(tag, address_tag(&k, "owner@example.com"));
         assert_eq!(tag.len(), 8);
         assert!(!tag.contains('@'));
-        assert_ne!(tag, address_tag("other@example.com"));
+        assert_ne!(tag, address_tag(&k, "other@example.com"));
+        // Keyed: the same address under another key gives another tag.
+        assert_ne!(tag, address_tag(&[8; 32], "owner@example.com"));
     }
 
     #[test]

@@ -61,7 +61,14 @@ impl BreachCheck for Breach {
         let timer = Box::pin(worker::Delay::from(TIMEOUT));
         match select(fetch, timer).await {
             Either::Left((Some(body), _)) => Ok(listed(&body, &suffix)),
-            _ => Err(PortError::Unavailable { retry_after: 1 }),
+            Either::Left((None, _)) => {
+                worker::console_error!("breach check: unavailable (answer); password accepted");
+                Err(PortError::Unavailable { retry_after: 1 })
+            }
+            Either::Right(_) => {
+                worker::console_error!("breach check: unavailable (timeout); password accepted");
+                Err(PortError::Unavailable { retry_after: 1 })
+            }
         }
     }
 }

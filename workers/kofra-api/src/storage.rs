@@ -224,14 +224,28 @@ impl Storage for StoragePlane {
 
 /// Tenant and principal creation: the stub of the tenancy design §6.4
 /// shapes until W6 (see the module docs).
-pub struct TenancyPlane;
+///
+/// The stub answers only where its tenants can be thrown away (staging,
+/// local). Elsewhere it answers `Retry`: a workspace stays setting up, and
+/// the cron provisions it for real once the adapter exists, instead of it
+/// pointing for good at a tenant that was never created.
+pub struct TenancyPlane {
+    /// Whether stub tenants may be handed out.
+    pub stub: bool,
+}
 
 impl Tenancy for TenancyPlane {
     async fn create_tenant(&self, req: &CreateTenant) -> Result<String, TenancyError> {
+        if !self.stub {
+            return Err(TenancyError::Retry);
+        }
         Ok(stub_tenant_id(&req.external_ref))
     }
 
     async fn create_principal(&self, _req: &CreatePrincipal) -> Result<(), TenancyError> {
+        if !self.stub {
+            return Err(TenancyError::Retry);
+        }
         Ok(())
     }
 }
@@ -257,10 +271,14 @@ mod tests {
             jurisdiction: "us".into(),
         };
         // A retry answers the same tenant.
+        let stub = TenancyPlane { stub: true };
         assert_eq!(
-            block_on(TenancyPlane.create_tenant(&req)),
-            block_on(TenancyPlane.create_tenant(&req))
+            block_on(stub.create_tenant(&req)),
+            block_on(stub.create_tenant(&req))
         );
+        // Where stub tenants may not be handed out, nothing is created.
+        let off = TenancyPlane { stub: false };
+        assert_eq!(block_on(off.create_tenant(&req)), Err(TenancyError::Retry));
     }
 
     #[test]

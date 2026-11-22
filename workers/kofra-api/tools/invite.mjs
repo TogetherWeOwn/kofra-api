@@ -11,7 +11,7 @@
 // own). Prints only where the link was written and when it expires.
 import { createHash, randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, writeFileSync } from 'node:fs';
+import { closeSync, openSync, rmSync, writeSync } from 'node:fs';
 import path from 'node:path';
 
 const args = process.argv.slice(2);
@@ -40,8 +40,21 @@ if (
 	);
 	process.exit(2);
 }
-// The account service's normal form: ASCII only, trimmed, lower-cased.
-if (!/^[\x21-\x7e]+$/.test(email) || !email.includes('@') || email.length > 254) {
+// The account service's own check (kofra-account `email::parse`), so an
+// invite is never made for an address that could not sign up with it.
+function acceptable(a) {
+	if (a.length === 0 || a.length > 254 || [...a].some((c) => c.charCodeAt(0) > 0x7f)) return false;
+	const at = a.lastIndexOf('@');
+	if (at < 1) return false;
+	const local = a.slice(0, at);
+	const labels = a.slice(at + 1).split('.');
+	if (local.length > 64 || !/^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+$/.test(local)) return false;
+	if (local.startsWith('.') || local.endsWith('.') || local.includes('..')) return false;
+	if (labels.length < 2) return false;
+	if (labels.some((l) => !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(l))) return false;
+	return !/^[0-9]+$/.test(labels.at(-1));
+}
+if (!acceptable(email)) {
 	console.error('not an address the service accepts');
 	process.exit(2);
 }
@@ -64,11 +77,28 @@ const key = email.toLowerCase().replaceAll("'", "''");
 const sql =
 	'INSERT INTO account_invites (id, token_hash, email_key, created_at, expires_at) ' +
 	`VALUES ('${id}', X'${hash}', '${key}', ${now}, ${expires})`;
+// The link's file first: new (never an existing file or a link to one),
+// readable by its owner only. Removed again if the insert fails.
+const file = path.resolve(out);
+const fd = openSync(file, 'wx', 0o600);
+// This repository's pinned wrangler, wherever the script is run from.
+const wrangler = path.resolve(
+	path.dirname(new URL(import.meta.url).pathname),
+	'..',
+	'node_modules',
+	'.bin',
+	'wrangler'
+);
 const where = remote ? ['--remote'] : ['--local', ...(persist ? ['--persist-to', persist] : [])];
-execFileSync('npx', ['wrangler', 'd1', 'execute', db, ...where, '-c', config, '--command', sql], {
-	stdio: ['ignore', 'ignore', 'inherit']
-});
-writeFileSync(path.resolve(out), `${origin}/signup?invite=${token}\n`, { mode: 0o600 });
-// An existing file keeps its mode on write: set it.
-chmodSync(path.resolve(out), 0o600);
-console.log(`invite written to ${path.resolve(out)}; expires ${new Date(expires).toISOString()}`);
+try {
+	execFileSync(wrangler, ['d1', 'execute', db, ...where, '-c', config, '--command', sql], {
+		stdio: ['ignore', 'ignore', 'inherit']
+	});
+} catch (e) {
+	closeSync(fd);
+	rmSync(file);
+	throw e;
+}
+writeSync(fd, `${origin}/signup?invite=${token}\n`);
+closeSync(fd);
+console.log(`invite written to ${file}; expires ${new Date(expires).toISOString()}`);

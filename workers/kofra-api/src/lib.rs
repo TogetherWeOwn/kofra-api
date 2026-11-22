@@ -42,7 +42,7 @@ use worker::{Context, Env, Request, Response, Result, ScheduleContext, Scheduled
 
 use crate::{
     breach::Breach,
-    config::{BadSetting, Settings},
+    config::{BadSetting, Deployment, Settings},
     d1::D1Db,
     env::WorkerEnv,
     mail::WorkerMailer,
@@ -52,6 +52,12 @@ use crate::{
 
 /// The environment key under which `entry.mjs` marks console requests.
 pub const CONSOLE_MARK: &str = "KOFRA_CONSOLE_INGRESS";
+
+/// Purpose of the subkey that hashes throttle keys (`Settings::subkey`).
+/// Every copy of the Worker on one database derives the same key.
+pub const THROTTLE_KEY: &[u8] = b"throttle keys";
+/// Purpose of the subkey that tags addresses in mail logs.
+pub const MAIL_TAG_KEY: &[u8] = b"mail log tags";
 
 /// The API's ports on the Worker.
 pub struct ApiPorts {
@@ -162,9 +168,17 @@ fn accounts(
     Accounts::new(
         AccountPorts {
             store: SqlStore::new(Rc::clone(db)),
-            mailer: WorkerMailer::new(s.mail.clone(), env.clone(), ctx, Rc::clone(db)),
-            tenancy: TenancyPlane,
-            throttle: SqlThrottle::new(Rc::clone(db)),
+            mailer: WorkerMailer::new(
+                s.mail.clone(),
+                s.subkey(MAIL_TAG_KEY),
+                env.clone(),
+                ctx,
+                Rc::clone(db),
+            ),
+            tenancy: TenancyPlane {
+                stub: s.deployment != Deployment::Production,
+            },
+            throttle: SqlThrottle::new(Rc::clone(db), s.subkey(THROTTLE_KEY)),
             breach: Breach {
                 enabled: s.breach_check,
             },
@@ -215,7 +229,9 @@ async fn plain(mut req: Request) -> Result<Option<Plain>> {
         return Ok(None);
     };
     Ok(Some(Plain {
-        method: req.method().to_string().to_ascii_uppercase(),
+        // The method as sent: workers-rs maps methods it does not know to
+        // GET, which would answer `PROPFIND` as a read.
+        method: req.inner().method().to_ascii_uppercase(),
         path: url.path().to_owned(),
         query: url.query().unwrap_or_default().to_owned(),
         headers,
@@ -278,6 +294,11 @@ async fn fetch(req: Request, env: Env, ctx: Context) -> Result<Response> {
         worker::console_error!("config: no DB binding");
         return problem("internal_error", None);
     };
+    // Mail that would be dropped is refused here, not lost later.
+    if s.mail.sends() && env.get_binding::<worker::SendEmail>("EMAIL").is_err() {
+        worker::console_error!("config: MAIL_MODE sends but there is no EMAIL binding");
+        return problem("internal_error", None);
+    }
     // The client address: the edge's, on the public hostname only. Console
     // requests carry the browser's address in `Kofra-Client-IP`, which only
     // the account interface reads, and only for throttles and its log.
@@ -332,10 +353,24 @@ async fn fetch(req: Request, env: Env, ctx: Context) -> Result<Response> {
     }
 }
 
-/// Every minute: retry workspaces still setting up. Once an hour (the
-/// first minute): delete expired rows ([`kofra_store::purge`]).
+/// Every minute: delete expired outbox mail (it holds working links), then
+/// retry workspaces still setting up. Once an hour (the first minute):
+/// delete every other expired row ([`kofra_store::purge`]). Times come from
+/// the clock, not from the event.
 #[event(scheduled)]
-async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
+async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
+    let Some(db) = database(&env) else {
+        worker::console_error!("cron: no DB binding");
+        return;
+    };
+    let now = {
+        use kofra_api_core::ports::Env as _;
+        WorkerEnv.now_ms()
+    };
+    // Before the settings are read: a refused setting must not keep links.
+    if kofra_store::purge::outbox(&*db, now).await.is_err() {
+        worker::console_error!("cron: outbox purge failed");
+    }
     let s = match settings(&env) {
         Ok(s) => s,
         Err(BadSetting(name)) => {
@@ -343,18 +378,12 @@ async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
             return;
         }
     };
-    let Some(db) = database(&env) else {
-        worker::console_error!("cron: no DB binding");
-        return;
-    };
     let acc = accounts(&db, &s, &env, None);
     if acc.retry_provisioning(10).await.is_err() {
         worker::console_error!("cron: provisioning retry failed");
     }
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let at = event.schedule().max(0.0) as u64;
-    if at % 3_600_000 < 60_000 {
-        match kofra_store::purge::run(&*db, at).await {
+    if now % 3_600_000 < 60_000 {
+        match kofra_store::purge::run(&*db, now).await {
             Ok(n) => worker::console_log!("cron: purge deleted {:?}", n),
             Err(_) => worker::console_error!("cron: purge failed"),
         }

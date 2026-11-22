@@ -11,6 +11,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+hkdf = "0.12"
+hmac = "0.12"
 kofra-account = { path = "../../crates/kofra-account" }
 kofra-api-core = { path = "../../crates/kofra-api-core" }
 kofra-api-types = { path = "../../crates/kofra-api-types" }

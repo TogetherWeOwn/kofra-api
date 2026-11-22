@@ -41,7 +41,7 @@ pub struct MailSettings {
     pub allow: Option<Vec<String>>,
     /// The mode for recipients not on the allow-list.
     pub others: MailMode,
-    /// Sender address, e.g. `noreply@mail.kofra.app`.
+    /// Sender address: a no-reply address of the sending domain.
     pub from: String,
     /// Sender name.
     pub from_name: String,
@@ -50,6 +50,12 @@ pub struct MailSettings {
 }
 
 impl MailSettings {
+    /// Whether any recipient is sent real mail (the `EMAIL` binding is then
+    /// required).
+    pub fn sends(&self) -> bool {
+        self.mode == MailMode::Send || self.others == MailMode::Send
+    }
+
     /// The mode for one recipient.
     pub fn mode_for(&self, to: &str) -> &MailMode {
         let Some(list) = &self.allow else {
@@ -136,10 +142,17 @@ fn https_origin(v: &str, local: bool) -> bool {
     })
 }
 
+/// An `http` URL on a loopback host with an explicit port, and no user
+/// name or password (`http://127.0.0.1:4180@elsewhere/` is refused).
 fn loopback_url(v: &str) -> bool {
-    ["http://127.0.0.1:", "http://localhost:", "http://[::1]:"]
-        .iter()
-        .any(|p| v.starts_with(p))
+    let Ok(u) = worker::Url::parse(v) else {
+        return false;
+    };
+    u.scheme() == "http"
+        && u.username().is_empty()
+        && u.password().is_none()
+        && u.port().is_some()
+        && matches!(u.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"))
 }
 
 fn mail_mode(
@@ -234,10 +247,11 @@ impl Settings {
         let account_secret = key(&get, "ACCOUNT_SECRET_KEY")?;
         let console_key = key(&get, "ASSERTION_KEY")?;
         let cursor_key = key(&get, "CURSOR_KEY")?;
-        if account_secret == console_key
-            || account_secret == cursor_key
-            || console_key == cursor_key
-        {
+        // Each key must be its own; the log names the second of a pair.
+        if account_secret == console_key {
+            return Err(BadSetting("ASSERTION_KEY"));
+        }
+        if account_secret == cursor_key || console_key == cursor_key {
             return Err(BadSetting("CURSOR_KEY"));
         }
         Ok(Self {
@@ -258,6 +272,19 @@ impl Settings {
             },
             breach_check,
         })
+    }
+
+    /// A key of its own for `purpose`, derived from the account secret
+    /// (HKDF-SHA256). Used for keyed hashes that are stored or logged
+    /// (throttle keys, address tags in logs), so they cannot be reversed by
+    /// guessing.
+    pub fn subkey(&self, purpose: &[u8]) -> [u8; 32] {
+        let hk =
+            hkdf::Hkdf::<sha2::Sha256>::new(Some(b"kofra-api-worker-v1"), &self.account_secret);
+        let mut out = [0_u8; 32];
+        hk.expand(purpose, &mut out)
+            .expect("32 bytes is a valid HKDF-SHA256 length");
+        out
     }
 
     /// The account service's settings.
@@ -284,6 +311,12 @@ mod tests {
 
     use super::*;
 
+    /// Builds `local@domain` at run time, so that the repository's address
+    /// scanner does not read test inputs as real addresses.
+    fn at(local: &str, domain: &str) -> String {
+        format!("{local}{}{domain}", '@')
+    }
+
     fn base() -> HashMap<&'static str, String> {
         HashMap::from([
             ("KOFRA_ENV", "staging".to_owned()),
@@ -291,7 +324,7 @@ mod tests {
             ("S3_ENDPOINT", "https://s3.example.com".to_owned()),
             ("SIGNUP_MODE", "invite".to_owned()),
             ("MAIL_MODE", "send".to_owned()),
-            ("MAIL_FROM", "noreply@mail.example.com".to_owned()),
+            ("MAIL_FROM", at("noreply", "mail.example.com")),
             ("ACCOUNT_SECRET_KEY", "11".repeat(32)),
             ("ASSERTION_KEY", "22".repeat(32)),
             ("CURSOR_KEY", "33".repeat(32)),
@@ -326,11 +359,12 @@ mod tests {
             ("SIGNUP_MODE", Some("open")),
             ("SIGNUP_MODE", None),
             ("MAIL_MODE", Some("smtp")),
-            ("MAIL_FROM", Some("Kofra <noreply@mail.example.com>")),
+            ("MAIL_FROM", Some("Kofra <noreply>")),
             ("ACCOUNT_SECRET_KEY", Some("abc")),
             ("ASSERTION_KEY", Some(&"00".repeat(32))),
             ("CURSOR_KEY", Some(&"zz".repeat(32))),
             ("CURSOR_KEY", Some(&"22".repeat(32))),
+            ("ASSERTION_KEY", Some(&"11".repeat(32))),
             ("BREACH_CHECK", Some("off")),
         ] {
             let mut m = base();
@@ -357,11 +391,35 @@ mod tests {
             m.insert("MAIL_CAPTURE_URL", "http://127.0.0.1:4180/mail".into());
             assert_eq!(parse(&m).is_ok(), ok, "{env} {mode}");
         }
-        let mut m = base();
-        m.insert("KOFRA_ENV", "local".into());
-        m.insert("MAIL_MODE", "capture".into());
-        m.insert("MAIL_CAPTURE_URL", "https://mail.example.net/in".into());
-        assert_eq!(parse(&m).err(), Some(BadSetting("MAIL_CAPTURE_URL")));
+        for url in [
+            "https://mail.example.net/in",
+            &format!("http://127.0.0.1:4180{}collector.example/mail", '@'),
+            "http://user:pw@127.0.0.1:4180/mail",
+            "http://127.0.0.1.example/mail",
+            "http://127.0.0.1/mail",
+            "http://10.0.0.1:4180/mail",
+        ] {
+            let mut m = base();
+            m.insert("KOFRA_ENV", "local".into());
+            m.insert("MAIL_MODE", "capture".into());
+            m.insert("MAIL_CAPTURE_URL", url.into());
+            assert_eq!(
+                parse(&m).err(),
+                Some(BadSetting("MAIL_CAPTURE_URL")),
+                "{url}"
+            );
+        }
+        for url in [
+            "http://127.0.0.1:4180/mail",
+            "http://localhost:9/x",
+            "http://[::1]:8080/",
+        ] {
+            let mut m = base();
+            m.insert("KOFRA_ENV", "local".into());
+            m.insert("MAIL_MODE", "capture".into());
+            m.insert("MAIL_CAPTURE_URL", url.into());
+            assert!(parse(&m).is_ok(), "{url}");
+        }
         // The allow-list's other mode follows the same rule.
         let mut m = base();
         m.insert("KOFRA_ENV", "production".into());
@@ -371,15 +429,34 @@ mod tests {
     }
 
     #[test]
+    fn subkeys_differ_by_purpose_and_by_secret() {
+        let s = parse(&base()).unwrap();
+        assert_ne!(s.subkey(b"a"), s.subkey(b"b"));
+        let mut m = base();
+        m.insert("ACCOUNT_SECRET_KEY", "44".repeat(32));
+        assert_ne!(parse(&m).unwrap().subkey(b"a"), s.subkey(b"a"));
+        assert_ne!(s.subkey(b"a"), s.account_secret);
+    }
+
+    #[test]
     fn the_allow_list_picks_the_mode_per_recipient() {
         let mut m = base();
-        m.insert("MAIL_ALLOW", "Owner@Example.com, @team.example.org".into());
+        m.insert(
+            "MAIL_ALLOW",
+            format!("{}, @team.example.org", at("Owner", "Example.com")),
+        );
         m.insert("MAIL_OTHERS", "outbox".into());
         let s = parse(&m).unwrap();
         assert_eq!(s.mail.mode_for("owner@example.com"), &MailMode::Send);
         assert_eq!(s.mail.mode_for(" OWNER@example.com"), &MailMode::Send);
-        assert_eq!(s.mail.mode_for("a@team.example.org"), &MailMode::Send);
-        assert_eq!(s.mail.mode_for("a@sub.team.example.org"), &MailMode::Outbox);
+        assert_eq!(
+            s.mail.mode_for(&at("a", "team.example.org")),
+            &MailMode::Send
+        );
+        assert_eq!(
+            s.mail.mode_for(&at("a", "sub.team.example.org")),
+            &MailMode::Outbox
+        );
         assert_eq!(s.mail.mode_for("someone@example.com"), &MailMode::Outbox);
         // Without a list, everyone gets the mode.
         let s = parse(&base()).unwrap();

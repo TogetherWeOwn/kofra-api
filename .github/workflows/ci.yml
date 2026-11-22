@@ -181,10 +181,13 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: cargo install --locked worker-build@0.8.7
+      # The build tools come from Cargo (checksummed) and the pnpm lockfile
+      # only; build.sh refuses a wasm-bindgen that does not match Cargo.lock
+      # and runs no download step of worker-build (workers/kofra-api/build.sh).
+      - run: cargo install --locked worker-build@0.8.7 wasm-bindgen-cli@0.2.130
       - name: Build the Worker
         working-directory: workers/kofra-api
-        run: worker-build --release
+        run: ./build.sh
       - name: Worker end to end (local runtime and D1)
         working-directory: workers/kofra-api
         run: node --test e2e/run.mjs
