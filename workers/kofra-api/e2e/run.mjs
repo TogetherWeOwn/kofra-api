@@ -275,7 +275,7 @@ test('invite, sign-up, verification, workspace, API, two-step and recovery', asy
 		// can run against a deployed copy.
 		assert.equal(tok.status, 201, tok.json?.code);
 		const bearer = tok.json.token;
-		assert.match(bearer, /^kofra_tok_/);
+		assert.ok(/^kofra_tok_/.test(bearer), 'the token has the kofra_tok_ prefix');
 		const pub = await call('GET', '/public/v1/buckets', { token: bearer });
 		assert.equal(pub.status, 200);
 		// Read-only: a write is refused for its scope.
