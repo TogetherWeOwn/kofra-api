@@ -129,21 +129,31 @@ fn key(get: &impl Fn(&str) -> Option<String>, name: &'static str) -> Result<[u8;
     Ok(out)
 }
 
-fn https_origin(v: &str, local: bool) -> bool {
-    let rest = v
-        .strip_prefix("https://")
-        .or_else(|| local.then(|| v.strip_prefix("http://")).flatten());
-    rest.is_some_and(|h| {
-        !h.is_empty()
-            && !h.contains('/')
-            && !h.contains('?')
-            && !h.contains('#')
-            && !h.contains('@')
+/// An origin in the form browsers send it (WebAuthn compares it exactly):
+/// `https://host`, or `http://` locally; a port only when it is not the
+/// default one; nothing else. `None` for anything that is not an origin.
+fn origin(v: &str, local: bool) -> Option<String> {
+    let u = worker::Url::parse(v).ok()?;
+    let scheme_ok = u.scheme() == "https" || (local && u.scheme() == "http");
+    let bare = !v.trim_end_matches('/').contains(['?', '#'])
+        && u.username().is_empty()
+        && u.password().is_none()
+        && u.path() == "/"
+        && u.query().is_none()
+        && u.fragment().is_none();
+    if !scheme_ok || !bare {
+        return None;
+    }
+    let host = u.host_str()?;
+    // `port()` is `None` for the scheme's default port: `:443` is dropped.
+    Some(match u.port() {
+        Some(p) => format!("{}://{host}:{p}", u.scheme()),
+        None => format!("{}://{host}", u.scheme()),
     })
 }
 
-/// An `http` URL on a loopback host with an explicit port, and no user
-/// name or password (`http://127.0.0.1:4180@elsewhere/` is refused).
+/// An `http` URL on a loopback host, with no user name or password
+/// (`http://127.0.0.1:4180@elsewhere/` is refused).
 fn loopback_url(v: &str) -> bool {
     let Ok(u) = worker::Url::parse(v) else {
         return false;
@@ -151,7 +161,6 @@ fn loopback_url(v: &str) -> bool {
     u.scheme() == "http"
         && u.username().is_empty()
         && u.password().is_none()
-        && u.port().is_some()
         && matches!(u.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"))
 }
 
@@ -193,10 +202,10 @@ impl Settings {
         };
         let local = deployment == Deployment::Local;
         let console_origin = get("CONSOLE_ORIGIN")
-            .filter(|v| https_origin(v, local))
+            .and_then(|v| origin(&v, local))
             .ok_or(BadSetting("CONSOLE_ORIGIN"))?;
         let s3_endpoint = get("S3_ENDPOINT")
-            .filter(|v| https_origin(v, local))
+            .and_then(|v| origin(&v, local))
             .ok_or(BadSetting("S3_ENDPOINT"))?;
         let signup = match get("SIGNUP_MODE").as_deref() {
             Some("closed") => SignupMode::Closed,
@@ -355,6 +364,8 @@ mod tests {
             ("KOFRA_ENV", Some("prod")),
             ("CONSOLE_ORIGIN", Some("http://console.example.com")),
             ("CONSOLE_ORIGIN", Some("https://console.example.com/path")),
+            ("CONSOLE_ORIGIN", Some("https://console.example.com/?x")),
+            ("CONSOLE_ORIGIN", Some("not a url")),
             ("S3_ENDPOINT", None),
             ("SIGNUP_MODE", Some("open")),
             ("SIGNUP_MODE", None),
@@ -396,7 +407,6 @@ mod tests {
             &format!("http://127.0.0.1:4180{}collector.example/mail", '@'),
             "http://user:pw@127.0.0.1:4180/mail",
             "http://127.0.0.1.example/mail",
-            "http://127.0.0.1/mail",
             "http://10.0.0.1:4180/mail",
         ] {
             let mut m = base();
@@ -413,6 +423,8 @@ mod tests {
             "http://127.0.0.1:4180/mail",
             "http://localhost:9/x",
             "http://[::1]:8080/",
+            "http://127.0.0.1/mail",
+            "http://127.0.0.1:80/mail",
         ] {
             let mut m = base();
             m.insert("KOFRA_ENV", "local".into());
@@ -426,6 +438,33 @@ mod tests {
         m.insert("MAIL_ALLOW", "owner@example.com".into());
         m.insert("MAIL_OTHERS", "outbox".into());
         assert_eq!(parse(&m).err(), Some(BadSetting("MAIL_OTHERS")));
+    }
+
+    #[test]
+    fn origins_are_kept_in_the_form_browsers_send() {
+        for (given, kept) in [
+            ("https://console.example.com", "https://console.example.com"),
+            (
+                "https://console.example.com/",
+                "https://console.example.com",
+            ),
+            (
+                "https://console.example.com:443",
+                "https://console.example.com",
+            ),
+            (
+                "https://Console.Example.com:8443",
+                "https://console.example.com:8443",
+            ),
+        ] {
+            let mut m = base();
+            m.insert("CONSOLE_ORIGIN", given.into());
+            let s = parse(&m).unwrap();
+            assert_eq!(s.console_origin, kept, "{given}");
+        }
+        let mut m = base();
+        m.insert("CONSOLE_ORIGIN", "https://console.example.com:443".into());
+        assert_eq!(parse(&m).unwrap().accounts().rp_id, "console.example.com");
     }
 
     #[test]

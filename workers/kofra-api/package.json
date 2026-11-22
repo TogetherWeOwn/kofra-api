@@ -3,7 +3,7 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"build": "worker-build --release",
+		"build": "./build.sh",
 		"e2e": "node --test e2e/run.mjs"
 	},
 	"devDependencies": {

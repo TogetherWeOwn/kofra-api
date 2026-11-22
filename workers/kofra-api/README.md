@@ -36,9 +36,8 @@ Bindings: `DB` (D1, the repository's `migrations/`) and, for `MAIL_MODE=send`,
 request with `500 internal_error`, and the log names the setting, never its
 value.
 
-Cron, every minute: expired outbox mail is deleted, and workspaces still
-setting up are retried. In the first minute of each hour, every other
-expired row is deleted (`kofra_store::purge`).
+Cron, every minute: expired outbox mail is deleted, workspaces still setting
+up are retried, and every other expired row is deleted (`kofra_store::purge`).
 
 ## Storage
 

@@ -249,12 +249,20 @@ fn respond(status: u16, headers: &[(String, String)], body: Vec<u8>) -> Result<R
         .with_headers(h))
 }
 
+/// An answer the shell gives itself, with a request ID of its own, as the
+/// API gives every answer.
 fn problem(code: &'static str, retry_after: Option<u32>) -> Result<Response> {
+    use kofra_api_core::ports::Env as _;
     let mut p = Problem::new(code);
     if let Some(s) = retry_after {
         p = p.retry_after(s);
     }
-    let r = p.render("req_shell");
+    let mut random = [0_u8; 10];
+    WorkerEnv.fill_random(&mut random);
+    let id = kofra_api_core::ids::make("req", WorkerEnv.now_ms(), random);
+    let mut r = p.render(&id);
+    r.set_header("Kofra-Request-Id", id);
+    r.set_header("Cache-Control", "no-store");
     respond(r.status, &r.headers, r.body)
 }
 
@@ -353,10 +361,10 @@ async fn fetch(req: Request, env: Env, ctx: Context) -> Result<Response> {
     }
 }
 
-/// Every minute: delete expired outbox mail (it holds working links), then
-/// retry workspaces still setting up. Once an hour (the first minute):
-/// delete every other expired row ([`kofra_store::purge`]). Times come from
-/// the clock, not from the event.
+/// Every minute: delete expired outbox mail (it holds working links), retry
+/// workspaces still setting up, and delete every other expired row
+/// ([`kofra_store::purge`]: indexed deletes, nothing to do most minutes).
+/// Times come from the clock, not from the event.
 #[event(scheduled)]
 async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     let Some(db) = database(&env) else {
@@ -382,10 +390,9 @@ async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     if acc.retry_provisioning(10).await.is_err() {
         worker::console_error!("cron: provisioning retry failed");
     }
-    if now % 3_600_000 < 60_000 {
-        match kofra_store::purge::run(&*db, now).await {
-            Ok(n) => worker::console_log!("cron: purge deleted {:?}", n),
-            Err(_) => worker::console_error!("cron: purge failed"),
-        }
+    match kofra_store::purge::run(&*db, now).await {
+        Ok(n) if n.iter().any(|&d| d > 0) => worker::console_log!("cron: purge deleted {:?}", n),
+        Ok(_) => {}
+        Err(_) => worker::console_error!("cron: purge failed"),
     }
 }

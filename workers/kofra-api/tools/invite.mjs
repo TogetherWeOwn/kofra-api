@@ -13,6 +13,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { closeSync, openSync, rmSync, writeSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const args = process.argv.slice(2);
 const opt = (name) => {
@@ -83,7 +84,7 @@ const file = path.resolve(out);
 const fd = openSync(file, 'wx', 0o600);
 // This repository's pinned wrangler, wherever the script is run from.
 const wrangler = path.resolve(
-	path.dirname(new URL(import.meta.url).pathname),
+	path.dirname(fileURLToPath(import.meta.url)),
 	'..',
 	'node_modules',
 	'.bin',
