@@ -17,20 +17,28 @@ import path from 'node:path';
 const here = path.dirname(new URL(import.meta.url).pathname);
 const root = path.resolve(here, '..');
 const PORT = Number(process.env.KOFRA_E2E_PORT ?? 18799);
-const BASE = `http://127.0.0.1:${PORT}`;
-const PW = 'correct horse battery staple';
-const at = (local) => `${local}${'@'}example.com`;
+// KOFRA_E2E_URL: a stand-in console already running elsewhere (for example
+// with remote bindings to a deployed copy); its assertion key comes in
+// KOFRA_E2E_ASSERTION_KEY. Without it, this file starts the local runtime.
+const EXTERNAL = process.env.KOFRA_E2E_URL;
+const BASE = EXTERNAL ?? `http://127.0.0.1:${PORT}`;
+// Fresh addresses on every run, so a run can repeat on the same database.
+const RUN = randomBytes(4).toString('hex');
+// A fresh password per run: a deployed copy checks it against breach lists.
+const PW = `e2e ${randomBytes(12).toString('base64url')} password`;
+const at = (local) => `${local}+${RUN}${'@'}example.com`;
 const wrangler = path.join(root, 'node_modules', '.bin', 'wrangler');
 
 const keys = {
 	ACCOUNT_SECRET_KEY: randomBytes(32).toString('hex'),
-	ASSERTION_KEY: randomBytes(32).toString('hex'),
+	ASSERTION_KEY: process.env.KOFRA_E2E_ASSERTION_KEY ?? randomBytes(32).toString('hex'),
 	CURSOR_KEY: randomBytes(32).toString('hex')
 };
 let state;
 let server;
 
 before(async () => {
+	if (EXTERNAL) return;
 	state = mkdtempSync(path.join(tmpdir(), 'kofra-api-e2e-'));
 	writeFileSync(
 		path.join(root, '.dev.vars'),
@@ -76,6 +84,7 @@ before(async () => {
 });
 
 after(() => {
+	if (EXTERNAL) return;
 	server?.kill('SIGINT');
 	rmSync(state, { recursive: true, force: true });
 	rmSync(path.join(root, '.dev.vars'), { force: true });
