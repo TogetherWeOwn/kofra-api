@@ -34,10 +34,12 @@ console one. The account interface does not exist on the public entry point
 Bindings: `DB` (D1, the repository's `migrations/`) and, for `MAIL_MODE=send`,
 `EMAIL` (a `send_email` binding). A missing or malformed setting refuses every
 request with `500 internal_error`, and the log names the setting, never its
-value.
+value. A missing `EMAIL` binding while mail is sent refuses the account
+interface (the only part that sends mail).
 
-Cron, every minute: expired outbox mail is deleted, workspaces still setting
-up are retried, and every other expired row is deleted (`kofra_store::purge`).
+Cron, every minute: expired outbox mail is deleted and workspaces still setting
+up are retried. In the run scheduled for the first minute of each hour, every
+other expired row is deleted (`kofra_store::purge`).
 
 ## Storage
 

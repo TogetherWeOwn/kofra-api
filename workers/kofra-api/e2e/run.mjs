@@ -92,15 +92,18 @@ before(async () => {
 
 after(async () => {
 	// What this run made goes, wherever it ran (a shared staging database included).
-	await fetch(`${BASE}/__test/cleanup`, {
+	const cleaned = await fetch(`${BASE}/__test/cleanup`, {
 		method: 'POST',
 		body: JSON.stringify({ run: RUN })
-	}).catch(() => {});
-	if (EXTERNAL) return;
-	server?.kill('SIGINT');
-	if (state) rmSync(state, { recursive: true, force: true });
-	// Only the file this run wrote: never one that was there before.
-	if (wroteVars) rmSync(path.join(root, '.dev.vars'), { force: true });
+	}).catch(() => null);
+	if (!EXTERNAL) {
+		server?.kill('SIGINT');
+		if (state) rmSync(state, { recursive: true, force: true });
+		// Only the file this run wrote: never one that was there before.
+		if (wroteVars) rmSync(path.join(root, '.dev.vars'), { force: true });
+	}
+	// A run that cannot remove what it made fails, so nothing is left unnoticed.
+	assert.equal(cleaned?.status, 204, 'the run removes the rows it made');
 });
 
 async function call(method, p, { session, body, token } = {}) {
@@ -257,7 +260,7 @@ test('invite, sign-up, verification, workspace, API, two-step and recovery', asy
 		const ws = me.workspaces[0].id;
 		const cs = assertion(ws, me.user.id, me.session.id);
 		const account = await call('GET', '/v1/account', { token: cs });
-		assert.equal(account.status, 200, JSON.stringify(account.json));
+		assert.equal(account.status, 200, account.json?.code);
 		assert.equal(account.json.state, 'active');
 		const buckets = await call('GET', '/v1/buckets', { token: cs });
 		assert.equal(buckets.status, 200);
@@ -271,7 +274,9 @@ test('invite, sign-up, verification, workspace, API, two-step and recovery', asy
 			token: cs,
 			body: { name: 'ci', scopes: ['buckets:read'], expires_in_days: 30 }
 		});
-		assert.equal(tok.status, 201, JSON.stringify(tok.json));
+		// Messages carry codes only: an answer may hold a secret, and this file
+		// can run against a deployed copy.
+		assert.equal(tok.status, 201, tok.json?.code);
 		const bearer = tok.json.token;
 		assert.match(bearer, /^kofra_tok_/);
 		const pub = await call('GET', '/public/v1/buckets', { token: bearer });
@@ -299,8 +304,8 @@ test('invite, sign-up, verification, workspace, API, two-step and recovery', asy
 			body: JSON.stringify({ name: 'retry', scopes: ['buckets:read'] })
 		});
 		const [a, b] = [await first.json(), await second.json()];
-		assert.equal(a.id, b.id);
-		assert.equal(b.token, null);
+		assert.ok(a.id === b.id, 'the replay answers the same token');
+		assert.ok(b.token === null, 'the replay carries no secret');
 	});
 
 	await t.test('two-step verification with an authenticator app', async () => {
@@ -312,7 +317,7 @@ test('invite, sign-up, verification, workspace, API, two-step and recovery', asy
 			session,
 			body: { code: totp(secret, stepAtConfirm), password: PW }
 		});
-		assert.equal(confirm.status, 200, JSON.stringify(confirm.json));
+		assert.equal(confirm.status, 200, confirm.json?.code);
 		codes = confirm.json.recovery_codes;
 		assert.equal(codes.length, 10);
 		me = (await call('POST', '/account/v1/session/resolve', { session })).json;
@@ -337,7 +342,7 @@ test('invite, sign-up, verification, workspace, API, two-step and recovery', asy
 			session: second,
 			body: { code: totp(secret, stepAtConfirm + 1) }
 		});
-		assert.equal(ok.status, 200, JSON.stringify(ok.json));
+		assert.equal(ok.status, 200, ok.json?.code);
 		assert.equal(ok.json.state, 'signed_in');
 	});
 

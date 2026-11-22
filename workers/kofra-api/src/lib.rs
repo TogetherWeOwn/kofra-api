@@ -371,12 +371,13 @@ async fn fetch(req: Request, env: Env, ctx: Context) -> Result<Response> {
     }
 }
 
-/// Every minute: delete expired outbox mail (it holds working links), retry
-/// workspaces still setting up, and delete every other expired row
-/// ([`kofra_store::purge`]: indexed deletes, nothing to do most minutes).
-/// Times come from the clock, not from the event.
+/// Every minute: delete expired outbox mail (it holds working links) and
+/// retry workspaces still setting up. In the run scheduled for the first
+/// minute of each hour (the event's own scheduled time, so a late start
+/// still counts): delete every other expired row ([`kofra_store::purge`]).
+/// Retention cutoffs use the clock.
 #[event(scheduled)]
-async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
+async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     let Some(db) = database(&env) else {
         worker::console_error!("cron: no DB binding");
         return;
@@ -400,9 +401,12 @@ async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     if acc.retry_provisioning(10).await.is_err() {
         worker::console_error!("cron: provisioning retry failed");
     }
-    match kofra_store::purge::run(&*db, now).await {
-        Ok(n) if n.iter().any(|&d| d > 0) => worker::console_log!("cron: purge deleted {:?}", n),
-        Ok(_) => {}
-        Err(_) => worker::console_error!("cron: purge failed"),
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let scheduled_at = event.schedule().max(0.0) as u64;
+    if scheduled_at % 3_600_000 < 60_000 {
+        match kofra_store::purge::run(&*db, now).await {
+            Ok(n) => worker::console_log!("cron: purge deleted {:?}", n),
+            Err(_) => worker::console_error!("cron: purge failed"),
+        }
     }
 }

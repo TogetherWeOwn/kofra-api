@@ -18,7 +18,8 @@ database_name = "kofra-console-local"
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "../../migrations"
 
-# Every minute: workspace provisioning retries; hourly: the clean-up.
+# Every minute: outbox clean-up and workspace provisioning retries; hourly:
+# the rest of the clean-up.
 [triggers]
 crons = ["* * * * *"]
 

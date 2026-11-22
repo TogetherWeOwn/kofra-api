@@ -133,6 +133,13 @@ fn key(get: &impl Fn(&str) -> Option<String>, name: &'static str) -> Result<[u8;
 /// `https://host`, or `http://` locally; a port only when it is not the
 /// default one; nothing else. `None` for anything that is not an origin.
 fn origin(v: &str, local: bool) -> Option<String> {
+    // As written, before parsing: scheme, host, optional port, an optional
+    // final "/", nothing else (parsing would fold `/app/..` into `/`).
+    let rest = v.split_once("://")?.1;
+    let rest = rest.strip_suffix('/').unwrap_or(rest);
+    if rest.is_empty() || rest.contains(['/', '?', '#', '@', '\\']) {
+        return None;
+    }
     let u = worker::Url::parse(v).ok()?;
     let scheme_ok = u.scheme() == "https" || (local && u.scheme() == "http");
     let bare = !v.trim_end_matches('/').contains(['?', '#'])
@@ -366,6 +373,7 @@ mod tests {
             ("CONSOLE_ORIGIN", Some("https://console.example.com/path")),
             ("CONSOLE_ORIGIN", Some("https://console.example.com/?x")),
             ("CONSOLE_ORIGIN", Some("not a url")),
+            ("CONSOLE_ORIGIN", Some("https://console.example.com/app/..")),
             ("S3_ENDPOINT", None),
             ("SIGNUP_MODE", Some("open")),
             ("SIGNUP_MODE", None),
