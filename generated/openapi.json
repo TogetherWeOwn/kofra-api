@@ -1890,6 +1890,7 @@
           "account_read_only",
           "account_unavailable",
           "bucket_already_exists",
+          "bucket_limit_reached",
           "bucket_not_allowed",
           "idempotency_key_in_use",
           "idempotency_key_reused",
@@ -2200,7 +2201,7 @@
             }
           },
           "409": {
-            "description": "`bucket_already_exists`, `idempotency_key_in_use`",
+            "description": "`bucket_already_exists`, `bucket_limit_reached`, `idempotency_key_in_use`",
             "headers": {
               "Kofra-Request-Id": {
                 "$ref": "#/components/headers/KofraRequestId"
@@ -2231,6 +2232,20 @@
                       "detail": "A bucket named \"photos\" already exists.",
                       "hint": "Choose another name, or use the existing bucket.",
                       "docs_url": "https://kofra.app/docs/errors/bucket_already_exists.md",
+                      "request_id": "req_01jd3examplerequestid0000",
+                      "retryable": false
+                    }
+                  },
+                  "bucket_limit_reached": {
+                    "summary": "Too many buckets",
+                    "value": {
+                      "type": "https://kofra.app/docs/errors/bucket_limit_reached",
+                      "title": "Too many buckets",
+                      "status": 409,
+                      "code": "bucket_limit_reached",
+                      "detail": "The workspace already has 10,000 buckets.",
+                      "hint": "Delete a bucket you no longer use, then create the new one.",
+                      "docs_url": "https://kofra.app/docs/errors/bucket_limit_reached.md",
                       "request_id": "req_01jd3examplerequestid0000",
                       "retryable": false
                     }

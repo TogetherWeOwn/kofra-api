@@ -28,6 +28,8 @@ Every error is an RFC 9457 `application/problem+json` body with a stable `code`,
 | [`bucket_already_exists`](bucket_already_exists.md) | 409 | no | Bucket already exists |
 | [`bucket_not_empty`](bucket_not_empty.md) | 409 | no | Bucket is not empty |
 | [`key_limit_reached`](key_limit_reached.md) | 409 | no | Too many active access keys |
+| [`bucket_limit_reached`](bucket_limit_reached.md) | 409 | no | Too many buckets |
+| [`upload_limit_reached`](upload_limit_reached.md) | 409 | no | Too many uploads in progress |
 | [`grant_narrowing_refused`](grant_narrowing_refused.md) | 409 | no | Access can only be widened |
 | [`grant_limit_reached`](grant_limit_reached.md) | 409 | no | Too many grants on one key |
 | [`deletion_already_requested`](deletion_already_requested.md) | 409 | no | Deletion already requested |

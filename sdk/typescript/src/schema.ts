@@ -1536,7 +1536,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `bucket_already_exists`, `idempotency_key_in_use` */
+            /** @description `bucket_already_exists`, `bucket_limit_reached`, `idempotency_key_in_use` */
             409: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];

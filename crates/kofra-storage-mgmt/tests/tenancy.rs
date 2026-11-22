@@ -491,8 +491,9 @@ fn every_code_pages_on_sign_up_unless_it_is_a_not_now() {
     }
 }
 
-/// `internal_error` from the plane pages, and so do the two refusals of a
-/// tenant create that this service must never cause.
+/// `internal_error` from the plane pages, and so do the refusals of a
+/// tenant create that this service must never cause, and the absolute
+/// limits.
 #[test]
 fn upstream_faults_page() {
     for code in [
@@ -501,6 +502,11 @@ fn upstream_faults_page() {
         "rate_class_not_served",
         "bad_request",
         "unauthenticated",
+        "limits_not_served",
+        // Absolute limits: never a "not now" at sign-up.
+        "bucket_limit_reached",
+        "upload_limit_reached",
+        "key_limit_reached",
     ] {
         let fake = Fake::new();
         let pages = Pages::default();

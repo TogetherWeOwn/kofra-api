@@ -270,6 +270,12 @@ pub enum StorageError {
     KeyNotFound,
     /// `key_limit_reached`
     KeyLimitReached,
+    /// `bucket_limit_reached`: the workspace has the most buckets it may
+    /// have ([`crate::memory::MAX_BUCKETS`]).
+    BucketLimitReached,
+    /// `upload_limit_reached`: the workspace has the most uploads in
+    /// progress it may have.
+    UploadLimitReached,
     /// `grant_narrowing_refused`
     GrantNarrowingRefused,
     /// `grant_limit_reached`
@@ -328,6 +334,8 @@ impl StorageError {
             Self::BucketNotEmpty => "bucket_not_empty",
             Self::KeyNotFound => "key_not_found",
             Self::KeyLimitReached => "key_limit_reached",
+            Self::BucketLimitReached => "bucket_limit_reached",
+            Self::UploadLimitReached => "upload_limit_reached",
             Self::GrantNarrowingRefused => "grant_narrowing_refused",
             Self::GrantLimitReached => "grant_limit_reached",
             Self::FeedReset => "feed_reset",

@@ -176,6 +176,20 @@ errors:
     meaning: A workspace can have at most 20 active access keys at once.
     hint: Revoke an access key you no longer use with DELETE /v1/keys/{key_id}, then create the new one.
     detail_example: 'The workspace already has 20 active access keys.'
+  - code: bucket_limit_reached
+    status: 409
+    title: Too many buckets
+    retryable: false
+    meaning: A workspace can have at most 10,000 buckets, counting buckets that are still being deleted.
+    hint: Delete a bucket you no longer use, then create the new one.
+    detail_example: 'The workspace already has 10,000 buckets.'
+  - code: upload_limit_reached
+    status: 409
+    title: Too many uploads in progress
+    retryable: false
+    meaning: The workspace has as many uploads in progress as it may have at once; the usage answer shows the limit (`open_uploads`).
+    hint: Complete or abort an upload in progress, then start the new one.
+    detail_example: 'The workspace already has the most uploads in progress it may have.'
   - code: grant_narrowing_refused
     status: 409
     title: Access can only be widened

@@ -241,7 +241,7 @@ paths:
       summary: Create a bucket
       description: Creates an empty bucket. Bucket names are unique within the workspace.
       x-kofra-scopes: [buckets:write]
-      x-kofra-errors: [invalid_bucket_name, bucket_already_exists, account_read_only, role_forbidden, bucket_not_allowed]
+      x-kofra-errors: [invalid_bucket_name, bucket_already_exists, bucket_limit_reached, account_read_only, role_forbidden, bucket_not_allowed]
       x-kofra-success: 201
       requestBody:
         required: true
