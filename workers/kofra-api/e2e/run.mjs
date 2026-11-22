@@ -10,7 +10,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { createHmac, randomBytes } from 'node:crypto';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,19 +41,16 @@ let wroteVars = false;
 
 before(async () => {
 	if (EXTERNAL) return;
-	// The run writes its own keys to .dev.vars and removes them after: it
-	// never replaces a developer's file.
-	if (existsSync(path.join(root, '.dev.vars')))
-		throw new Error('workers/kofra-api/.dev.vars exists: move it away for the e2e run');
 	state = mkdtempSync(path.join(tmpdir(), 'kofra-api-e2e-'));
-	wroteVars = true;
 	writeFileSync(
 		path.join(root, '.dev.vars'),
 		Object.entries(keys)
 			.map(([k, v]) => `${k}=${v}`)
 			.join('\n') + '\n',
-		{ mode: 0o600 }
+		// A new file only (`wx`): a developer's own .dev.vars is never replaced.
+		{ mode: 0o600, flag: 'wx' }
 	);
+	wroteVars = true;
 	execFileSync(
 		wrangler,
 		['d1', 'migrations', 'apply', 'DB', '--local', '--persist-to', state, '-c', 'wrangler.toml'],
