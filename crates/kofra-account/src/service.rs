@@ -424,6 +424,8 @@ impl<P: Ports> Accounts<P> {
         }
         if now.saturating_sub(s.last_seen_at) >= TOUCH_MS {
             s.last_seen_at = now;
+            // A touch that lost to an epoch raise writes nothing; this
+            // request still runs on the epoch it was authorised under.
             store.update_session(&s).await?;
         }
         Ok((s, user))
@@ -572,13 +574,14 @@ impl<P: Ports> Accounts<P> {
     pub(crate) async fn first_recovery_codes(
         &self,
         user_id: &str,
+        epoch: u64,
         client: &Client,
     ) -> Result<Option<Vec<String>>> {
         let (codes, hashes) = self.make_recovery_codes(user_id);
         if !self
             .ports
             .store()
-            .init_recovery_codes(user_id, &hashes, self.now())
+            .init_recovery_codes(user_id, &hashes, epoch, self.now())
             .await?
         {
             return Ok(None);
@@ -1045,7 +1048,10 @@ impl<P: Ports> Accounts<P> {
         }
         s.step_at = self.now();
         s.last_seen_at = s.step_at;
-        self.ports.store().update_session(&s).await?;
+        // A factor change that re-stamped this session meanwhile wins.
+        if !self.ports.store().update_session(&s).await? {
+            return Err(Code::SessionInvalid.into());
+        }
         Ok(s.step_at)
     }
 
@@ -1341,11 +1347,11 @@ impl<P: Ports> Accounts<P> {
         let step = totp::parse_code(code)
             .and_then(|c| totp::verify(&secret, c, self.now(), 0))
             .ok_or(Code::CodeInvalid)?;
-        store
-            .enable_totp(&user.id, step, s.epoch, &s.id, self.now())
+        let epoch = store
+            .enable_totp(&user.id, &rec.sealed, step, s.epoch, &s.id, self.now())
             .await?
             .ok_or(Code::SessionInvalid)?;
-        let codes = self.first_recovery_codes(&user.id, client).await?;
+        let codes = self.first_recovery_codes(&user.id, epoch, client).await?;
         self.event(&user.id, EventKind::TotpEnabled, client).await?;
         self.send(mail::notice(
             &user.email,

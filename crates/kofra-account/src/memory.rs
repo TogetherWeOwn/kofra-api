@@ -282,19 +282,19 @@ impl Store for MemoryStore {
             .cloned())
     }
 
-    async fn update_session(&self, session: &SessionRecord) -> PortResult<()> {
+    async fn update_session(&self, session: &SessionRecord) -> PortResult<bool> {
         self.check()?;
-        if let Some(s) = self
-            .sessions
-            .borrow_mut()
+        let mut sessions = self.sessions.borrow_mut();
+        let Some(s) = sessions
             .iter_mut()
-            .find(|s| s.id == session.id)
-        {
-            s.last_seen_at = session.last_seen_at;
-            s.step_at = session.step_at;
-            s.level = session.level;
-        }
-        Ok(())
+            .find(|s| s.id == session.id && s.epoch == session.epoch)
+        else {
+            return Ok(false);
+        };
+        s.last_seen_at = session.last_seen_at;
+        s.step_at = session.step_at;
+        s.level = session.level;
+        Ok(true)
     }
 
     async fn delete_session(&self, user_id: &str, id: &str) -> PortResult<bool> {
@@ -431,6 +431,7 @@ impl Store for MemoryStore {
     async fn enable_totp(
         &self,
         user_id: &str,
+        sealed: &[u8],
         step: u64,
         expected_epoch: u64,
         keep: &str,
@@ -449,7 +450,10 @@ impl Store for MemoryStore {
             return Ok(None);
         };
         let mut map = self.totp.borrow_mut();
-        let Some(record) = map.get_mut(user_id).filter(|r| !r.enabled) else {
+        let Some(record) = map
+            .get_mut(user_id)
+            .filter(|r| !r.enabled && r.sealed == sealed)
+        else {
             return Ok(None);
         };
         record.enabled = true;
@@ -527,9 +531,18 @@ impl Store for MemoryStore {
         &self,
         user_id: &str,
         hashes: &[[u8; 32]],
+        expected_epoch: u64,
         _now_ms: u64,
     ) -> PortResult<bool> {
         self.check()?;
+        if !self
+            .users
+            .borrow()
+            .iter()
+            .any(|u| u.id == user_id && u.epoch == expected_epoch)
+        {
+            return Ok(false);
+        }
         let mut codes = self.recovery.borrow_mut();
         if codes
             .iter()

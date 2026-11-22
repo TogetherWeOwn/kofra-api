@@ -281,22 +281,23 @@ impl<P: Ports> Accounts<P> {
             created_at: self.now(),
             last_used_at: None,
         };
-        match store
+        let epoch = match store
             .insert_passkey(&record, session.epoch, &session.id, self.now())
             .await?
         {
-            InsertPasskey::Created { .. } => {}
+            InsertPasskey::Created { epoch } => epoch,
             InsertPasskey::Duplicate => {
                 return Err(AccountError::new(Code::InvalidRequest)
                     .detail("This passkey is already registered."));
             }
             // A credential changed while this request ran (a reset, say).
             InsertPasskey::Stale => return Err(Code::SessionInvalid.into()),
-        }
-        // One conditional write: concurrent first enrolments never both
-        // hand out a set.
+        };
+        // One conditional write at the epoch the insert returned: concurrent
+        // first enrolments never both hand out a set, and a set cannot
+        // outlive the passkey being removed meanwhile.
         let codes = if first_factor {
-            self.first_recovery_codes(&user.id, client).await?
+            self.first_recovery_codes(&user.id, epoch, client).await?
         } else {
             None
         };
@@ -475,7 +476,10 @@ impl<P: Ports> Accounts<P> {
         s.level = 2;
         s.step_at = self.now();
         s.last_seen_at = s.step_at;
-        self.ports.store().update_session(&s).await?;
+        // A factor change that re-stamped this session meanwhile wins.
+        if !self.ports.store().update_session(&s).await? {
+            return Err(Code::SessionInvalid.into());
+        }
         Ok(s.step_at)
     }
 
