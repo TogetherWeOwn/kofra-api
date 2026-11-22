@@ -27,6 +27,7 @@ ingress). Refused on the public host. JSON in, JSON out. Times are RFC 3339 UTC.
 | `invalid_credentials` | 401 | e-mail and password do not match (also for an unknown e-mail) |
 | `code_invalid` | 401 | wrong, reused or expired TOTP or recovery code |
 | `session_invalid` | 401 | no session, unknown, expired, or the wrong stage for this call |
+| `passkey_invalid` | 401 | a passkey ceremony failed (any check); the person may try again |
 | `step_required` | 403 | the action needs a sign-in step in the last 10 minutes: send the user to `/confirm-identity` |
 | `signup_closed` | 403 | sign-up is closed |
 | `invite_invalid` | 403 | the invite is unknown, used, expired or for another address |
@@ -52,7 +53,7 @@ interface User {
   email: string;
   email_verified: boolean;
   totp: boolean;         // authenticator app set up
-  passkeys: number;      // count (passkeys come in a later change; 0 until then)
+  passkeys: number;      // registered passkeys
   recovery_codes_left: number;
   created_at: string;
 }
@@ -78,7 +79,8 @@ interface SecurityEvent { at: string; kind: string; user_agent: string; country:
 `SecurityEvent.kind` values: `sign_in`, `sign_in_failed`, `second_step_failed`,
 `throttled`, `password_changed`, `password_reset`, `email_change_requested`,
 `email_changed`, `totp_enabled`, `totp_disabled`, `recovery_codes_created`,
-`recovery_code_used`, `sessions_revoked`, `signed_out`, `email_verified`.
+`recovery_code_used`, `sessions_revoked`, `signed_out`, `email_verified`,
+`passkey_added`, `passkey_removed`, `passkey_counter_refused`.
 
 ## Calls
 
@@ -103,14 +105,47 @@ interface SecurityEvent { at: string; kind: string; user_agent: string; country:
 | `POST /account/v1/email/change` | full, fresh step | `{ email }` | `202 {}` |
 | `PATCH /account/v1/profile` | full, verified | `{ name }` | `200 User` |
 | `POST /account/v1/totp/begin` | full, fresh step | none | `200 { "secret": base32, "uri": "otpauth://totp/..." }` |
-| `POST /account/v1/totp/confirm` | full, fresh step | `{ code, password? }` (`password` required for sessions below level 2) | `200 { "recovery_codes": string[] \| null }` (a new set only when the user had no unused recovery code) |
+| `POST /account/v1/totp/confirm` | full, fresh step | `{ code, password? }` (`password` required for sessions below level 2; other devices are signed out) | `200 { "recovery_codes": string[] \| null }` (a new set only when the user had no unused recovery code) |
 | `DELETE /account/v1/totp` | full, fresh step | | `204` |
 | `POST /account/v1/recovery-codes` | full, fresh step | none | `200 { "recovery_codes": string[] }` |
 | `POST /account/v1/workspaces` | full, verified | `{ name }` | `201 WorkspaceSummary` |
 | `GET /account/v1/security-log` | full | | `200 { data: SecurityEvent[] }` (newest first, at most 50) |
 
+### Passkeys
+
+`options` are the WebAuthn JSON forms: pass them to
+`PublicKeyCredential.parseCreationOptionsFromJSON` or
+`parseRequestOptionsFromJSON`, and send `credential.toJSON()` back as
+`credential`. Challenges work once and for 5 minutes. A failed ceremony
+answers `401 passkey_invalid`.
+
+| Method and path | Session | Body | Answer |
+|---|---|---|---|
+| `POST /account/v1/passkeys/register/begin` | full, fresh step | none | `200 { challenge_id, options }` |
+| `POST /account/v1/passkeys/register/finish` | full, fresh step | `{ challenge_id, name, credential, password? }` (`password` required when this is the first second factor) | `201 { passkey, recovery_codes: string[] \| null }` (codes when this is the first second factor). Every added passkey raises the credential epoch: other devices are signed out, this one stays. |
+| `POST /account/v1/passkeys/login/begin` | none, or second step | none | `200 { challenge_id, options }` (with a second-step session, only that user's passkeys are allowed; `404 not_found` when that user has none) |
+| `POST /account/v1/passkeys/login/finish` | none, or second step | `{ challenge_id, credential }` | `200 SignInAnswer` with `state: "signed_in"` (two factors) |
+| `POST /account/v1/reauth/passkey/begin` | full | none | `200 { challenge_id, options }` |
+| `POST /account/v1/reauth/passkey/finish` | full | `{ challenge_id, credential }` | `200 { "step_at" }` |
+| `GET /account/v1/passkeys` | full | | `200 { data: Passkey[] }` |
+| `PATCH /account/v1/passkeys/{id}` | full | `{ name }` | `200 Passkey` |
+| `DELETE /account/v1/passkeys/{id}` | full, fresh step | | `204`; every removal signs out other devices. Removing the last second factor also voids recovery codes |
+
+```ts
+interface Passkey { id: string; name: string; created_at: string; last_used_at: string | null; synced: boolean }
+```
+
+Passkey sign-in ignores a `Kofra-Session` that is not a live second-step
+session. Unknown passkey IDs answer `404 not_found`; malformed bodies
+`400 invalid_request`. A password reset of a passkey-only user takes a
+recovery code as its second factor.
+
+`password/change` takes `current` optional: it may be left out only by a
+session that used two factors within the last 10 minutes.
+
 "Session: full" means `stage = full`. A second-step session reaches only
-`login/totp`, `login/recovery`, `session/resolve` and `logout`, and its
+`login/totp`, `login/recovery`, `passkeys/login/*`, `session/resolve` and
+`logout`, and its
 `resolve` answer lists no workspaces.
 
 A password reset, a password change, an address change and turning two-step

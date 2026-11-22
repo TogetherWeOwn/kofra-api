@@ -1037,6 +1037,8 @@ fn totp_off_voids_recovery_codes_and_other_sessions() {
     let (_, old_codes) = h.enable_totp(&s);
     let off = h.call("DELETE", "totp", Some(&s), None);
     assert_eq!(off.status, 204);
+    let notice = h.ports().mailer.last_to(&addr("ada")).unwrap();
+    assert!(notice.text.contains("Two-step verification was turned off"));
     let r = h.call("POST", "session/resolve", Some(&s), None);
     assert_eq!(r.body["user"]["totp"], false);
     assert_eq!(r.body["user"]["recovery_codes_left"], 0);
@@ -2023,6 +2025,33 @@ fn credential_writes_reject_stale_foreign_and_missing_keep_sessions() {
 }
 
 #[test]
+fn a_session_touch_cannot_undo_an_epoch_restamp() {
+    let h = Harness::new(SignupMode::Invite);
+    let token = h.signed_up("ada");
+    let mut old = h.stored_session(&token);
+    let store = &h.ports().store;
+    pollster::block_on(async {
+        assert_eq!(
+            store
+                .bump_epoch(&old.user_id, old.epoch, Some(&old.id), T0 + 1)
+                .await
+                .unwrap(),
+            Some(old.epoch + 1)
+        );
+        old.last_seen_at = T0 + 2;
+        // The stale copy writes nothing at all.
+        assert!(!store.update_session(&old).await.unwrap());
+    });
+    let keep = h.stored_session(&token);
+    assert_ne!(keep.last_seen_at, old.last_seen_at);
+    assert_eq!(keep.epoch, old.epoch + 1);
+    assert_eq!(
+        h.call("POST", "session/resolve", Some(&token), None).status,
+        200
+    );
+}
+
+#[test]
 fn disabling_totp_in_the_store_removes_the_record_and_all_codes() {
     let h = Harness::new(SignupMode::Invite);
     let token = h.signed_up("ada");
@@ -2047,7 +2076,7 @@ fn disabling_totp_in_the_store_removes_the_record_and_all_codes() {
                 .disable_totp(&session.user_id, session.epoch, &session.id, T0)
                 .await
                 .unwrap(),
-            Some(session.epoch + 1)
+            Some((session.epoch + 1, true))
         );
         assert!(store.totp_row(&session.user_id).is_none());
         assert_eq!(

@@ -19,6 +19,8 @@ pub enum Code {
     CodeInvalid,
     /// No usable session for this call.
     SessionInvalid,
+    /// The passkey could not be used.
+    PasskeyInvalid,
     /// The action needs a recent sign-in step.
     StepRequired,
     /// Sign-up is closed.
@@ -54,6 +56,7 @@ impl Code {
             Self::InvalidCredentials => "invalid_credentials",
             Self::CodeInvalid => "code_invalid",
             Self::SessionInvalid => "session_invalid",
+            Self::PasskeyInvalid => "passkey_invalid",
             Self::StepRequired => "step_required",
             Self::SignupClosed => "signup_closed",
             Self::InviteInvalid => "invite_invalid",
@@ -72,7 +75,10 @@ impl Code {
     pub fn status(self) -> u16 {
         match self {
             Self::InvalidRequest | Self::TokenInvalid => 400,
-            Self::InvalidCredentials | Self::CodeInvalid | Self::SessionInvalid => 401,
+            Self::InvalidCredentials
+            | Self::CodeInvalid
+            | Self::SessionInvalid
+            | Self::PasskeyInvalid => 401,
             Self::StepRequired
             | Self::SignupClosed
             | Self::InviteInvalid
@@ -96,6 +102,7 @@ impl Code {
             Self::InvalidCredentials => "Email or password is wrong",
             Self::CodeInvalid => "Code is not valid",
             Self::SessionInvalid => "Not signed in",
+            Self::PasskeyInvalid => "Passkey could not be used",
             Self::StepRequired => "Confirm it's you",
             Self::SignupClosed => "Sign-up is closed",
             Self::InviteInvalid => "Invite cannot be used",

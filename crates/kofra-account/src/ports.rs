@@ -22,12 +22,31 @@
 //!
 //! With no keep session, use one `UPDATE account_users SET epoch = epoch + 1,
 //! updated_at = ? WHERE id = ? AND epoch = ? RETURNING epoch`.
+//!
+//! Passkeys follow the same recipe, with two additions:
+//! - `insert_passkey`: the batch's FIRST statement is a plain `INSERT INTO
+//!   account_passkeys ... SELECT ... WHERE account_users.id = ? AND
+//!   account_users.epoch = E AND EXISTS (the keep session at E, the user's)`,
+//!   never `OR IGNORE` or `ON CONFLICT`. A `UNIQUE` conflict on
+//!   `credential_id` then fails the whole batch (a D1 batch is one
+//!   transaction and rolls back), and the adapter maps that error to
+//!   `Duplicate`. The keep-session stamp comes second (still guarded by
+//!   epoch `E`, as above), and the final epoch raise also requires `EXISTS
+//!   (SELECT 1 FROM account_passkeys WHERE id = ?)`, so a dropped insert
+//!   can never report `Created`: no returned row means `Stale`.
+//! - `delete_passkey` adds `EXISTS (SELECT 1 FROM account_passkeys WHERE
+//!   id = ? AND user_id = ?)` to the first statement's guards. After the
+//!   `DELETE`, the recovery-code deletion and `level = 1` run only under
+//!   `NOT EXISTS` a passkey of the user and `NOT EXISTS` an enabled TOTP
+//!   record, and the final `RETURNING` reports whether a factor is left. On
+//!   an empty result the adapter reads once more to answer `NotFound` (no
+//!   such passkey) or `Stale`.
 
 #![allow(async_fn_in_trait)]
 
 use crate::model::{
-    EmailToken, InviteRecord, MemberRecord, Purpose, Role, SecurityEvent, SessionRecord,
-    TotpRecord, UserRecord, WorkspaceRecord,
+    ChallengePurpose, ChallengeRecord, EmailToken, InviteRecord, MemberRecord, PasskeyRecord,
+    Purpose, Role, SecurityEvent, SessionRecord, TotpRecord, UserRecord, WorkspaceRecord,
 };
 
 /// A port could not answer.
@@ -177,18 +196,20 @@ pub trait Store {
         keep: &str,
         now_ms: u64,
     ) -> PortResult<Option<u64>>;
-    /// Atomically removes a present TOTP record and voids all recovery codes
-    /// at `expected_epoch`, raises the epoch, and sets `updated_at`. The keep
-    /// session must exist, belong to the user, and be at `expected_epoch`.
-    /// Sets its epoch and level 1. Follow the D1 recipe above.
-    /// Returns the new epoch or `None` with no writes.
+    /// Atomically removes a present TOTP record at `expected_epoch`, raises
+    /// the epoch, and sets `updated_at`. The keep session must exist, belong
+    /// to the user, and be at `expected_epoch`; it is stamped with the new
+    /// epoch. With no passkey left, also voids all recovery codes and sets
+    /// the keep session to level 1. Follow the D1 recipe above. Returns the
+    /// new epoch and whether no second factor is left, or `None` with no
+    /// writes.
     async fn disable_totp(
         &self,
         user_id: &str,
         expected_epoch: u64,
         keep: &str,
         now_ms: u64,
-    ) -> PortResult<Option<u64>>;
+    ) -> PortResult<Option<(u64, bool)>>;
     /// Atomically sets `last_step = step` if `last_step < step`; `false` if a
     /// code of this or a later step was accepted already (a replay).
     async fn advance_totp(&self, user_id: &str, step: u64) -> PortResult<bool>;
@@ -268,6 +289,87 @@ pub trait Store {
     async fn insert_event(&self, event: &SecurityEvent) -> PortResult<()>;
     /// The user's newest events.
     async fn events(&self, user_id: &str, limit: usize) -> PortResult<Vec<SecurityEvent>>;
+
+    /// Atomically inserts a unique credential at `expected_epoch`, raises the
+    /// epoch, and stamps the user's `keep` session with that epoch and level 2.
+    /// The keep session must exist, belong to the user, and be at
+    /// `expected_epoch` (otherwise `Stale`). Follow the D1 recipe above.
+    async fn insert_passkey(
+        &self,
+        passkey: &PasskeyRecord,
+        expected_epoch: u64,
+        keep: &str,
+        now_ms: u64,
+    ) -> PortResult<InsertPasskey>;
+    /// A passkey by credential ID.
+    async fn passkey_by_credential(
+        &self,
+        credential_id: &[u8],
+    ) -> PortResult<Option<PasskeyRecord>>;
+    /// The user's passkeys, oldest first.
+    async fn passkeys(&self, user_id: &str) -> PortResult<Vec<PasskeyRecord>>;
+    /// Records a use: the new counter, backup state and time. Atomically
+    /// refuses (returns `false`) if the stored counter is no longer
+    /// `expected_count`, so two racing assertions cannot both pass.
+    async fn record_passkey_use(
+        &self,
+        id: &str,
+        expected_count: u32,
+        sign_count: u32,
+        backed_up: bool,
+        now_ms: u64,
+    ) -> PortResult<bool>;
+    /// Renames one of the user's passkeys; `false` if there is none.
+    async fn rename_passkey(&self, user_id: &str, id: &str, name: &str) -> PortResult<bool>;
+    /// Atomically deletes a passkey at `expected_epoch`, raises the epoch,
+    /// and stamps the user's `keep` session. With no enabled TOTP or passkeys
+    /// left, deletes all recovery codes and sets that session to level 1.
+    /// The keep session must exist, belong to the user, and be at
+    /// `expected_epoch` (otherwise `Stale`). Follow the D1 recipe above.
+    async fn delete_passkey(
+        &self,
+        user_id: &str,
+        id: &str,
+        expected_epoch: u64,
+        keep: &str,
+        now_ms: u64,
+    ) -> PortResult<DeletePasskey>;
+
+    /// Stores a WebAuthn challenge.
+    async fn insert_challenge(&self, challenge: &ChallengeRecord) -> PortResult<()>;
+    /// Deletes every challenge that expired before `now_ms`.
+    async fn delete_expired_challenges(&self, now_ms: u64) -> PortResult<()>;
+    /// Atomically removes the challenge, whatever its purpose or age (a
+    /// guess at the wrong endpoint spends it too), and returns it only if it
+    /// has this purpose and has not expired at `now_ms`.
+    async fn take_challenge(
+        &self,
+        id: &str,
+        purpose: ChallengePurpose,
+        now_ms: u64,
+    ) -> PortResult<Option<ChallengeRecord>>;
+}
+
+/// The outcome of [`Store::insert_passkey`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsertPasskey {
+    /// Stored with the new epoch.
+    Created { epoch: u64 },
+    /// The credential ID is registered already; nothing written.
+    Duplicate,
+    /// The user's epoch changed; nothing written.
+    Stale,
+}
+
+/// The outcome of [`Store::delete_passkey`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeletePasskey {
+    /// The user has no matching passkey; nothing written.
+    NotFound,
+    /// The user's epoch changed; nothing written.
+    Stale,
+    /// Removed with the new epoch and whether this was the last factor.
+    Deleted { epoch: u64, last_factor: bool },
 }
 
 /// The outcome of [`Store::insert_user`].

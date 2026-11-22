@@ -41,9 +41,11 @@ test('the migrations apply in order on an empty database', () => {
 		.all()
 		.map((r) => r.name);
 	assert.deepEqual(tables, [
+		'account_challenges',
 		'account_email_tokens',
 		'account_equalise',
 		'account_invites',
+		'account_passkeys',
 		'account_provisioning',
 		'account_recovery_codes',
 		'account_security_events',
