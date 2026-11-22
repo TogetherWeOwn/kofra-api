@@ -259,7 +259,8 @@ impl Directory for MemoryDirectory {
     async fn touch_token(&self, id: &str, at_ms: u64) -> Result<(), PortError> {
         check_failure(&self.fail)?;
         if let Some(row) = self.tokens.borrow_mut().get_mut(id) {
-            row.last_used_at_ms = Some(at_ms);
+            // Never back: a touch from an earlier hour may arrive late.
+            row.last_used_at_ms = Some(row.last_used_at_ms.map_or(at_ms, |t| t.max(at_ms)));
         }
         Ok(())
     }

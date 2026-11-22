@@ -161,7 +161,9 @@ pub trait Directory {
     /// exists.
     async fn revoke_token(&self, workspace: &str, id: &str, at_ms: u64) -> Result<bool, PortError>;
     /// Records that the token was used at `at_ms` (already rounded down to
-    /// the hour; the shell writes at most once an hour per token).
+    /// the hour; the shell writes at most once an hour per token). The
+    /// recorded time never moves back: a late touch from an earlier hour
+    /// leaves a later one in place.
     async fn touch_token(&self, id: &str, at_ms: u64) -> Result<(), PortError>;
     /// The workspace's deletion request that has not lapsed at `now_ms`.
     async fn deletion_request(

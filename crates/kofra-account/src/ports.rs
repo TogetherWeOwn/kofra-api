@@ -7,18 +7,23 @@
 //! # D1 batches that keep a session
 //!
 //! A statement that matches no rows does not stop a batch. For an expected
-//! epoch `E`, first set `account_sessions.epoch = E + 1` on the keep session,
-//! and set `level` where required. Guard the update by the session's ID,
-//! `account_sessions.user_id = ?`, `account_sessions.epoch = E`, and
-//! `account_users.epoch = E` for that user. To enable TOTP, require a row
-//! in `account_totp_credentials` for the user with `enabled = 0 AND sealed =
-//! ?` (the secret the code was checked against). To disable
+//! epoch `E`, first mark the keep session: set `account_sessions.epoch =
+//! -(E + 1)` on it, and set `level` where required. Guard the update by the
+//! session's ID, `account_sessions.user_id = ?`, `account_sessions.epoch =
+//! E`, and `account_users.epoch = E` for that user. To enable TOTP, require
+//! a row in `account_totp_credentials` for the user with `enabled = 0 AND
+//! sealed = ?` (the secret the code was checked against). To disable
 //! TOTP, require a row for the user.
-//! Guard every later statement by `account_sessions.epoch = E + 1` on the
-//! same keep session and `account_users.epoch = E` on its user. Only the
-//! first statement in the batch can make both true.
-//! Raise `account_users.epoch` last, with `RETURNING epoch`. No returned row
-//! means nothing was written (`None`).
+//! Guard every later statement by `account_sessions.epoch = -(E + 1)` on
+//! the same keep session and `account_users.epoch = E` on its user. A
+//! stored epoch is never negative, so only the first statement in the
+//! batch can make both true, whatever state the rows were in before.
+//! Raise `account_users.epoch` with `RETURNING epoch`; no returned row
+//! means nothing was written (`None`). Last, move the keep session from
+//! the mark to `E + 1`, guarded by its ID, its user and the mark only (not
+//! by the user at `E`: the raise just moved the user to `E + 1`). The batch
+//! is one transaction, so no reader ever sees the mark. (`kofra-store`
+//! implements this recipe.)
 //!
 //! With no keep session, use one `UPDATE account_users SET epoch = epoch + 1,
 //! updated_at = ? WHERE id = ? AND epoch = ? RETURNING epoch`.
@@ -30,8 +35,8 @@
 //!   never `OR IGNORE` or `ON CONFLICT`. A `UNIQUE` conflict on
 //!   `credential_id` then fails the whole batch (a D1 batch is one
 //!   transaction and rolls back), and the adapter maps that error to
-//!   `Duplicate`. The keep-session stamp comes second (still guarded by
-//!   epoch `E`, as above), and the final epoch raise also requires `EXISTS
+//!   `Duplicate`. The keep-session mark comes second (still guarded by
+//!   epoch `E`, as above), and the epoch raise also requires `EXISTS
 //!   (SELECT 1 FROM account_passkeys WHERE id = ?)`, so a dropped insert
 //!   can never report `Created`: no returned row means `Stale`.
 //! - `delete_passkey` adds `EXISTS (SELECT 1 FROM account_passkeys WHERE
@@ -127,13 +132,14 @@ pub trait Store {
     async fn session_by_hash(&self, hash: &[u8; 32]) -> PortResult<Option<SessionRecord>>;
     /// Writes `last_seen_at`, `step_at` and `level` of a session, only while
     /// its stored epoch is still `session.epoch` (the one the caller read):
-    /// `UPDATE account_sessions SET ... WHERE id = ? AND epoch = ?`. `false`
+    /// `UPDATE account_sessions SET last_seen_at = max(last_seen_at, ?), ...
+    /// WHERE id = ? AND epoch = ?` (the time never moves back). `false`
     /// (nothing written) if an epoch-raising write re-stamped or retired it
     /// meanwhile, so a stale copy cannot put back a level it lost.
     async fn update_session(&self, session: &SessionRecord) -> PortResult<bool>;
     /// Writes only `last_seen_at` of a session, while it is at `epoch`:
-    /// `UPDATE account_sessions SET last_seen_at = ? WHERE id = ? AND epoch
-    /// = ?`. A touch never writes back a level or step time it read, so it
+    /// `UPDATE account_sessions SET last_seen_at = max(last_seen_at, ?) WHERE
+    /// id = ? AND epoch = ?`. A touch never writes back a level or step time it read, so it
     /// cannot undo a re-authentication that landed meanwhile.
     async fn touch_session(&self, id: &str, epoch: u64, last_seen_at: u64) -> PortResult<bool>;
     /// Deletes one session of a user; `false` if there was none.

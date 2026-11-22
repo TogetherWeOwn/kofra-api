@@ -303,7 +303,7 @@ impl Store for MemoryStore {
         else {
             return Ok(false);
         };
-        s.last_seen_at = session.last_seen_at;
+        s.last_seen_at = s.last_seen_at.max(session.last_seen_at);
         s.step_at = session.step_at;
         s.level = session.level;
         Ok(true)
@@ -315,7 +315,7 @@ impl Store for MemoryStore {
         let Some(s) = sessions.iter_mut().find(|s| s.id == id && s.epoch == epoch) else {
             return Ok(false);
         };
-        s.last_seen_at = last_seen_at;
+        s.last_seen_at = s.last_seen_at.max(last_seen_at);
         Ok(true)
     }
 
@@ -998,14 +998,17 @@ impl Throttle for MemoryThrottle {
         now_ms: u64,
     ) -> PortResult<Option<u32>> {
         let mut w = self.windows.borrow_mut();
-        let start = now_ms - now_ms % window_ms.max(1);
+        let window_ms = window_ms.max(1);
+        let start = now_ms - now_ms % window_ms;
         let e = w.entry(key.to_owned()).or_insert((start, 0));
-        if e.0 != start {
+        // The stored window never moves back: a late hit from an older
+        // window counts in the newer one.
+        if start > e.0 {
             *e = (start, 0);
         }
         e.1 += 1;
         if e.1 > limit {
-            let left_ms = start + window_ms - now_ms;
+            let left_ms = (e.0 + window_ms).saturating_sub(now_ms).max(1);
             return Ok(Some(
                 u32::try_from(left_ms.div_ceil(1000)).unwrap_or(u32::MAX),
             ));

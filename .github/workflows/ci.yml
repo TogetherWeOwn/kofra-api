@@ -48,7 +48,7 @@ jobs:
     name: changes
     uses: TogetherWeOwn/.github/.github/workflows/changes.yml@8059ac2b121b63443db656b1e10e927b8af8133c # v0.12.1
     with:
-      areas-json: '{"docs":["**.md","docs/**"],"contract":["openapi/**","errors/**","registry/**","generated/**","tools/**","test/**","migrations/**"],"rust":["crates/**","xtask/**","Cargo.toml","Cargo.lock","rust-toolchain.toml","openapi/**","errors/**","registry/**","tools/build.mjs","generated/**"],"sdk":["sdk/**","tools/sdk/**","tools/mock/**",".node-version","openapi/**","errors/**","registry/**","generated/**"]}'
+      areas-json: '{"docs":["**.md","docs/**"],"contract":["openapi/**","errors/**","registry/**","generated/**","tools/**","test/**","migrations/**"],"rust":["crates/**","migrations/**","xtask/**","Cargo.toml","Cargo.lock","rust-toolchain.toml","openapi/**","errors/**","registry/**","tools/build.mjs","generated/**"],"sdk":["sdk/**","tools/sdk/**","tools/mock/**",".node-version","openapi/**","errors/**","registry/**","generated/**"]}'
       full-run-globs-json: '["package.json","**/package.json","pnpm-lock.yaml","**/pnpm-lock.yaml","pnpm-workspace.yaml","**/pnpm-workspace.yaml",".npmrc","**/.npmrc",".node-version","redocly.yaml","eslint.config.js","prettier.config.js",".prettierignore",".gitignore",".gitattributes",".editorconfig","Cargo.toml","**/Cargo.toml","Cargo.lock","**/Cargo.lock",".cargo/**","**/.cargo/**","rust-toolchain*","**/rust-toolchain*","osv-scanner.toml",".gitleaks.toml",".github/**"]'
       docs-areas-json: '["docs"]'
 
@@ -168,6 +168,10 @@ jobs:
       # The contract-derived types, the API core and the account service must
       # build for the Workers target.
       - run: cargo build --locked -p kofra-api-types -p kofra-api-core -p kofra-account --target wasm32-unknown-unknown --release
+      # The SQL store runs in the Workers shell too. Only its library: its
+      # tests run on a bundled native SQLite.
+      - run: cargo clippy --locked -p kofra-store --lib --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo build --locked -p kofra-store --target wasm32-unknown-unknown --release
 
   sdk:
     name: sdk (regenerate, TypeScript, Python, Go, CLI cross-build)
