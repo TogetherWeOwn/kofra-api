@@ -224,7 +224,7 @@ test('invite, sign-up, verification, workspace, API, two-step and recovery', asy
 		const r = await call('POST', '/account/v1/email/verify', { body: { token, password: PW } });
 		assert.equal(r.status, 200);
 		assert.equal(r.json.state, 'verified');
-		assert.equal(r.json.session, undefined);
+		assert.ok(r.json.session === undefined, 'email verification returns no session');
 		const spent = await call('POST', '/account/v1/email/verify', { body: { token, password: PW } });
 		assert.equal(spent.status, 400);
 	});
