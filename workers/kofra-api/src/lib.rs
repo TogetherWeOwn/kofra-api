@@ -189,6 +189,16 @@ fn accounts(
     )
 }
 
+/// Whether `EMAIL` is a binding that can send (an object with a `send`
+/// method): workers-rs does not check the binding's type.
+fn has_email_binding(env: &Env) -> bool {
+    Reflect::get(env, &JsValue::from_str("EMAIL"))
+        .ok()
+        .filter(JsValue::is_object)
+        .and_then(|b| Reflect::get(&b, &JsValue::from_str("send")).ok())
+        .is_some_and(|f| f.is_function())
+}
+
 /// Whether `entry.mjs` marked this request as coming through the console's
 /// binding: the mark is a function, which no configuration can produce.
 fn is_console(env: &Env) -> bool {
@@ -302,11 +312,6 @@ async fn fetch(req: Request, env: Env, ctx: Context) -> Result<Response> {
         worker::console_error!("config: no DB binding");
         return problem("internal_error", None);
     };
-    // Mail that would be dropped is refused here, not lost later.
-    if s.mail.sends() && env.get_binding::<worker::SendEmail>("EMAIL").is_err() {
-        worker::console_error!("config: MAIL_MODE sends but there is no EMAIL binding");
-        return problem("internal_error", None);
-    }
     // The client address: the edge's, on the public hostname only. Console
     // requests carry the browser's address in `Kofra-Client-IP`, which only
     // the account interface reads, and only for throttles and its log.
@@ -341,6 +346,11 @@ async fn fetch(req: Request, env: Env, ctx: Context) -> Result<Response> {
             }
         }
         Target::Account => {
+            // Mail that would be dropped is refused here, not lost later.
+            if s.mail.sends() && !has_email_binding(&env) {
+                worker::console_error!("config: MAIL_MODE sends but there is no EMAIL binding");
+                return problem("internal_error", None);
+            }
             let acc = accounts(&db, &s, &env, Some(Rc::new(ctx)));
             let request = kofra_account::handler::Request {
                 method: p.method,

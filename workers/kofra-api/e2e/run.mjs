@@ -37,6 +37,7 @@ const keys = {
 };
 let state;
 let server;
+let wroteVars = false;
 
 before(async () => {
 	if (EXTERNAL) return;
@@ -45,6 +46,7 @@ before(async () => {
 	if (existsSync(path.join(root, '.dev.vars')))
 		throw new Error('workers/kofra-api/.dev.vars exists: move it away for the e2e run');
 	state = mkdtempSync(path.join(tmpdir(), 'kofra-api-e2e-'));
+	wroteVars = true;
 	writeFileSync(
 		path.join(root, '.dev.vars'),
 		Object.entries(keys)
@@ -88,11 +90,17 @@ before(async () => {
 	throw new Error('the local Worker did not start');
 });
 
-after(() => {
+after(async () => {
+	// What this run made goes, wherever it ran (a shared staging database included).
+	await fetch(`${BASE}/__test/cleanup`, {
+		method: 'POST',
+		body: JSON.stringify({ run: RUN })
+	}).catch(() => {});
 	if (EXTERNAL) return;
 	server?.kill('SIGINT');
-	rmSync(state, { recursive: true, force: true });
-	rmSync(path.join(root, '.dev.vars'), { force: true });
+	if (state) rmSync(state, { recursive: true, force: true });
+	// Only the file this run wrote: never one that was there before.
+	if (wroteVars) rmSync(path.join(root, '.dev.vars'), { force: true });
 });
 
 async function call(method, p, { session, body, token } = {}) {

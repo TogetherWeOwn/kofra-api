@@ -22,4 +22,9 @@ if [ "$have" != "$want" ]; then
   exit 1
 fi
 esbuild=$(node -p "require.resolve('esbuild/bin/esbuild', { paths: [require.resolve('wrangler')] })")
+# worker-build downloads its own esbuild when the given one cannot run.
+if [ ! -x "$esbuild" ]; then
+  echo "build.sh: esbuild is not executable: $esbuild (run pnpm install)" >&2
+  exit 1
+fi
 WASM_BINDGEN_BIN="$bin" ESBUILD_BIN="$esbuild" worker-build --release --no-opt

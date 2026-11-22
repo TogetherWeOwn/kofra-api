@@ -38,6 +38,31 @@ export default {
 				.run();
 			return Response.json({ token });
 		}
+		if (url.pathname === '/__test/cleanup' && request.method === 'POST') {
+			// Removes what one run made, by the run's address suffix (`+<run>@example.com`).
+			const { run } = await request.json();
+			if (!/^[a-f0-9]{8}$/.test(run)) return new Response('bad run', { status: 400 });
+			const like = `%+${run}@example.com`;
+			const mine = 'SELECT id FROM account_users WHERE email_key LIKE ?1';
+			const ws = `SELECT workspace_id FROM api_members WHERE user_id IN (${mine})`;
+			const mark = `e2e-delete-${run}`;
+			await env.DB.batch(
+				[
+					`DELETE FROM api_tokens WHERE workspace_id IN (${ws})`,
+					`DELETE FROM api_audit WHERE workspace_id IN (${ws})`,
+					`DELETE FROM api_idempotency WHERE workspace_id IN (${ws})`,
+					`DELETE FROM api_deletion_requests WHERE workspace_id IN (${ws})`,
+					`DELETE FROM account_provisioning WHERE workspace_id IN (${ws})`,
+					`UPDATE api_workspaces SET name = '${mark}' WHERE id IN (${ws})`,
+					`DELETE FROM api_members WHERE user_id IN (${mine})`,
+					`DELETE FROM api_workspaces WHERE name = '${mark}'`,
+					`DELETE FROM account_users WHERE id IN (${mine})`,
+					'DELETE FROM account_invites WHERE email_key LIKE ?1',
+					'DELETE FROM account_mail_outbox WHERE to_addr LIKE ?1'
+				].map((sql) => (sql.includes('?1') ? env.DB.prepare(sql).bind(like) : env.DB.prepare(sql)))
+			);
+			return new Response(null, { status: 204 });
+		}
 		if (url.pathname.startsWith('/public/')) {
 			const to = new URL(url);
 			to.pathname = url.pathname.slice('/public'.length);
