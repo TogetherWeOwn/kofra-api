@@ -38,6 +38,7 @@
 - [deletion_already_requested](https://kofra.app/docs/errors/deletion_already_requested.md): Deletion already requested
 - [deletion_not_requested](https://kofra.app/docs/errors/deletion_not_requested.md): No deletion to cancel
 - [deletion_final](https://kofra.app/docs/errors/deletion_final.md): Deletion can no longer be cancelled
+- [deletion_not_cancellable](https://kofra.app/docs/errors/deletion_not_cancellable.md): Deletion cannot be cancelled here
 - [feed_reset](https://kofra.app/docs/errors/feed_reset.md): Event feed was reset
 - [idempotency_key_in_use](https://kofra.app/docs/errors/idempotency_key_in_use.md): Same request is still running
 - [idempotency_key_reused](https://kofra.app/docs/errors/idempotency_key_reused.md): Idempotency key used with another request

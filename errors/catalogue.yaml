@@ -76,8 +76,8 @@ errors:
     status: 403
     title: Token is limited to other buckets
     retryable: false
-    meaning: The API token is limited to some buckets (`buckets`), and the request names a bucket outside that list. When a token or an access key is being created, a bucket outside the creating token's list is refused the same way.
-    hint: Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.
+    meaning: The API token is limited to some buckets (`buckets`), and the request names a bucket outside that list. When a token or an access key is being created, a bucket outside the creating token's list is refused the same way. Storage refuses the same way a grant wider than the acting member's own access, or an object request on a bucket the member has no access to.
+    hint: Use a token whose `buckets` list includes this bucket, or a token without a bucket limit; if the token has no bucket limit, ask an Owner for access to the bucket.
     detail_example: 'The token is limited to other buckets than "photos".'
   - code: role_forbidden
     status: 403
@@ -211,6 +211,13 @@ errors:
     meaning: The deletion has passed its last cancellation time. Deleted data is cryptographically erased (its encryption key is destroyed), so it can never be read again.
     hint: No action can restore this data; contact support with the `request_id` if you believe this is wrong.
     detail_example: 'The deletion became final at 2026-12-19T10:00:00Z.'
+  - code: deletion_not_cancellable
+    status: 409
+    title: Deletion cannot be cancelled here
+    retryable: false
+    meaning: The deletion was not started by a member of the account (for example, it was started for non-payment), so it cannot be cancelled through the API or the console.
+    hint: Contact support with the `request_id` to resolve what started the deletion.
+    detail_example: 'This deletion was not requested by a member of the account.'
   - code: feed_reset
     status: 409
     title: Event feed was reset

@@ -33,6 +33,7 @@ Every error is an RFC 9457 `application/problem+json` body with a stable `code`,
 | [`deletion_already_requested`](deletion_already_requested.md) | 409 | no | Deletion already requested |
 | [`deletion_not_requested`](deletion_not_requested.md) | 409 | no | No deletion to cancel |
 | [`deletion_final`](deletion_final.md) | 409 | no | Deletion can no longer be cancelled |
+| [`deletion_not_cancellable`](deletion_not_cancellable.md) | 409 | no | Deletion cannot be cancelled here |
 | [`feed_reset`](feed_reset.md) | 409 | no | Event feed was reset |
 | [`idempotency_key_in_use`](idempotency_key_in_use.md) | 409 | yes | Same request is still running |
 | [`idempotency_key_reused`](idempotency_key_reused.md) | 422 | no | Idempotency key used with another request |

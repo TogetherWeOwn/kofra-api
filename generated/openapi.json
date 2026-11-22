@@ -963,6 +963,7 @@
         ],
         "x-kofra-errors": [
           "deletion_final",
+          "deletion_not_cancellable",
           "deletion_not_requested",
           "idempotency_key_in_use",
           "idempotency_key_reused",
@@ -1205,7 +1206,7 @@
             }
           },
           "409": {
-            "description": "`deletion_final`, `deletion_not_requested`, `idempotency_key_in_use`",
+            "description": "`deletion_final`, `deletion_not_cancellable`, `deletion_not_requested`, `idempotency_key_in_use`",
             "headers": {
               "Kofra-Request-Id": {
                 "$ref": "#/components/headers/KofraRequestId"
@@ -1236,6 +1237,20 @@
                       "detail": "The deletion became final at 2026-12-19T10:00:00Z.",
                       "hint": "No action can restore this data; contact support with the `request_id` if you believe this is wrong.",
                       "docs_url": "https://kofra.app/docs/errors/deletion_final.md",
+                      "request_id": "req_01jd3examplerequestid0000",
+                      "retryable": false
+                    }
+                  },
+                  "deletion_not_cancellable": {
+                    "summary": "Deletion cannot be cancelled here",
+                    "value": {
+                      "type": "https://kofra.app/docs/errors/deletion_not_cancellable",
+                      "title": "Deletion cannot be cancelled here",
+                      "status": 409,
+                      "code": "deletion_not_cancellable",
+                      "detail": "This deletion was not requested by a member of the account.",
+                      "hint": "Contact support with the `request_id` to resolve what started the deletion.",
+                      "docs_url": "https://kofra.app/docs/errors/deletion_not_cancellable.md",
                       "request_id": "req_01jd3examplerequestid0000",
                       "retryable": false
                     }
@@ -2132,7 +2147,7 @@
                       "status": 403,
                       "code": "bucket_not_allowed",
                       "detail": "The token is limited to other buckets than \"photos\".",
-                      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.",
+                      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit; if the token has no bucket limit, ask an Owner for access to the bucket.",
                       "docs_url": "https://kofra.app/docs/errors/bucket_not_allowed.md",
                       "request_id": "req_01jd3examplerequestid0000",
                       "retryable": false
@@ -2706,7 +2721,7 @@
                       "status": 403,
                       "code": "bucket_not_allowed",
                       "detail": "The token is limited to other buckets than \"photos\".",
-                      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.",
+                      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit; if the token has no bucket limit, ask an Owner for access to the bucket.",
                       "docs_url": "https://kofra.app/docs/errors/bucket_not_allowed.md",
                       "request_id": "req_01jd3examplerequestid0000",
                       "retryable": false
@@ -3171,7 +3186,7 @@
                       "status": 403,
                       "code": "bucket_not_allowed",
                       "detail": "The token is limited to other buckets than \"photos\".",
-                      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.",
+                      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit; if the token has no bucket limit, ask an Owner for access to the bucket.",
                       "docs_url": "https://kofra.app/docs/errors/bucket_not_allowed.md",
                       "request_id": "req_01jd3examplerequestid0000",
                       "retryable": false
@@ -3771,7 +3786,7 @@
                       "status": 403,
                       "code": "bucket_not_allowed",
                       "detail": "The token is limited to other buckets than \"photos\".",
-                      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.",
+                      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit; if the token has no bucket limit, ask an Owner for access to the bucket.",
                       "docs_url": "https://kofra.app/docs/errors/bucket_not_allowed.md",
                       "request_id": "req_01jd3examplerequestid0000",
                       "retryable": false
@@ -4678,7 +4693,7 @@
                       "status": 403,
                       "code": "bucket_not_allowed",
                       "detail": "The token is limited to other buckets than \"photos\".",
-                      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.",
+                      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit; if the token has no bucket limit, ask an Owner for access to the bucket.",
                       "docs_url": "https://kofra.app/docs/errors/bucket_not_allowed.md",
                       "request_id": "req_01jd3examplerequestid0000",
                       "retryable": false
@@ -5344,7 +5359,7 @@
                       "status": 403,
                       "code": "bucket_not_allowed",
                       "detail": "The token is limited to other buckets than \"photos\".",
-                      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.",
+                      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit; if the token has no bucket limit, ask an Owner for access to the bucket.",
                       "docs_url": "https://kofra.app/docs/errors/bucket_not_allowed.md",
                       "request_id": "req_01jd3examplerequestid0000",
                       "retryable": false
@@ -8674,7 +8689,7 @@
                       "status": 403,
                       "code": "bucket_not_allowed",
                       "detail": "The token is limited to other buckets than \"photos\".",
-                      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.",
+                      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit; if the token has no bucket limit, ask an Owner for access to the bucket.",
                       "docs_url": "https://kofra.app/docs/errors/bucket_not_allowed.md",
                       "request_id": "req_01jd3examplerequestid0000",
                       "retryable": false
@@ -10251,7 +10266,7 @@
                       "status": 403,
                       "code": "bucket_not_allowed",
                       "detail": "The token is limited to other buckets than \"photos\".",
-                      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.",
+                      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit; if the token has no bucket limit, ask an Owner for access to the bucket.",
                       "docs_url": "https://kofra.app/docs/errors/bucket_not_allowed.md",
                       "request_id": "req_01jd3examplerequestid0000",
                       "retryable": false

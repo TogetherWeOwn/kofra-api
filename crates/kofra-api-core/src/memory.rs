@@ -539,10 +539,25 @@ const S3_ENDPOINT: &str = "https://s3.kofra.io";
 #[derive(Clone)]
 enum Created {
     Bucket(t::Bucket),
+    /// A created key as a replay answers it: with no secret.
     Key(t::AccessKeyCreated),
     KeyUpdated(t::AccessKey),
-    Deletion(t::Deletion),
-    Done,
+}
+
+/// The tenant deletion in force and the last one undone, as storage's tenant
+/// record keeps them (tenancy design §2.5 and §6.4).
+#[derive(Default)]
+struct Deletions {
+    /// The tenant record's sequence number, raised by every deletion and undo.
+    seq: u64,
+    /// The idempotency key of the request that set the deletion in force.
+    key: Option<String>,
+    /// The sequence number of the last undone deletion.
+    last_undone: Option<u64>,
+    /// The key of the last undone deletion (one, not a history: a newer
+    /// undo replaces it). A deletion request with it is a replay of the
+    /// undone request, and is refused.
+    last_undone_key: Option<String>,
 }
 
 struct TenantData {
@@ -553,16 +568,18 @@ struct TenantData {
     events: Vec<t::Event>,
     usage: t::Usage,
     days: Vec<t::UsageDay>,
-    /// Storage-side idempotency: (principal, key) to the request it was
-    /// first used for and its answer. Another principal or another request
-    /// with the same key never gets that answer.
+    /// Storage-side idempotency of opening calls: (principal, key) to the
+    /// request it was first used for and its answer. Another principal or
+    /// another request with the same key never gets that answer. Closing
+    /// calls keep no record: they are idempotent by state.
     created: BTreeMap<StringPair, (String, Created, u64)>,
+    deletions: Deletions,
 }
 
 /// The storage idempotency slot of a call, if it carries a key.
 fn slot(acting: &Acting<'_>) -> Option<StringPair> {
     acting
-        .idempotency_key
+        .storage_key()
         .map(|k| (acting.principal.to_owned(), k.to_owned()))
 }
 
@@ -636,6 +653,13 @@ fn decimal_index(value: &str) -> Option<usize> {
     }
 }
 
+fn same_grants(a: &[t::Grant], b: &[t::Grant]) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .zip(b)
+            .all(|(x, y)| x.bucket == y.bucket && x.access == y.access)
+}
+
 fn grant(input: &t::GrantInput) -> t::Grant {
     t::Grant {
         bucket: input.bucket.clone(),
@@ -659,7 +683,7 @@ impl ListPosition {
         match position.split_at_checked(1) {
             Some(("k", key)) => Ok(Self::Key(key.to_owned())),
             Some(("p", prefix)) if !prefix.is_empty() => Ok(Self::Prefix(prefix.to_owned())),
-            _ => Err(StorageError::Upstream),
+            _ => Err(StorageError::InvalidCursor),
         }
     }
 
@@ -780,6 +804,7 @@ impl MemoryStorage {
                         limits,
                         suspension: None,
                         deletion: None,
+                        deletion_seq: None,
                         created_at: created_at.to_owned(),
                     },
                     buckets: BTreeMap::new(),
@@ -789,8 +814,32 @@ impl MemoryStorage {
                     usage,
                     days: Vec::new(),
                     created: BTreeMap::new(),
+                    deletions: Deletions::default(),
                 }
             });
+    }
+
+    /// Schedules a deletion of an existing tenant that its customer did not
+    /// start (for non-payment): the customer cannot undo it.
+    pub fn schedule_billing_deletion(&self, tenant: &str) {
+        let now = self.env.now_ms();
+        if let Some(data) = self.tenants.borrow_mut().get_mut(tenant) {
+            data.deletions.seq += 1;
+            data.deletions.key = None;
+            data.tenant.deletion = Some(t::Deletion {
+                status: t::DeletionStatus::Scheduled,
+                reason: t::DeletionReason::NonPayment,
+                requested_at: t::Timestamp(timefmt::format(now)),
+                confirm_url: None,
+                confirm_by: None,
+                erase_at: Some(t::Timestamp(timefmt::format(
+                    now.saturating_add(30 * DAY_MS),
+                ))),
+            });
+            data.tenant.deletion_seq = Some(data.deletions.seq);
+            data.tenant.state = t::AccountState::Deleting;
+            data.tenant.access = t::AccountAccess::None;
+        }
     }
 
     /// Sets the account state and access of an existing tenant.
@@ -991,15 +1040,20 @@ impl Storage for MemoryStorage {
 
     async fn delete_tenant(&self, acting: Acting<'_>) -> Result<t::Deletion, StorageError> {
         let mut data = self.write(acting.tenant)?;
-        let request = "delete-tenant".to_owned();
-        if let Some(got) = self.recall(&data, &acting, &request) {
-            return match got? {
-                Created::Deletion(d) => Ok(d),
-                _ => Err(StorageError::Upstream),
+        let key = acting.storage_key();
+        if let Some(deletion) = &data.tenant.deletion {
+            // Idempotent by state: the request that set this deletion gets
+            // it again; any other request is refused.
+            return if key.is_some() && data.deletions.key.as_deref() == key {
+                Ok(deletion.clone())
+            } else {
+                Err(StorageError::DeletionAlreadyRequested)
             };
         }
-        if data.tenant.deletion.is_some() {
-            return Err(StorageError::DeletionAlreadyRequested);
+        if key.is_some() && data.deletions.last_undone_key.as_deref() == key {
+            // The key of a deletion that was undone: a late replay of it
+            // must not delete the tenant again.
+            return Err(StorageError::IdempotencyKeyReused);
         }
         let erase_at = self.env.now_ms().saturating_add(30 * DAY_MS);
         let deletion = t::Deletion {
@@ -1010,29 +1064,36 @@ impl Storage for MemoryStorage {
             confirm_by: None,
             erase_at: Some(t::Timestamp(timefmt::format(erase_at))),
         };
+        data.deletions.seq += 1;
+        data.deletions.key = key.map(str::to_owned);
         data.tenant.deletion = Some(deletion.clone());
+        data.tenant.deletion_seq = Some(data.deletions.seq);
         data.tenant.state = t::AccountState::Deleting;
         data.tenant.access = t::AccountAccess::None;
-        self.remember(
-            &mut data,
-            &acting,
-            request,
-            Created::Deletion(deletion.clone()),
-        );
         Ok(deletion)
     }
 
-    async fn restore_tenant(&self, acting: Acting<'_>) -> Result<(), StorageError> {
+    async fn restore_tenant(
+        &self,
+        acting: Acting<'_>,
+        deletion_seq: u64,
+    ) -> Result<(), StorageError> {
         let mut data = self.write(acting.tenant)?;
-        let request = "restore-tenant".to_owned();
-        if let Some(got) = self.recall(&data, &acting, &request) {
-            return got.map(|_| ());
+        let Some(deletion) = data.tenant.deletion.as_ref() else {
+            // A repeat of an undo that succeeded answers `Ok`; any other
+            // deletion is not this request's to undo.
+            return if data.deletions.last_undone == Some(deletion_seq) {
+                Ok(())
+            } else {
+                Err(StorageError::DeletionNotRequested)
+            };
+        };
+        if data.tenant.deletion_seq != Some(deletion_seq) {
+            return Err(StorageError::DeletionNotRequested);
         }
-        let deletion = data
-            .tenant
-            .deletion
-            .as_ref()
-            .ok_or(StorageError::DeletionNotRequested)?;
+        if deletion.reason != t::DeletionReason::Customer {
+            return Err(StorageError::DeletionNotCancellable);
+        }
         if deletion
             .erase_at
             .as_ref()
@@ -1041,10 +1102,13 @@ impl Storage for MemoryStorage {
         {
             return Err(StorageError::DeletionFinal);
         }
+        data.deletions.last_undone_key = data.deletions.key.take();
+        data.deletions.last_undone = Some(deletion_seq);
+        data.deletions.seq += 1;
         data.tenant.deletion = None;
+        data.tenant.deletion_seq = None;
         data.tenant.state = t::AccountState::Active;
         data.tenant.access = t::AccountAccess::Full;
-        self.remember(&mut data, &acting, request, Created::Done);
         Ok(())
     }
 
@@ -1099,11 +1163,8 @@ impl Storage for MemoryStorage {
     }
 
     async fn delete_bucket(&self, acting: Acting<'_>, name: &str) -> Result<(), StorageError> {
+        // Closing, so idempotent by state: a repeat finds no bucket.
         let mut data = self.write(acting.tenant)?;
-        let request = format!("delete-bucket\n{name}");
-        if let Some(got) = self.recall(&data, &acting, &request) {
-            return got.map(|_| ());
-        }
         let bucket = data.buckets.get(name).ok_or(StorageError::BucketNotFound)?;
         if bucket.object_count > 0 {
             return Err(StorageError::BucketNotEmpty);
@@ -1114,7 +1175,6 @@ impl Storage for MemoryStorage {
             key.grants.retain(|grant| grant.bucket.as_str() != name);
         }
         data.events.push(event);
-        self.remember(&mut data, &acting, request, Created::Done);
         Ok(())
     }
 
@@ -1126,7 +1186,11 @@ impl Storage for MemoryStorage {
     ) -> Result<Page<t::AccessKey>, StorageError> {
         let data = self.read(tenant)?;
         let start = after
-            .map(|id| data.key_index(id).map(|index| index + 1))
+            .map(|id| {
+                data.key_index(id)
+                    .map(|index| index + 1)
+                    .map_err(|_| StorageError::InvalidCursor)
+            })
             .transpose()?
             .unwrap_or_default();
         let keys = data
@@ -1210,7 +1274,12 @@ impl Storage for MemoryStorage {
         let event = self.event("key.created", "key_id", &id)?;
         data.keys.push(key);
         data.events.push(event);
-        self.remember(&mut data, &acting, request, Created::Key(created.clone()));
+        // Storage never keeps a secret: a replay answers the key without it.
+        let replay = t::AccessKeyCreated {
+            secret_access_key: None,
+            ..created.clone()
+        };
+        self.remember(&mut data, &acting, request, Created::Key(replay));
         Ok(created)
     }
 
@@ -1227,14 +1296,17 @@ impl Storage for MemoryStorage {
             name.unwrap_or_default(),
             serde_json::to_string(&grants).unwrap_or_default()
         );
-        if let Some(got) = self.recall(&data, &acting, &request) {
-            return match got? {
-                Created::KeyUpdated(k) => Ok(k),
-                _ => Err(StorageError::Upstream),
-            };
+        // Only a change that adds or widens a grant keeps a record (it opens
+        // something); a rename is idempotent by state. In order: the stored
+        // answer of the same request; then a change the key already has
+        // answers the key and writes nothing; then a reused key is refused.
+        let recalled = self.recall(&data, &acting, &request);
+        if let Some(Ok(Created::KeyUpdated(k))) = recalled {
+            return Ok(k);
         }
         let index = data.active_key_index(id)?;
-        let mut key = data.keys[index].clone();
+        let current = data.keys[index].clone();
+        let mut key = current.clone();
         if let Some(name) = name {
             key.name = Some(name.parse().map_err(|_| StorageError::Upstream)?);
         }
@@ -1255,29 +1327,42 @@ impl Storage for MemoryStorage {
         if key.grants.len() > t::bounded::Grants::MAX {
             return Err(StorageError::GrantLimitReached);
         }
+        let widens = !same_grants(&key.grants, &current.grants);
+        if !widens
+            && key.name.as_ref().map(|n| n.as_str()) == current.name.as_ref().map(|n| n.as_str())
+        {
+            return Ok(current);
+        }
+        match recalled {
+            Some(Err(e)) => return Err(e),
+            Some(Ok(_)) => return Err(StorageError::Upstream),
+            None => {}
+        }
         let event = self.event("key.updated", "key_id", id)?;
         data.keys[index] = key.clone();
         data.events.push(event);
-        self.remember(
-            &mut data,
-            &acting,
-            request,
-            Created::KeyUpdated(key.clone()),
-        );
+        if widens {
+            self.remember(
+                &mut data,
+                &acting,
+                request,
+                Created::KeyUpdated(key.clone()),
+            );
+        }
         Ok(key)
     }
 
     async fn revoke_key(&self, acting: Acting<'_>, id: &str) -> Result<(), StorageError> {
+        // Closing, so idempotent by state: revoking a revoked key answers
+        // `Ok` and writes nothing.
         let mut data = self.write(acting.tenant)?;
-        let request = format!("revoke-key\n{id}");
-        if let Some(got) = self.recall(&data, &acting, &request) {
-            return got.map(|_| ());
+        data.key_index(id)?;
+        if data.revoked.contains(id) {
+            return Ok(());
         }
-        data.active_key_index(id)?;
         let event = self.event("key.revoked", "key_id", id)?;
         data.revoked.insert(id.to_owned());
         data.events.push(event);
-        self.remember(&mut data, &acting, request, Created::Done);
         Ok(())
     }
 
@@ -1306,7 +1391,7 @@ impl Storage for MemoryStorage {
             .collect();
         let start = match after {
             Some(after) => decimal_index(after)
-                .ok_or(StorageError::Upstream)?
+                .ok_or(StorageError::InvalidCursor)?
                 .saturating_add(1),
             None => 0,
         };
@@ -1346,7 +1431,7 @@ impl Storage for MemoryStorage {
             Some(after) => after
                 .strip_prefix('e')
                 .and_then(decimal_index)
-                .ok_or(StorageError::FeedReset)?,
+                .ok_or(StorageError::InvalidCursor)?,
             None => 0,
         };
         if start > data.events.len() {
@@ -1423,6 +1508,7 @@ mod tests {
         tenant: "tenant",
         principal: "usr_a",
         idempotency_key: None,
+        confirmation: None,
     };
 
     fn storage_fixture() -> Memory {
@@ -1753,13 +1839,19 @@ mod tests {
                     .0
                     .is_empty()
             );
-            for invalid in ["e3", "2", "e-1", "e+1", "e", "invalid"] {
+            // A position past the feed's end: the feed was reset.
+            assert_eq!(
+                store.events(ACT.tenant, Some("e3"), 1).await.unwrap_err(),
+                StorageError::FeedReset
+            );
+            // A position that does not parse was not made by this feed.
+            for invalid in ["2", "e-1", "e+1", "e", "invalid"] {
                 assert_eq!(
                     store
                         .events(ACT.tenant, Some(invalid), 1)
                         .await
                         .unwrap_err(),
-                    StorageError::FeedReset
+                    StorageError::InvalidCursor
                 );
             }
         });
@@ -1825,10 +1917,12 @@ mod tests {
                     .unwrap_err(),
                 StorageError::IdempotencyKeyReused
             );
-            assert_eq!(
-                serde_json::to_value(key).unwrap(),
-                serde_json::to_value(replay).unwrap()
-            );
+            // The replay is the first answer without the secret: storage
+            // never keeps one.
+            assert_eq!(replay.secret_access_key, None);
+            let mut first = serde_json::to_value(key).unwrap();
+            first["secret_access_key"] = serde_json::Value::Null;
+            assert_eq!(first, serde_json::to_value(replay).unwrap());
             assert_eq!(store.key_count(ACT.tenant), 1);
             assert_eq!(store.events_of(ACT.tenant).len(), 3);
         });

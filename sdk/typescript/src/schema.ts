@@ -1293,7 +1293,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `deletion_final`, `deletion_not_requested`, `idempotency_key_in_use` */
+            /** @description `deletion_final`, `deletion_not_cancellable`, `deletion_not_requested`, `idempotency_key_in_use` */
             409: {
                 headers: {
                     "Kofra-Request-Id": components["headers"]["KofraRequestId"];

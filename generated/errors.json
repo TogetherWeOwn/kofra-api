@@ -85,8 +85,8 @@
       "status": 403,
       "title": "Token is limited to other buckets",
       "retryable": false,
-      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit.",
-      "meaning": "The API token is limited to some buckets (`buckets`), and the request names a bucket outside that list. When a token or an access key is being created, a bucket outside the creating token's list is refused the same way.",
+      "hint": "Use a token whose `buckets` list includes this bucket, or a token without a bucket limit; if the token has no bucket limit, ask an Owner for access to the bucket.",
+      "meaning": "The API token is limited to some buckets (`buckets`), and the request names a bucket outside that list. When a token or an access key is being created, a bucket outside the creating token's list is refused the same way. Storage refuses the same way a grant wider than the acting member's own access, or an object request on a bucket the member has no access to.",
       "type": "https://kofra.app/docs/errors/bucket_not_allowed",
       "docs_url": "https://kofra.app/docs/errors/bucket_not_allowed.md"
     },
@@ -269,6 +269,16 @@
       "meaning": "The deletion has passed its last cancellation time. Deleted data is cryptographically erased (its encryption key is destroyed), so it can never be read again.",
       "type": "https://kofra.app/docs/errors/deletion_final",
       "docs_url": "https://kofra.app/docs/errors/deletion_final.md"
+    },
+    {
+      "code": "deletion_not_cancellable",
+      "status": 409,
+      "title": "Deletion cannot be cancelled here",
+      "retryable": false,
+      "hint": "Contact support with the `request_id` to resolve what started the deletion.",
+      "meaning": "The deletion was not started by a member of the account (for example, it was started for non-payment), so it cannot be cancelled through the API or the console.",
+      "type": "https://kofra.app/docs/errors/deletion_not_cancellable",
+      "docs_url": "https://kofra.app/docs/errors/deletion_not_cancellable.md"
     },
     {
       "code": "feed_reset",

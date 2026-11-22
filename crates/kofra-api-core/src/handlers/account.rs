@@ -116,8 +116,13 @@ pub(super) async fn cancel_deletion<P: Ports>(ctx: &mut Ctx<'_, P>) -> Result<Re
     let now_tenant = if dir.drop_deletion_request(&ws, ctx.now_ms).await? {
         t
     } else if t.deletion.is_some() {
+        // The undo names the deletion it undoes, as the tenant read showed
+        // it: a late retry can never cancel a newer deletion.
+        let seq = t
+            .deletion_seq
+            .ok_or_else(|| Problem::new("internal_error"))?;
         let storage = ctx.api.ports.storage();
-        storage.restore_tenant(ctx.acting()?).await?;
+        storage.restore_tenant(ctx.acting()?, seq).await?;
         storage.tenant(ctx.tenant_id()?).await?
     } else {
         return Err(Problem::new("deletion_not_requested"));
