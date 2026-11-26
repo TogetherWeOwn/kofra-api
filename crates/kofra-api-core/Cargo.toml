@@ -7,7 +7,7 @@ publish.workspace = true
 description = "The Kofra API request pipeline and handlers, independent of the runtime: authentication, scopes and roles, problem details, request IDs, idempotency, pagination, rate limits and the audit log."
 
 [dependencies]
-base64 = "0.22"
+base64 = "0.23"
 hmac = "0.12"
 kofra-api-types = { path = "../kofra-api-types" }
 serde = { version = "1", features = ["derive"] }
